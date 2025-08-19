@@ -9,6 +9,10 @@ export default function Ingest() {
 
   const submit = async () => {
     setStatus('');
+    if (!file && !text.trim()) {
+      setStatus('Please provide a PDF file or some text to upload.');
+      return;
+    }
     const form = new FormData();
     if (file) form.append('file', file);
     if (title) form.append('title', title);
@@ -32,6 +36,7 @@ export default function Ingest() {
   return (
     <div className="container">
       <h1>Upload Document</h1>
+      <p className="hint">Provide a PDF or paste text below to add it to the knowledge base.</p>
       <input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
       <input
         placeholder="Title (optional)"
@@ -44,7 +49,7 @@ export default function Ingest() {
         onChange={e => setText(e.target.value)}
       />
       <button onClick={submit}>Upload</button>
-      {status && <p>{status}</p>}
+      {status && <p className={status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
       <Link href="/"><button>Back</button></Link>
       <style jsx>{`
         .container {
@@ -53,6 +58,11 @@ export default function Ingest() {
           align-items: center;
           gap: 0.5rem;
           padding: 2rem;
+        }
+        .hint {
+          margin-bottom: 0.5rem;
+          color: #555;
+          text-align: center;
         }
         input, textarea {
           width: 100%;
@@ -64,6 +74,12 @@ export default function Ingest() {
         }
         button {
           padding: 0.5rem 1rem;
+        }
+        .error {
+          color: red;
+        }
+        .success {
+          color: green;
         }
       `}</style>
     </div>

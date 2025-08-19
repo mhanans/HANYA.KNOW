@@ -4,6 +4,7 @@ export default function Home() {
   return (
     <div className="container">
       <h1>HANYA.KNOW</h1>
+      <p className="tagline">Upload your documents and ask questions about them.</p>
       <div className="actions">
         <Link href="/ingest"><button>Upload Document</button></Link>
         <Link href="/chat"><button>Ask the Docs</button></Link>
@@ -16,6 +17,10 @@ export default function Home() {
           justify-content: center;
           height: 100vh;
           gap: 1rem;
+        }
+        .tagline {
+          text-align: center;
+          color: #555;
         }
         .actions {
           display: flex;
