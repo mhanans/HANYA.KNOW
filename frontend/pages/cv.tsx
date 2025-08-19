@@ -13,6 +13,7 @@ export default function Cv() {
   const [details, setDetails] = useState('');
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(false);
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
   const load = async () => {
@@ -32,6 +33,8 @@ export default function Cv() {
       setStatus('Position and details are required.');
       return;
     }
+    setLoading(true);
+    setStatus('Generating...');
     try {
       const res = await fetch(`${base}/api/recommendations`, {
         method: 'POST',
@@ -52,14 +55,34 @@ export default function Cv() {
       setPosition('');
       setDetails('');
       await load();
+      setStatus('');
     } catch (err) {
       setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   const retry = async (id: number) => {
-    await fetch(`${base}/api/recommendations/${id}/retry`, { method: 'POST' });
-    await load();
+    setStatus('Retrying...');
+    try {
+      const res = await fetch(`${base}/api/recommendations/${id}/retry`, { method: 'POST' });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
+        } catch {
+          /* ignore */
+        }
+        setStatus(`Request failed: ${msg}`);
+        return;
+      }
+      await load();
+      setStatus('');
+    } catch (err) {
+      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   return (
@@ -74,7 +97,7 @@ export default function Cv() {
         <textarea value={details} onChange={e => setDetails(e.target.value)} />
       </div>
       <div className="actions">
-        <button onClick={generate}>Generate</button>
+        <button onClick={generate} disabled={loading}>{loading ? 'Generating...' : 'Generate'}</button>
       </div>
       {status && <p className="error">{status}</p>}
 
