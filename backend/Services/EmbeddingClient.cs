@@ -25,6 +25,8 @@ public class EmbeddingClient
         {
             _logger.LogInformation("Requesting embedding of {Length} characters", text.Length);
 
+            var jsonOpts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
             if (_options.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
             {
                 var payload = new { model = _options.Model, prompt = text };
@@ -32,13 +34,12 @@ public class EmbeddingClient
                 var response = await _http.PostAsJsonAsync("/api/embeddings", payload);
                 response.EnsureSuccessStatusCode();
                 var jsonBody = await response.Content.ReadAsStringAsync();
-                var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var body = JsonSerializer.Deserialize<OllamaEmbedResponse>(jsonBody, opts);
+                var body = JsonSerializer.Deserialize<OllamaEmbedResponse>(jsonBody, jsonOpts);
                 var vec = body?.embedding;
                 if (vec == null || vec.Length == 0)
                 {
-                    var snippet = jsonBody.Length > 200 ? jsonBody.Substring(0, 200) + "..." : jsonBody;
-                    _logger.LogWarning("Ollama returned empty embedding: {Snippet}", snippet);
+                    var responseSnippet = jsonBody.Length > 200 ? jsonBody.Substring(0, 200) + "..." : jsonBody;
+                    _logger.LogWarning("Ollama returned empty embedding: {Snippet}", responseSnippet);
                     throw new InvalidOperationException("Embedding service returned empty vector.");
                 }
                 _logger.LogInformation("Received embedding with {Dim} dimensions", vec.Length);
@@ -51,10 +52,9 @@ public class EmbeddingClient
             generic.EnsureSuccessStatusCode();
 
             var json = await generic.Content.ReadAsStringAsync();
-            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
             // try plain float[]
-            var array = JsonSerializer.Deserialize<float[]>(json, opts);
+            var array = JsonSerializer.Deserialize<float[]>(json, jsonOpts);
             if (array != null && array.Length > 0)
             {
                 _logger.LogInformation("Received embedding with {Dim} dimensions", array.Length);
@@ -62,7 +62,7 @@ public class EmbeddingClient
             }
 
             // try { "embedding": [...] }
-            var wrapper = JsonSerializer.Deserialize<EmbedWrapper>(json, opts);
+            var wrapper = JsonSerializer.Deserialize<EmbedWrapper>(json, jsonOpts);
             if (wrapper?.embedding != null && wrapper.embedding.Length > 0)
             {
                 _logger.LogInformation("Received embedding with {Dim} dimensions", wrapper.embedding.Length);
@@ -70,7 +70,7 @@ public class EmbeddingClient
             }
 
             // try OpenAI style { "data": [ { "embedding": [...] } ] }
-            var openAi = JsonSerializer.Deserialize<OpenAiResponse>(json, opts);
+            var openAi = JsonSerializer.Deserialize<OpenAiResponse>(json, jsonOpts);
             var first = openAi?.data?.FirstOrDefault();
             if (first?.embedding != null && first.embedding.Length > 0)
             {
@@ -87,9 +87,9 @@ public class EmbeddingClient
                 return fallback;
             }
 
-            var snippet = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
-            _logger.LogWarning("Embedding service returned empty or unrecognized payload: {Snippet}", snippet);
-            throw new InvalidOperationException($"Embedding service returned empty or unrecognized payload: {snippet}");
+            var payloadSnippet = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
+            _logger.LogWarning("Embedding service returned empty or unrecognized payload: {Snippet}", payloadSnippet);
+            throw new InvalidOperationException($"Embedding service returned empty or unrecognized payload: {payloadSnippet}");
         }
         catch (HttpRequestException ex)
         {
