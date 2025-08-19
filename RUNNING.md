@@ -3,7 +3,7 @@
 This guide walks through configuring and running the HANYA.KNOW MVP.
 
 ## Prerequisites
-- [.NET 7 SDK](https://dotnet.microsoft.com/)
+- [.NET 9 SDK (v9.0.304)](https://dotnet.microsoft.com/)
 - [Node.js](https://nodejs.org/) and npm
 - PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension
 - An HTTP embedding service that returns `float[]` vectors
