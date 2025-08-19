@@ -1,0 +1,12 @@
+-- PostgreSQL schema for HANYA.KNOW
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS documents (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT NOT NULL,
+    embedding vector(1536) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_embedding
+    ON documents USING ivfflat (embedding vector_l2_ops);
