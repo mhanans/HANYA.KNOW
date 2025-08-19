@@ -9,6 +9,14 @@ interface Source {
   score: number;
 }
 
+interface Source {
+  index: number;
+  file: string;
+  page?: number;
+  content: string;
+  score: number;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
