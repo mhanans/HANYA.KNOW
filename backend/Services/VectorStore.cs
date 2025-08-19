@@ -103,4 +103,48 @@ public class VectorStore
         _logger.LogInformation("Search returned {Count} results", results.Count);
         return results;
     }
+
+    public async Task<IReadOnlyList<DocumentInfo>> ListDocumentsAsync()
+    {
+        const string sql = "SELECT source, MIN(category_id) AS category_id, COUNT(*) AS pages FROM documents GROUP BY source ORDER BY source";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var docs = new List<DocumentInfo>();
+        while (await reader.ReadAsync())
+        {
+            var source = reader.GetString(0);
+            int? cat = reader.IsDBNull(1) ? null : reader.GetInt32(1);
+            var pages = reader.GetInt32(2);
+            docs.Add(new DocumentInfo(source, cat, pages));
+        }
+        return docs;
+    }
+
+    public async Task UpdateDocumentCategoryAsync(string source, int? categoryId)
+    {
+        const string sql = "UPDATE documents SET category_id = @cat WHERE source = @src";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("src", source);
+        if (categoryId.HasValue)
+            cmd.Parameters.AddWithValue("cat", categoryId.Value);
+        else
+            cmd.Parameters.AddWithValue("cat", DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task DeleteDocumentAsync(string source)
+    {
+        const string sql = "DELETE FROM documents WHERE source = @src";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("src", source);
+        await cmd.ExecuteNonQueryAsync();
+    }
 }
+
+public record DocumentInfo(string Source, int? CategoryId, int Pages);

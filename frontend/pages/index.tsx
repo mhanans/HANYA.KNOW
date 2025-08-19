@@ -6,7 +6,7 @@ export default function Home() {
       <h1>HANYA.KNOW</h1>
       <p className="tagline">Upload your documents and ask questions about them.</p>
       <div className="actions">
-        <Link href="/ingest"><button>Upload Document</button></Link>
+        <Link href="/documents"><button>Manage Documents</button></Link>
         <Link href="/chat"><button>Ask the Docs</button></Link>
         <Link href="/categories"><button>Manage Categories</button></Link>
       </div>

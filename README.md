@@ -12,7 +12,7 @@ MVP knowledge base with retrieval augmented generation.
   - full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
 ## Frontend
-- Next.js client with pages for ingesting PDFs and chatting.
+- Next.js client with pages for managing documents and chatting.
 - Chat answers include numbered citations with relevance scores.
 - Documents can be tagged with categories for targeted queries; manage categories on the frontend and filter questions by category.
 

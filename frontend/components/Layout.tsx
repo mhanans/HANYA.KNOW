@@ -4,9 +4,9 @@ import { ReactNode } from 'react';
 
 const navItems = [
   { href: '/', label: 'Home' },
-  { href: '/ingest', label: 'Upload' },
+  { href: '/documents', label: 'Manage Documents' },
   { href: '/chat', label: 'Chat' },
-  { href: '/categories', label: 'Categories' }
+  { href: '/categories', label: 'Manage Categories' }
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {

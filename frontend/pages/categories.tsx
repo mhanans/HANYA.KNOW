@@ -71,40 +71,39 @@ export default function Categories() {
 
   return (
     <div className="card categories-card">
-      <h1>Categories</h1>
+      <h1>Manage Categories</h1>
       <div className="new-cat">
         <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" />
         <button onClick={create}>Add</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {categories.map(c => (
-            <tr key={c.id}>
-              <td>
-                <input value={c.name} onChange={e => setCategories(prev => prev.map(p => p.id === c.id ? { ...p, name: e.target.value } : p))} />
-              </td>
-              <td>
-                <button onClick={() => update(c.id, c.name)}>Save</button>
-                <button onClick={() => remove(c.id)}>Delete</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="cat-grid head">
+        <div>Name</div>
+        <div>Actions</div>
+      </div>
+      {categories.map(c => (
+        <div className="cat-grid row" key={c.id}>
+          <input
+            value={c.name}
+            onChange={e =>
+              setCategories(prev =>
+                prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
+              )
+            }
+          />
+          <div className="actions">
+            <button onClick={() => update(c.id, c.name)}>Save</button>
+            <button onClick={() => remove(c.id)}>Delete</button>
+          </div>
+        </div>
+      ))}
       {error && <p className="error">{error}</p>}
       <style jsx>{`
         .categories-card { max-width: none; }
         .new-cat { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #ddd; padding: 0.5rem; }
-        th { background: #e0e7ff; text-align: left; }
-        td button { margin-right: 0.5rem; }
+        .cat-grid { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.5rem; }
+        .head { background: #e0e7ff; font-weight: 600; padding: 0.5rem; }
+        .row { border-top: 1px solid #ddd; padding: 0.5rem 0; }
+        .row .actions button { margin-right: 0.5rem; }
         .error { color: #e00; margin-top: 0.5rem; }
       `}</style>
     </div>
