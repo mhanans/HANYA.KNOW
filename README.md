@@ -21,3 +21,11 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `Embedding: { BaseUrl, Model, Provider }`
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `NEXT_PUBLIC_API_BASE_URL` for frontend (defaults to `http://localhost:5000` if unset)
+
+To verify your embedding service responds correctly, send a sample request (adjust the URL and model for your setup):
+
+```bash
+curl -X POST http://localhost:11434/embed -H 'Content-Type: application/json' \
+     -d '{"model":"nomic-embed-text","input":"hello"}'
+```
+The response must contain a non-empty array of numbers. If the payload differs, the server will surface the raw snippet in the error message.

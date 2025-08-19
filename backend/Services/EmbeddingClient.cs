@@ -53,7 +53,14 @@ public class EmbeddingClient
             if (first?.embedding != null && first.embedding.Length > 0)
                 return first.embedding;
 
-            throw new InvalidOperationException("Embedding service returned empty or unrecognized payload.");
+            // fallback: scan JSON for first numeric array
+            using var doc = JsonDocument.Parse(json);
+            var fallback = FindVector(doc.RootElement);
+            if (fallback != null && fallback.Length > 0)
+                return fallback;
+
+            var snippet = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
+            throw new InvalidOperationException($"Embedding service returned empty or unrecognized payload: {snippet}");
         }
         catch (HttpRequestException ex)
         {
@@ -65,4 +72,28 @@ public class EmbeddingClient
     private record EmbedWrapper(float[] embedding);
     private record OpenAiResponse(DataItem[] data);
     private record DataItem(float[] embedding);
+
+    private static float[]? FindVector(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            var numbers = element.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.Number)
+                .Select(e => e.GetSingle())
+                .ToArray();
+            return numbers.Length == element.GetArrayLength() ? numbers : null;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in element.EnumerateObject())
+            {
+                var found = FindVector(prop.Value);
+                if (found != null)
+                    return found;
+            }
+        }
+
+        return null;
+    }
 }
