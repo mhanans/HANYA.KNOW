@@ -3,6 +3,7 @@
 MVP knowledge base with retrieval augmented generation.
 
 ## Backend
+
 - ASP.NET Core Web API (requires .NET 7)
 - PostgreSQL with pgvector for embeddings (see `schema.sql`)
 - Endpoints:
@@ -17,4 +18,4 @@ MVP knowledge base with retrieval augmented generation.
 - `ConnectionStrings:Postgres`
 - `Embedding: { BaseUrl, Model }`
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
-- `NEXT_PUBLIC_API_BASE_URL` for frontend
+- `NEXT_PUBLIC_API_BASE_URL`
