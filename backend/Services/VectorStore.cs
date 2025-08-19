@@ -33,21 +33,27 @@ public class VectorStore
         }
     }
 
-    public async Task<List<(string Content, double Score)>> SearchAsync(string query, int topK)
+    public async Task<List<(string Title, string Content, double Score)>> SearchAsync(string query, int topK)
     {
         var embedding = await _embedding.EmbedAsync(query);
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
-        var sql = "SELECT content, 1 - (embedding <=> @embedding) AS score FROM documents ORDER BY embedding <=> @embedding LIMIT @k";
+        var sql = @"SELECT title, content,
+                0.5 * (1 - (embedding <=> @embedding)) +
+                0.5 * ts_rank_cd(content_tsv, plainto_tsquery(@q)) AS score
+            FROM documents
+            ORDER BY score DESC
+            LIMIT @k";
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("embedding", embedding);
         cmd.Parameters["embedding"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Real;
+        cmd.Parameters.AddWithValue("q", query);
         cmd.Parameters.AddWithValue("k", topK);
         await using var reader = await cmd.ExecuteReaderAsync();
-        var results = new List<(string, double)>();
+        var results = new List<(string, string, double)>();
         while (await reader.ReadAsync())
         {
-            results.Add((reader.GetString(0), reader.GetDouble(1)));
+            results.Add((reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
         }
         return results;
     }
