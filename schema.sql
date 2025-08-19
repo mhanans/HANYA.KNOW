@@ -24,3 +24,17 @@ CREATE INDEX IF NOT EXISTS idx_documents_content_tsv
 
 CREATE INDEX IF NOT EXISTS idx_documents_category
     ON documents(category_id);
+
+CREATE TABLE IF NOT EXISTS chats (
+    id SERIAL PRIMARY KEY,
+    question TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cv_recommendations (
+    id SERIAL PRIMARY KEY,
+    position TEXT NOT NULL,
+    details TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);

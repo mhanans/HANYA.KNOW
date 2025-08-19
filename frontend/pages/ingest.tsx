@@ -97,7 +97,6 @@ export default function Ingest() {
           max-width: 400px;
         }
         .hint {
-          color: #666;
           text-align: center;
         }
         textarea {
@@ -106,12 +105,6 @@ export default function Ingest() {
         }
         select {
           width: 100%;
-        }
-        .error {
-          color: #e00;
-        }
-        .success {
-          color: #008000;
         }
       `}</style>
     </div>

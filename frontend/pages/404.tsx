@@ -6,7 +6,7 @@ export default function NotFound() {
       <div className="card notfound-card">
         <h1>Page Not Found</h1>
         <p>Sorry, we couldn't find the page you're looking for.</p>
-        <Link href="/"><button>Go Home</button></Link>
+        <Link href="/" className="btn">Go Home</Link>
       </div>
       <style jsx>{`
         .notfound-card {
