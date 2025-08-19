@@ -16,8 +16,18 @@ public class EmbeddingClient
 
     public async Task<float[]> EmbedAsync(string text)
     {
-        var response = await _http.PostAsJsonAsync("/embed", new { model = _options.Model, input = text });
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<float[]>())!;
+        if (_options.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            var response = await _http.PostAsJsonAsync("/api/embed", new { model = _options.Model, input = text });
+            response.EnsureSuccessStatusCode();
+            var payload = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>();
+            return payload!.embedding;
+        }
+
+        var generic = await _http.PostAsJsonAsync("/embed", new { model = _options.Model, input = text });
+        generic.EnsureSuccessStatusCode();
+        return (await generic.Content.ReadFromJsonAsync<float[]>())!;
     }
+
+    private record OllamaEmbedResponse(float[] embedding);
 }

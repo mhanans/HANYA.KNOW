@@ -14,7 +14,10 @@ MVP knowledge base with retrieval augmented generation.
 - Next.js client with pages for ingesting PDFs and chatting.
 
 ## Configuration
+Default embedding uses a local Ollama instance with `nomic-embed-text`.
+
 - `ConnectionStrings:Postgres`
-- `Embedding: { BaseUrl, Model }`
+- `Embedding: { BaseUrl, Model, Provider }`
+
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `NEXT_PUBLIC_API_BASE_URL` for frontend

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { useState } from 'react';
 
 export default function Ingest() {
@@ -11,18 +12,50 @@ export default function Ingest() {
     if (file) form.append('file', file);
     if (title) form.append('title', title);
     if (text) form.append('text', text);
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/ingest`, { method: 'POST', body: form });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/ingest`, {
+      method: 'POST',
+      body: form
+    });
     setStatus(res.ok ? 'uploaded' : 'error');
   };
 
   return (
-    <div>
-      <h1>Ingest</h1>
+    <div className="container">
+      <h1>Upload Document</h1>
       <input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
-      <input placeholder="title" value={title} onChange={e => setTitle(e.target.value)} />
-      <textarea placeholder="text" value={text} onChange={e => setText(e.target.value)} />
+      <input
+        placeholder="Title (optional)"
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+      />
+      <textarea
+        placeholder="Fallback text"
+        value={text}
+        onChange={e => setText(e.target.value)}
+      />
       <button onClick={submit}>Upload</button>
       <p>{status}</p>
+      <Link href="/"><button>Back</button></Link>
+      <style jsx>{`
+        .container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 2rem;
+        }
+        input, textarea {
+          width: 100%;
+          max-width: 400px;
+          padding: 0.5rem;
+        }
+        textarea {
+          min-height: 100px;
+        }
+        button {
+          padding: 0.5rem 1rem;
+        }
+      `}</style>
     </div>
   );
 }

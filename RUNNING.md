@@ -6,7 +6,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
 - [.NET 9 SDK (v9.0.304)](https://dotnet.microsoft.com/)
 - [Node.js](https://nodejs.org/) and npm
 - PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension
-- An HTTP embedding service that returns `float[]` vectors
+- [Ollama](https://ollama.ai/) running locally (`ollama serve`) with the `nomic-embed-text` model (`ollama pull nomic-embed-text`)
 
 ## Database Setup
 1. Start PostgreSQL and create a database for the app.
@@ -26,8 +26,9 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```
 2. Configure settings in `appsettings.json` or via environment variables:
    - `ConnectionStrings:Postgres` – PostgreSQL connection string
-   - `Embedding:BaseUrl` – URL of embedding service
-   - `Embedding:Model` – model name to request from the embedding service
+   - `Embedding:BaseUrl` – defaults to `http://localhost:11434`
+   - `Embedding:Model` – defaults to `nomic-embed-text`
+   - `Embedding:Provider` – defaults to `ollama`
    - `Llm:Provider` – `openai` or `gemini`
    - `Llm:ApiKey` – API key for the chosen provider
    - `Llm:Model` – model name such as `gpt-3.5-turbo` or `gemini-pro`
