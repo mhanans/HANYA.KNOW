@@ -43,7 +43,12 @@ public class RecommendationController : ControllerBase
         {
             return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
-        var rec = await _recStore.AddAsync(request.Position, request.Details, summary);
+
+        string summaryJson = string.Empty;
+        try { summaryJson = await SummarizeAsync(summary); }
+        catch { /* ignore summarization failures */ }
+
+        var rec = await _recStore.AddAsync(request.Position, request.Details, summary, summaryJson);
         return rec;
     }
 
@@ -62,7 +67,32 @@ public class RecommendationController : ControllerBase
         {
             return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
-        var updated = await _recStore.UpdateSummaryAsync(id, summary);
+
+        string summaryJson = string.Empty;
+        try { summaryJson = await SummarizeAsync(summary); }
+        catch { /* ignore */ }
+
+        var updated = await _recStore.UpdateAsync(id, summary, summaryJson);
+        return updated;
+    }
+
+    [HttpPost("{id}/retry-summary")]
+    public async Task<ActionResult<CvRecommendation>> RetrySummary(int id)
+    {
+        var existing = await _recStore.GetAsync(id);
+        if (existing == null) return NotFound();
+
+        string summaryJson;
+        try
+        {
+            summaryJson = await SummarizeAsync(existing.Summary);
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Summary failed");
+        }
+
+        var updated = await _recStore.UpdateSummaryJsonAsync(id, summaryJson);
         return updated;
     }
 
@@ -78,7 +108,6 @@ public class RecommendationController : ControllerBase
             .AppendLine($"Details: {details}")
             .AppendLine("CVs:")
             .AppendLine(context)
-            .AppendLine("Return only valid JSON array with three objects: [{\"name\":\"...\",\"reason\":\"...\"},...] with no extra text.")
             .ToString();
         var raw = await _llm.GenerateAsync(prompt);
         try
@@ -92,6 +121,20 @@ public class RecommendationController : ControllerBase
         {
             throw new InvalidOperationException("Gemini response missing structured candidates", ex);
         }
+    }
+
+    private async Task<string> SummarizeAsync(string raw)
+    {
+        var prompt = new StringBuilder()
+            .AppendLine("Convert the following recommendation into a JSON array of three objects with 'name' and 'reason' fields.")
+            .AppendLine("If not possible, return an empty array.")
+            .AppendLine(raw)
+            .ToString();
+        var json = await _llm.GenerateAsync(prompt);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("LLM summary was not a JSON array.");
+        return JsonSerializer.Serialize(doc.RootElement);
     }
 }
 

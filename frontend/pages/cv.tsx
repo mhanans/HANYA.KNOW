@@ -5,6 +5,7 @@ interface Recommendation {
   position: string;
   details: string;
   summary: string;
+  summaryJson: string;
   createdAt: string;
 }
 
@@ -91,6 +92,28 @@ export default function Cv() {
     }
   };
 
+  const retrySummary = async (id: number) => {
+    setStatus('Retrying summary...');
+    try {
+      const res = await fetch(`${base}/api/recommendations/${id}/retry-summary`, { method: 'POST' });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
+        } catch {
+          /* ignore */
+        }
+        setStatus(`Request failed: ${msg}`);
+        return;
+      }
+      await load();
+      setStatus('');
+    } catch (err) {
+      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   return (
     <div className="card cv-card">
       <h1>CV Recommendations</h1>
@@ -114,42 +137,54 @@ export default function Cv() {
         <div>Generated</div>
         <div>Actions</div>
       </div>
-      {recs.map(r => {
-        const show = viewId === r.id;
-        let candidates: Candidate[] = [];
-        if (show) {
-          try { candidates = JSON.parse(r.summary); } catch { /* ignore */ }
-        }
-        return (
-          <div key={r.id}>
-            <div className="rec-grid row">
-              <div className="name">{r.position}</div>
-              <div className="detail">{r.details}</div>
-              <div>{new Date(r.createdAt).toLocaleString()}</div>
-              <div className="actions">
-                <button onClick={() => setViewId(show ? null : r.id)}>{show ? 'Hide' : 'View Result'}</button>
-                <button onClick={() => retry(r.id)}>Retry</button>
-              </div>
-            </div>
-            {show && (
-              <div className="cand-wrapper">
-                <div className="cand-grid head">
-                  <div>No</div>
-                  <div>Candidate Name</div>
-                  <div>Reason</div>
-                </div>
-                {candidates.map((c, i) => (
-                  <div className="cand-grid row" key={i}>
-                    <div>{i + 1}</div>
-                    <div>{c.name}</div>
-                    <div className="reason">{c.reason}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+      {recs.map(r => (
+        <div key={r.id} className="rec-grid row">
+          <div className="name">{r.position}</div>
+          <div className="detail">{r.details}</div>
+          <div>{new Date(r.createdAt).toLocaleString()}</div>
+          <div className="actions">
+            <button onClick={() => setViewId(r.id)}>View Result</button>
+            <button onClick={() => retry(r.id)}>Retry</button>
+            <button onClick={() => retrySummary(r.id)}>Retry Summary</button>
           </div>
         );
       })}
+
+      {viewId !== null && (() => {
+        const rec = recs.find(r => r.id === viewId);
+        let candidates: Candidate[] = [];
+        if (rec?.summaryJson) {
+          try { candidates = JSON.parse(rec.summaryJson); } catch { /* ignore */ }
+        }
+        return (
+          <div className="modal">
+            <div className="modal-content">
+              <h3>Top Candidates</h3>
+              {candidates.length ? (
+                <div className="cand-wrapper">
+                  <div className="cand-grid head">
+                    <div>No</div>
+                    <div>Candidate Name</div>
+                    <div>Reason</div>
+                  </div>
+                  {candidates.map((c, i) => (
+                    <div className="cand-grid row" key={i}>
+                      <div>{i + 1}</div>
+                      <div>{c.name}</div>
+                      <div className="reason">{c.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p>No structured summary available.</p>
+              )}
+              <div className="actions">
+                <button onClick={() => setViewId(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <style jsx>{`
         .cv-grid {
@@ -188,6 +223,23 @@ export default function Cv() {
         }
         .cand-grid.row {
           border-top: 1px solid #ddd;
+        }
+        .modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .modal-content {
+          background: #fff;
+          padding: 1rem;
+          max-width: 500px;
+          width: 100%;
         }
         @media (max-width: 600px) {
           .cv-grid {
