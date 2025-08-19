@@ -18,7 +18,7 @@ MVP knowledge base with retrieval augmented generation.
 Default embedding uses a local Ollama instance with `nomic-embed-text`.
 
 - `ConnectionStrings:Postgres`
-- `Embedding: { BaseUrl, Model, Provider }`
+- `Embedding: { BaseUrl, Model, Provider, Dimensions }`
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `NEXT_PUBLIC_API_BASE_URL` for frontend (defaults to `http://localhost:5000` if unset)
 
@@ -29,3 +29,5 @@ curl -X POST http://localhost:11434/embed -H 'Content-Type: application/json' \
      -d '{"model":"nomic-embed-text","input":"hello"}'
 ```
 The response must contain a non-empty array of numbers. If the payload differs, the server will surface the raw snippet in the error message.
+
+`Dimensions` defaults to 768 and must match the `vector(<dim>)` in `schema.sql`.

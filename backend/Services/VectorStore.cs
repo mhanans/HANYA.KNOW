@@ -10,10 +10,12 @@ public class VectorStore
     private readonly string _connectionString;
     private readonly EmbeddingClient _embedding;
     private readonly ILogger<VectorStore> _logger;
+    private readonly int _expectedDim;
 
-    public VectorStore(IOptions<PostgresOptions> dbOptions, EmbeddingClient embedding, ILogger<VectorStore> logger)
+    public VectorStore(IOptions<PostgresOptions> dbOptions, IOptions<EmbeddingOptions> embedOptions, EmbeddingClient embedding, ILogger<VectorStore> logger)
     {
         _connectionString = dbOptions.Value.Postgres ?? string.Empty;
+        _expectedDim = embedOptions.Value.Dimensions;
         _embedding = embedding;
         _logger = logger;
     }
@@ -31,6 +33,11 @@ public class VectorStore
             {
                 _logger.LogWarning("Embedding returned null/empty vector for chunk of {Title}", title);
                 throw new InvalidOperationException("Embedding service returned null or empty vector.");
+            }
+            if (embedding.Length != _expectedDim)
+            {
+                _logger.LogWarning("Embedding dimension {Actual} does not match expected {Expected} for {Title}", embedding.Length, _expectedDim, title);
+                throw new InvalidOperationException($"Embedding dimension mismatch: expected {_expectedDim} but got {embedding.Length}.");
             }
 
             var sql = "INSERT INTO documents(title, content, embedding) VALUES (@title, @content, @embedding)";
@@ -52,6 +59,11 @@ public class VectorStore
         {
             _logger.LogWarning("Embedding returned null/empty vector for search query");
             throw new InvalidOperationException("Embedding service returned null or empty vector.");
+        }
+        if (embedding.Length != _expectedDim)
+        {
+            _logger.LogWarning("Embedding dimension {Actual} does not match expected {Expected} for search query", embedding.Length, _expectedDim);
+            throw new InvalidOperationException($"Embedding dimension mismatch: expected {_expectedDim} but got {embedding.Length}.");
         }
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();

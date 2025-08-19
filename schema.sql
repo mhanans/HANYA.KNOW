@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS documents (
     title TEXT,
     content TEXT NOT NULL,
     content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
-    embedding vector(1536) NOT NULL
+    embedding vector(768) NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_embedding
