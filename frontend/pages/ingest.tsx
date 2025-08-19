@@ -8,15 +8,25 @@ export default function Ingest() {
   const [status, setStatus] = useState('');
 
   const submit = async () => {
+    setStatus('');
     const form = new FormData();
     if (file) form.append('file', file);
     if (title) form.append('title', title);
     if (text) form.append('text', text);
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/ingest`, {
-      method: 'POST',
-      body: form
-    });
-    setStatus(res.ok ? 'uploaded' : 'error');
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/ingest`, {
+        method: 'POST',
+        body: form
+      });
+      if (res.ok) {
+        setStatus('Upload successful');
+      } else {
+        const msg = await res.text();
+        setStatus(`Error: ${msg}`);
+      }
+    } catch (err) {
+      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   return (
@@ -34,7 +44,7 @@ export default function Ingest() {
         onChange={e => setText(e.target.value)}
       />
       <button onClick={submit}>Upload</button>
-      <p>{status}</p>
+      {status && <p>{status}</p>}
       <Link href="/"><button>Back</button></Link>
       <style jsx>{`
         .container {

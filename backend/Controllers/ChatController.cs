@@ -20,6 +20,12 @@ public class ChatController : ControllerBase
     [HttpPost("query")]
     public async Task<ActionResult<ChatResponse>> Query(ChatQueryRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Query))
+            return BadRequest("Query is required.");
+
+        if (request.TopK <= 0)
+            return BadRequest("TopK must be greater than 0.");
+
         var results = await _store.SearchAsync(request.Query, request.TopK);
         var context = string.Join("\n", results.Select(r => r.Content));
         var prompt = new StringBuilder()
@@ -27,7 +33,16 @@ public class ChatController : ControllerBase
             .AppendLine(context)
             .AppendLine($"Question: {request.Query}")
             .ToString();
-        var answer = await _llm.GenerateAsync(prompt);
+
+        string answer;
+        try
+        {
+            answer = await _llm.GenerateAsync(prompt);
+        }
+        catch (Exception ex)
+        {
+            return Problem($"LLM call failed: {ex.Message}");
+        }
         var citations = results.Select(r => r.Content).ToList();
         return new ChatResponse { Answer = answer, Sources = citations };
     }
