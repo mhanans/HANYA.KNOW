@@ -46,39 +46,53 @@ public class LlmClient
     private async Task<string> CallGeminiAsync(string prompt)
     {
         var url = $"https://generativelanguage.googleapis.com/v1/models/{_options.Model}:generateContent?key={_options.ApiKey}";
-        // Gemini expects a role on each message; omit it and the API may return
-        // an empty candidate without parts, which manifests as "response missing text".
-        var res = await _http.PostAsJsonAsync(url, new
+
+        for (var attempt = 1; attempt <= _options.MaxRetries; attempt++)
         {
-            contents = new[]
+            try
             {
-                new { role = "user", parts = new[] { new { text = prompt } } }
+                // Gemini expects a role on each message; omit it and the API may return
+                // an empty candidate without parts, which manifests as "response missing text".
+                var res = await _http.PostAsJsonAsync(url, new
+                {
+                    contents = new[]
+                    {
+                        new { role = "user", parts = new[] { new { text = prompt } } }
+                    }
+                });
+
+                res.EnsureSuccessStatusCode();
+
+                using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("candidates", out var candidates) &&
+                    candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
+                {
+                    var cand = candidates[0];
+                    if (cand.TryGetProperty("content", out var content) &&
+                        content.TryGetProperty("parts", out var parts) &&
+                        parts.ValueKind == JsonValueKind.Array && parts.GetArrayLength() > 0 &&
+                        parts[0].TryGetProperty("text", out var text))
+                    {
+                        return text.GetString() ?? string.Empty;
+                    }
+                }
+
+                // Log unexpected response for diagnostics
+                _logger.LogError("Unexpected Gemini response: {Response}", root.GetRawText());
+
+                if (root.TryGetProperty("error", out var error))
+                    throw new InvalidOperationException($"Gemini API error: {error}");
             }
-        });
-
-        res.EnsureSuccessStatusCode();
-
-        using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
-        var root = doc.RootElement;
-
-        if (root.TryGetProperty("candidates", out var candidates) &&
-            candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
-        {
-            var cand = candidates[0];
-            if (cand.TryGetProperty("content", out var content) &&
-                content.TryGetProperty("parts", out var parts) &&
-                parts.ValueKind == JsonValueKind.Array && parts.GetArrayLength() > 0 &&
-                parts[0].TryGetProperty("text", out var text))
+            catch (Exception ex) when (attempt < _options.MaxRetries)
             {
-                return text.GetString() ?? string.Empty;
+                // Swallow exception to allow retry
+                _logger.LogWarning(ex, "Gemini call failed on attempt {Attempt}", attempt);
             }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
         }
-
-        // Log unexpected response for diagnostics
-        _logger.LogError("Unexpected Gemini response: {Response}", root.GetRawText());
-
-        if (root.TryGetProperty("error", out var error))
-            throw new InvalidOperationException($"Gemini API error: {error}");
 
         throw new InvalidOperationException("Gemini response missing text");
     }
