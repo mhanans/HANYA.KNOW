@@ -76,6 +76,12 @@ export default function Ingest() {
         .success {
           color: #008000;
         }
+        .error {
+          color: red;
+        }
+        .success {
+          color: green;
+        }
       `}</style>
     </div>
   );
