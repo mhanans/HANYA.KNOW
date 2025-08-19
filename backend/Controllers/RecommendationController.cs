@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace backend.Controllers;
 
@@ -77,9 +78,20 @@ public class RecommendationController : ControllerBase
             .AppendLine($"Details: {details}")
             .AppendLine("CVs:")
             .AppendLine(context)
-            .AppendLine("Provide a numbered list of the top 3 candidates with short reasons.")
+            .AppendLine("Return only valid JSON array with three objects: [{\"name\":\"...\",\"reason\":\"...\"},...] with no extra text.")
             .ToString();
-        return await _llm.GenerateAsync(prompt);
+        var raw = await _llm.GenerateAsync(prompt);
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("LLM response was not a JSON array.");
+            return JsonSerializer.Serialize(doc.RootElement);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            throw new InvalidOperationException("Gemini response missing structured candidates", ex);
+        }
     }
 }
 
