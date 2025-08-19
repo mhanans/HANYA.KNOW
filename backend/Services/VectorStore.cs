@@ -40,7 +40,7 @@ public class VectorStore
                 throw new InvalidOperationException($"Embedding dimension mismatch: expected {_expectedDim} but got {embedding.Length}.");
             }
 
-            var sql = "INSERT INTO documents(title, content, embedding) VALUES (@title, @content, @embedding)";
+            var sql = "INSERT INTO documents(title, content, embedding) VALUES (@title, @content, @embedding::vector)";
             await using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("title", title);
             cmd.Parameters.AddWithValue("content", chunk);
@@ -68,7 +68,7 @@ public class VectorStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         var sql = @"SELECT title, content,
-                0.5 * (1 - (embedding <=> @embedding)) +
+                0.5 * (1 - (embedding <=> @embedding::vector)) +
                 0.5 * ts_rank_cd(content_tsv, plainto_tsquery('simple', @q)) AS score
             FROM documents
             ORDER BY score DESC
