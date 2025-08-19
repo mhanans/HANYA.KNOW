@@ -101,6 +101,12 @@ public class IngestController : ControllerBase
 
         return Ok();
     }
+
+    private static IEnumerable<string> Chunk(string text, int size)
+    {
+        for (int i = 0; i < text.Length; i += size)
+            yield return text.Substring(i, Math.Min(size, text.Length - i));
+    }
 }
 
 public class IngestForm
@@ -109,16 +115,4 @@ public class IngestForm
     public string? Title { get; set; }
     public string? Text { get; set; }
     public int? CategoryId { get; set; }
-}
-
-static IEnumerable<string> Chunk(string text, int size)
-{
-    for (int i = 0; i < text.Length; i += size)
-        yield return text.Substring(i, Math.Min(size, text.Length - i));
-}
-
-static IEnumerable<string> Chunk(string text, int size)
-{
-    for (int i = 0; i < text.Length; i += size)
-        yield return text.Substring(i, Math.Min(size, text.Length - i));
 }
