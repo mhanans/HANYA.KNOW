@@ -8,3 +8,4 @@ obj/
 
 # Misc
 .env
+backend/appsettings.json
