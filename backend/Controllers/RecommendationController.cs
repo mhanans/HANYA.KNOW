@@ -45,7 +45,7 @@ public class RecommendationController : ControllerBase
         }
 
         string summaryJson = string.Empty;
-        try { summaryJson = await SummarizeAsync(summary); }
+        try { summaryJson = await SummarizeCandidatesAsync(summary); }
         catch { /* ignore summarization failures */ }
 
         var rec = await _recStore.AddAsync(request.Position, request.Details, summary, summaryJson);
@@ -69,7 +69,7 @@ public class RecommendationController : ControllerBase
         }
 
         string summaryJson = string.Empty;
-        try { summaryJson = await SummarizeAsync(summary); }
+        try { summaryJson = await SummarizeCandidatesAsync(summary); }
         catch { /* ignore */ }
 
         var updated = await _recStore.UpdateAsync(id, summary, summaryJson);
@@ -85,7 +85,7 @@ public class RecommendationController : ControllerBase
         string summaryJson;
         try
         {
-            summaryJson = await SummarizeAsync(existing.Summary);
+            summaryJson = await SummarizeCandidatesAsync(existing.Summary);
         }
         catch (Exception ex)
         {
@@ -109,42 +109,28 @@ public class RecommendationController : ControllerBase
             .AppendLine("CVs:")
             .AppendLine(context)
             .ToString();
-        var raw = await _llm.GenerateAsync(prompt);
-        try
-        {
-            using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("LLM response was not a JSON array.");
-            return JsonSerializer.Serialize(doc.RootElement);
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-        {
-            throw new InvalidOperationException("Gemini response missing structured candidates", ex);
-        }
+        return await _llm.GenerateAsync(prompt);
     }
 
-    private async Task<string> SummarizeAsync(string raw)
+    private async Task<string> SummarizeCandidatesAsync(string raw)
     {
         var prompt = new StringBuilder()
             .AppendLine("Convert the following recommendation into a JSON array of three objects with 'name' and 'reason' fields.")
             .AppendLine("If not possible, return an empty array.")
             .AppendLine(raw)
             .ToString();
-        var json = await _llm.GenerateAsync(prompt);
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("LLM summary was not a JSON array.");
-        return JsonSerializer.Serialize(doc.RootElement);
-    }
+        var json = (await _llm.GenerateAsync(prompt)).Trim();
 
-    private async Task<string> SummarizeAsync(string raw)
-    {
-        var prompt = new StringBuilder()
-            .AppendLine("Convert the following recommendation into a JSON array of three objects with 'name' and 'reason' fields.")
-            .AppendLine("If not possible, return an empty array.")
-            .AppendLine(raw)
-            .ToString();
-        var json = await _llm.GenerateAsync(prompt);
+        if (json.StartsWith("```"))
+        {
+            var start = json.IndexOf('\n');
+            var end = json.LastIndexOf("```");
+            if (start >= 0 && end > start)
+                json = json.Substring(start + 1, end - start - 1).Trim();
+            else
+                json = json.Trim('`');
+        }
+
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException("LLM summary was not a JSON array.");
