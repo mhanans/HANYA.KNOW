@@ -7,6 +7,7 @@ MVP knowledge base with retrieval augmented generation.
 - PostgreSQL with pgvector for embeddings (see `schema.sql`)
 - Endpoints:
 - `POST /api/ingest` – upload text or one/many PDF files; PDF pages are stored individually so citations include page numbers
+
   - `POST /api/vector/search`
   - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations
   - full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
