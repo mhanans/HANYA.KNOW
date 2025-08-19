@@ -18,7 +18,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
     ```bash
     psql -d <db> -f schema.sql
     ```
-   `schema.sql` defines `embedding vector(768)`; adjust the dimension if your model outputs a different size.
+   `schema.sql` defines `embedding vector(768)` and a `categories` table; adjust the dimension if your model outputs a different size.
 
 ## Backend
 1. Navigate to the backend project:
@@ -58,3 +58,4 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```
 
 Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs (multiple files supported) or text and `/chat` to query stored knowledge with citations and relevance warnings.
+Manage categories at `/categories` and filter chat questions by one or more categories.

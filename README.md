@@ -13,7 +13,8 @@ MVP knowledge base with retrieval augmented generation.
 
 ## Frontend
 - Next.js client with pages for ingesting PDFs and chatting.
- - Chat answers include numbered citations with relevance scores.
+- Chat answers include numbered citations with relevance scores.
+- Documents can be tagged with categories for targeted queries; manage categories on the frontend and filter questions by category.
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.

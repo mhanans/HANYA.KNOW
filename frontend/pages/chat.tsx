@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface Source {
+  index: number;
+  file: string;
+  page?: number;
+  content: string;
+  score: number;
+}
 
 interface Source {
   index: number;
@@ -16,12 +24,32 @@ interface Message {
   lowConfidence?: boolean;
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastQuery, setLastQuery] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selected, setSelected] = useState<number[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      try {
+        const res = await fetch(`${base}/api/categories`);
+        if (res.ok) setCategories(await res.json());
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+  }, []);
 
   const send = async (text: string, addUser: boolean) => {
     if (!text.trim()) {
@@ -40,7 +68,7 @@ export default function Chat() {
       const res = await fetch(`${base}/api/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text })
+        body: JSON.stringify({ query: text, categoryIds: selected })
       });
       if (!res.ok) {
         let msg = res.statusText;
@@ -115,6 +143,14 @@ export default function Chat() {
               if (e.key === 'Enter') submit();
             }}
           />
+          <select multiple value={selected.map(String)} onChange={e => {
+            const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
+            setSelected(opts);
+          }}>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
           <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
         </div>
         <Link href="/">
@@ -171,6 +207,9 @@ export default function Chat() {
         }
         .controls input {
           flex: 1;
+        }
+        .controls select {
+          min-width: 120px;
         }
         .score {
           margin-left: 0.25rem;

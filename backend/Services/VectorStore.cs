@@ -20,9 +20,9 @@ public class VectorStore
         _logger = logger;
     }
 
-    public async Task IngestAsync(string source, int? page, string text)
+    public async Task IngestAsync(string source, int? page, string text, int? categoryId)
     {
-        _logger.LogInformation("Ingesting {Source} page {Page} with {Length} characters", source, page, text.Length);
+        _logger.LogInformation("Ingesting {Source} page {Page} with {Length} characters in category {Category}", source, page, text.Length, categoryId);
         var embedding = await _embedding.EmbedAsync(text);
         if (embedding == null || embedding.Length == 0)
         {
@@ -35,7 +35,7 @@ public class VectorStore
             throw new InvalidOperationException($"Embedding dimension mismatch: expected {_expectedDim} but got {embedding.Length}.");
         }
 
-        const string sql = "INSERT INTO documents(source, page, content, embedding) VALUES (@source, @page, @content, @embedding::vector)";
+        const string sql = "INSERT INTO documents(source, page, content, embedding, category_id) VALUES (@source, @page, @content, @embedding::vector, @cat)";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -47,13 +47,17 @@ public class VectorStore
         cmd.Parameters.AddWithValue("content", text);
         cmd.Parameters.AddWithValue("embedding", embedding);
         cmd.Parameters["embedding"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Real;
+        if (categoryId.HasValue)
+            cmd.Parameters.AddWithValue("cat", categoryId.Value);
+        else
+            cmd.Parameters.AddWithValue("cat", DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
         _logger.LogDebug("Stored {Source} page {Page} with vector size {Size}", source, page, embedding.Length);
     }
 
-    public async Task<List<(string Source, int? Page, string Content, double Score)>> SearchAsync(string query, int topK)
+    public async Task<List<(string Source, int? Page, string Content, double Score)>> SearchAsync(string query, int topK, int[]? categories = null)
     {
-        _logger.LogInformation("Searching for '{Query}' with topK {TopK}", query, topK);
+        _logger.LogInformation("Searching for '{Query}' with topK {TopK} in categories {Categories}", query, topK, categories);
         var embedding = await _embedding.EmbedAsync(query);
         if (embedding == null || embedding.Length == 0)
         {
@@ -68,10 +72,12 @@ public class VectorStore
 
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
-        var sql = @"SELECT source, page, content,
+        var filter = (categories != null && categories.Length > 0) ? "WHERE category_id = ANY(@cats)" : string.Empty;
+        var sql = $@"SELECT source, page, content,
                 0.5 * (1 - (embedding <=> @embedding::vector)) +
                 0.5 * ts_rank_cd(content_tsv, plainto_tsquery('simple', @q)) AS score
             FROM documents
+            {filter}
             ORDER BY score DESC
             LIMIT @k";
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -79,6 +85,11 @@ public class VectorStore
         cmd.Parameters["embedding"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Real;
         cmd.Parameters.AddWithValue("q", query);
         cmd.Parameters.AddWithValue("k", topK);
+        if (categories != null && categories.Length > 0)
+        {
+            cmd.Parameters.AddWithValue("cats", categories);
+            cmd.Parameters["cats"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
+        }
         await using var reader = await cmd.ExecuteReaderAsync();
         var results = new List<(string, int?, string, double)>();
         while (await reader.ReadAsync())

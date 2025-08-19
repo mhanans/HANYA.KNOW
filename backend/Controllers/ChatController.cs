@@ -56,11 +56,11 @@ public class ChatController : ControllerBase
             _cache.Set(ip, now, TimeSpan.FromSeconds(cooldown));
         }
 
-        _logger.LogInformation("Chat query '{Query}' with topK {TopK}", request.Query, request.TopK);
+        _logger.LogInformation("Chat query '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
         List<(string Source, int? Page, string Content, double Score)> results;
         try
         {
-            results = await _store.SearchAsync(request.Query, request.TopK);
+            results = await _store.SearchAsync(request.Query, request.TopK, request.CategoryIds);
         }
         catch (InvalidOperationException ex)
         {
@@ -108,6 +108,7 @@ public class ChatQueryRequest
 {
     public string Query { get; set; } = string.Empty;
     public int TopK { get; set; } = 5;
+    public int[]? CategoryIds { get; set; }
 }
 
 public class ChatResponse

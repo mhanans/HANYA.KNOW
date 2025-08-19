@@ -1,11 +1,31 @@
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface Category {
+  id: number;
+  name: string;
+}
 
 export default function Ingest() {
   const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [category, setCategory] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      try {
+        const res = await fetch(`${base}/api/categories`);
+        if (res.ok) setCategories(await res.json());
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+  }, []);
 
   const submit = async () => {
     setStatus('');
@@ -17,6 +37,7 @@ export default function Ingest() {
     files.forEach(f => form.append('files', f));
     if (title && text) form.append('title', title);
     if (text) form.append('text', text);
+    if (category) form.append('categoryId', category);
     try {
       const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       const res = await fetch(`${base}/api/ingest`, {
@@ -60,6 +81,12 @@ export default function Ingest() {
           value={text}
           onChange={e => setText(e.target.value)}
         />
+        <select value={category} onChange={e => setCategory(e.target.value)}>
+          <option value="">No category</option>
+          {categories.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
         <button onClick={submit}>Upload</button>
         {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
         <Link href="/"><button className="secondary">Back</button></Link>
@@ -79,6 +106,9 @@ export default function Ingest() {
         }
         textarea {
           min-height: 100px;
+          width: 100%;
+        }
+        select {
           width: 100%;
         }
         .error {

@@ -25,7 +25,8 @@ public class IngestController : ControllerBase
     [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> Post([FromForm] IngestForm form)
     {
-        _logger.LogInformation("Ingest request received: {FileCount} files, text length {TextLength}", form.Files?.Count ?? 0, form.Text?.Length ?? 0);
+        _logger.LogInformation("Ingest request received: {FileCount} files, text length {TextLength}, category {Category}",
+            form.Files?.Count ?? 0, form.Text?.Length ?? 0, form.CategoryId);
 
         if ((form.Files == null || form.Files.Count == 0) && string.IsNullOrWhiteSpace(form.Text))
             return BadRequest("Provide one or more PDF files in 'files' or text in the 'text' field.");
@@ -49,7 +50,7 @@ public class IngestController : ControllerBase
                         if (string.IsNullOrWhiteSpace(text)) { pageNo++; continue; }
                         try
                         {
-                            await _store.IngestAsync(file.FileName, pageNo, text);
+                            await _store.IngestAsync(file.FileName, pageNo, text, form.CategoryId);
                         }
                         catch (InvalidOperationException ex)
                         {
@@ -82,7 +83,7 @@ public class IngestController : ControllerBase
             {
                 try
                 {
-                    await _store.IngestAsync(title, null, chunk);
+                    await _store.IngestAsync(title, null, chunk, form.CategoryId);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -107,6 +108,13 @@ public class IngestForm
     public List<IFormFile>? Files { get; set; }
     public string? Title { get; set; }
     public string? Text { get; set; }
+    public int? CategoryId { get; set; }
+}
+
+static IEnumerable<string> Chunk(string text, int size)
+{
+    for (int i = 0; i < text.Length; i += size)
+        yield return text.Substring(i, Math.Min(size, text.Length - i));
 }
 
 static IEnumerable<string> Chunk(string text, int size)
