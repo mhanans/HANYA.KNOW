@@ -147,7 +147,6 @@ export default function Documents() {
 
       <style jsx>{`
         .docs-card { max-width: none; }
-        .hint { color: #666; }
         .upload-grid {
           display: grid;
           grid-template-columns: 150px 1fr;
@@ -160,8 +159,6 @@ export default function Documents() {
         }
         .upload-grid select { width: 100%; }
         .actions { margin-top: 0.5rem; }
-        .error { color: #e00; }
-        .success { color: #008000; }
         .doc-grid {
           display: grid;
           grid-template-columns: 1fr 200px auto;
@@ -172,7 +169,17 @@ export default function Documents() {
         .doc-grid.head { font-weight: 600; background: #e0e7ff; padding: 0.5rem; }
         .doc-grid.row { border-top: 1px solid #ddd; }
         .doc-grid .name { overflow-wrap: anywhere; }
-        .doc-grid .actions button { margin-right: 0.5rem; }
+        @media (max-width: 600px) {
+          .upload-grid {
+            grid-template-columns: 1fr;
+          }
+          .doc-grid {
+            grid-template-columns: 1fr;
+          }
+          .doc-grid.head {
+            display: none;
+          }
+        }
       `}</style>
     </div>
   );
