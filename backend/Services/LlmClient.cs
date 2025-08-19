@@ -46,11 +46,13 @@ public class LlmClient
     private async Task<string> CallGeminiAsync(string prompt)
     {
         var url = $"https://generativelanguage.googleapis.com/v1/models/{_options.Model}:generateContent?key={_options.ApiKey}";
+        // Gemini expects a role on each message; omit it and the API may return
+        // an empty candidate without parts, which manifests as "response missing text".
         var res = await _http.PostAsJsonAsync(url, new
         {
             contents = new[]
             {
-                new { parts = new[] { new { text = prompt } } }
+                new { role = "user", parts = new[] { new { text = prompt } } }
             }
         });
 
