@@ -4,7 +4,7 @@ MVP knowledge base with retrieval augmented generation.
 
 ## Backend
 - ASP.NET Core Web API
-- PostgreSQL with pgvector for embeddings
+- PostgreSQL with pgvector for embeddings (see `schema.sql`)
 - Endpoints:
   - `POST /api/ingest`
   - `POST /api/vector/search`
