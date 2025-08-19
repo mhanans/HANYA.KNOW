@@ -1,0 +1,57 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
+
+namespace backend.Services;
+
+public class LlmClient
+{
+    private readonly HttpClient _http;
+    private readonly LlmOptions _options;
+
+    public LlmClient(HttpClient http, IOptions<LlmOptions> options)
+    {
+        _http = http;
+        _options = options.Value;
+    }
+
+    public async Task<string> GenerateAsync(string prompt)
+    {
+        return _options.Provider.ToLower() switch
+        {
+            "gemini" => await CallGeminiAsync(prompt),
+            _ => await CallOpenAiAsync(prompt)
+        };
+    }
+
+    private async Task<string> CallOpenAiAsync(string prompt)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+        req.Content = JsonContent.Create(new
+        {
+            model = _options.Model,
+            messages = new[] { new { role = "user", content = prompt } }
+        });
+        var res = await _http.SendAsync(req);
+        res.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
+        return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+    }
+
+    private async Task<string> CallGeminiAsync(string prompt)
+    {
+        var url = $"https://generativelanguage.googleapis.com/v1/models/{_options.Model}:generateContent?key={_options.ApiKey}";
+        var res = await _http.PostAsJsonAsync(url, new
+        {
+            contents = new[]
+            {
+                new { parts = new[] { new { text = prompt } } }
+            }
+        });
+        res.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
+        return doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty;
+    }
+}
