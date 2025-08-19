@@ -26,14 +26,21 @@ export default function Chat() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/chat/query`, {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+      const res = await fetch(`${base}/api/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: currentQuery, topK })
       });
       if (!res.ok) {
-        const msg = await res.text();
-        throw new Error(msg);
+        let msg = res.statusText;
+        try {
+          const text = await res.text();
+          if (!text.startsWith('<')) msg = text || msg;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(`Request failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
       }
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources }]);

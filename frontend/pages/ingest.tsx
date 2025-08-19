@@ -18,16 +18,23 @@ export default function Ingest() {
     if (title) form.append('title', title);
     if (text) form.append('text', text);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/ingest`, {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+      const res = await fetch(`${base}/api/ingest`, {
         method: 'POST',
         body: form
       });
-      if (res.ok) {
-        setStatus('Upload successful');
-      } else {
-        const msg = await res.text();
-        setStatus(`Error: ${msg}`);
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const text = await res.text();
+          if (!text.startsWith('<')) msg = text || msg;
+        } catch {
+          /* ignore */
+        }
+        setStatus(`Upload failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
+        return;
       }
+      setStatus('Upload successful');
     } catch (err) {
       setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -75,12 +82,6 @@ export default function Ingest() {
         }
         .success {
           color: #008000;
-        }
-        .error {
-          color: red;
-        }
-        .success {
-          color: green;
         }
       `}</style>
     </div>

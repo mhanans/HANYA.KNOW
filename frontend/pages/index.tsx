@@ -22,10 +22,6 @@ export default function Home() {
         .tagline {
           color: #666;
         }
-        .tagline {
-          text-align: center;
-          color: #555;
-        }
         .actions {
           width: 100%;
           display: flex;
