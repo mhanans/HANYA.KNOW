@@ -2,6 +2,7 @@ using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 
 namespace backend.Controllers;
 
@@ -11,11 +12,13 @@ public class ChatController : ControllerBase
 {
     private readonly VectorStore _store;
     private readonly LlmClient _llm;
+    private readonly ILogger<ChatController> _logger;
 
-    public ChatController(VectorStore store, LlmClient llm)
+    public ChatController(VectorStore store, LlmClient llm, ILogger<ChatController> logger)
     {
         _store = store;
         _llm = llm;
+        _logger = logger;
     }
 
     [HttpPost("query")]
@@ -27,6 +30,7 @@ public class ChatController : ControllerBase
         if (request.TopK <= 0)
             return BadRequest("TopK must be greater than 0.");
 
+        _logger.LogInformation("Chat query '{Query}' with topK {TopK}", request.Query, request.TopK);
         List<(string Title, string Content, double Score)> results;
         try
         {
@@ -34,10 +38,12 @@ public class ChatController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
+            _logger.LogError(ex, "Search failed for query {Query}", request.Query);
             return Problem(detail: ex.Message, statusCode: 502, title: "Search failed");
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Unexpected search failure for query {Query}", request.Query);
             return Problem(detail: ex.Message, statusCode: 500, title: "Search failed");
         }
         var context = string.Join("\n", results.Select(r => $"[{r.Title}] {r.Content}"));
@@ -54,6 +60,7 @@ public class ChatController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "LLM generation failed for query {Query}", request.Query);
             return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
         var sources = results.Select(r => new Source

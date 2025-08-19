@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using System.Collections.Generic;
 using UglyToad.PdfPig;
+using Microsoft.Extensions.Logging;
 
 namespace backend.Controllers;
 
@@ -11,16 +12,19 @@ namespace backend.Controllers;
 public class IngestController : ControllerBase
 {
     private readonly VectorStore _store;
+    private readonly ILogger<IngestController> _logger;
 
-    public IngestController(VectorStore store)
+    public IngestController(VectorStore store, ILogger<IngestController> logger)
     {
         _store = store;
+        _logger = logger;
     }
 
     [HttpPost]
     [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> Post([FromForm] IngestForm form)
     {
+        _logger.LogInformation("Ingest request received: {FileCount} files, text length {TextLength}", form.Files?.Count ?? 0, form.Text?.Length ?? 0);
         var uploads = new List<(string Title, string Text)>();
 
         if ((form.Files == null || form.Files.Count == 0) && string.IsNullOrWhiteSpace(form.Text))
@@ -45,6 +49,7 @@ public class IngestController : ControllerBase
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Failed to read PDF {File}", file.FileName);
                     return BadRequest($"Failed to read PDF '{file.FileName}': {ex.Message}");
                 }
             }
@@ -63,10 +68,12 @@ public class IngestController : ControllerBase
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogError(ex, "Failed to store document {Title}", title);
                 return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Unexpected failure storing document {Title}", title);
                 return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{title}'");
             }
         }

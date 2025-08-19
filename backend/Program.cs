@@ -1,5 +1,6 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,21 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Test embedding service connectivity at startup
+using (var scope = app.Services.CreateScope())
+{
+    var embeddings = scope.ServiceProvider.GetRequiredService<EmbeddingClient>();
+    try
+    {
+        await embeddings.TestConnectionAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Failed to connect to embedding service on startup");
+    }
+}
+
 app.UseSwagger();
 app.UseSwaggerUI();
 // Use the CORS policy

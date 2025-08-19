@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Linq;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 namespace backend.Services;
 
@@ -9,10 +10,12 @@ public class EmbeddingClient
 {
     private readonly HttpClient _http;
     private readonly EmbeddingOptions _options;
+    private readonly ILogger<EmbeddingClient> _logger;
 
-    public EmbeddingClient(IOptions<EmbeddingOptions> options)
+    public EmbeddingClient(IOptions<EmbeddingOptions> options, ILogger<EmbeddingClient> logger)
     {
         _options = options.Value;
+        _logger = logger;
         _http = new HttpClient { BaseAddress = new Uri(_options.BaseUrl) };
     }
 
@@ -20,18 +23,28 @@ public class EmbeddingClient
     {
         try
         {
+            _logger.LogInformation("Requesting embedding of {Length} characters", text.Length);
+
             if (_options.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
             {
-                var response = await _http.PostAsJsonAsync("/api/embed", new { model = _options.Model, input = text });
+                var payload = new { model = _options.Model, input = text };
+                _logger.LogDebug("Ollama embed payload: {Payload}", payload);
+                var response = await _http.PostAsJsonAsync("/api/embed", payload);
                 response.EnsureSuccessStatusCode();
-                var payload = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>();
-                var vec = payload?.embedding;
+                var body = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>();
+                var vec = body?.embedding;
                 if (vec == null || vec.Length == 0)
+                {
+                    _logger.LogWarning("Ollama returned empty embedding");
                     throw new InvalidOperationException("Embedding service returned empty vector.");
+                }
+                _logger.LogInformation("Received embedding with {Dim} dimensions", vec.Length);
                 return vec;
             }
 
-            var generic = await _http.PostAsJsonAsync("/embed", new { model = _options.Model, input = text });
+            var genericPayload = new { model = _options.Model, input = text };
+            _logger.LogDebug("Generic embed payload: {Payload}", genericPayload);
+            var generic = await _http.PostAsJsonAsync("/embed", genericPayload);
             generic.EnsureSuccessStatusCode();
 
             var json = await generic.Content.ReadAsStringAsync();
@@ -40,31 +53,71 @@ public class EmbeddingClient
             // try plain float[]
             var array = JsonSerializer.Deserialize<float[]>(json, opts);
             if (array != null && array.Length > 0)
+            {
+                _logger.LogInformation("Received embedding with {Dim} dimensions", array.Length);
                 return array;
+            }
 
             // try { "embedding": [...] }
             var wrapper = JsonSerializer.Deserialize<EmbedWrapper>(json, opts);
             if (wrapper?.embedding != null && wrapper.embedding.Length > 0)
+            {
+                _logger.LogInformation("Received embedding with {Dim} dimensions", wrapper.embedding.Length);
                 return wrapper.embedding;
+            }
 
             // try OpenAI style { "data": [ { "embedding": [...] } ] }
             var openAi = JsonSerializer.Deserialize<OpenAiResponse>(json, opts);
             var first = openAi?.data?.FirstOrDefault();
             if (first?.embedding != null && first.embedding.Length > 0)
+            {
+                _logger.LogInformation("Received embedding with {Dim} dimensions", first.embedding.Length);
                 return first.embedding;
+            }
 
             // fallback: scan JSON for first numeric array
             using var doc = JsonDocument.Parse(json);
             var fallback = FindVector(doc.RootElement);
             if (fallback != null && fallback.Length > 0)
+            {
+                _logger.LogInformation("Received embedding with {Dim} dimensions", fallback.Length);
                 return fallback;
+            }
 
             var snippet = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
+            _logger.LogWarning("Embedding service returned empty or unrecognized payload: {Snippet}", snippet);
             throw new InvalidOperationException($"Embedding service returned empty or unrecognized payload: {snippet}");
         }
         catch (HttpRequestException ex)
         {
+            _logger.LogError(ex, "Failed to connect to embedding service");
             throw new InvalidOperationException($"Failed to connect to embedding service: {ex.Message}", ex);
+        }
+    }
+
+    public async Task TestConnectionAsync()
+    {
+        try
+        {
+            if (_options.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("Testing connection to Ollama at {Url}", _http.BaseAddress);
+                var resp = await _http.GetAsync("/api/tags");
+                resp.EnsureSuccessStatusCode();
+                _logger.LogInformation("Ollama connection OK");
+            }
+            else
+            {
+                _logger.LogInformation("Testing connection to embedding service at {Url}", _http.BaseAddress);
+                var resp = await _http.GetAsync("/");
+                resp.EnsureSuccessStatusCode();
+                _logger.LogInformation("Embedding service connection OK");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Embedding service health check failed");
+            throw new InvalidOperationException("Embedding service unreachable: " + ex.Message, ex);
         }
     }
 
