@@ -27,7 +27,7 @@ public class ChatController : ControllerBase
             return BadRequest("TopK must be greater than 0.");
 
         var results = await _store.SearchAsync(request.Query, request.TopK);
-        var context = string.Join("\n", results.Select(r => r.Content));
+        var context = string.Join("\n", results.Select(r => $"[{r.Title}] {r.Content}"));
         var prompt = new StringBuilder()
             .AppendLine("Use the following context to answer the question with citations.")
             .AppendLine(context)
@@ -43,8 +43,14 @@ public class ChatController : ControllerBase
         {
             return Problem($"LLM call failed: {ex.Message}");
         }
-        var citations = results.Select(r => r.Content).ToList();
-        return new ChatResponse { Answer = answer, Sources = citations };
+        var sources = results.Select(r => new Source
+        {
+            Title = r.Title,
+            Content = r.Content,
+            Score = r.Score
+        }).ToList();
+        var lowConfidence = sources.Count == 0 || sources[0].Score < 0.5;
+        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = lowConfidence };
     }
 }
 
@@ -57,5 +63,13 @@ public class ChatQueryRequest
 public class ChatResponse
 {
     public string Answer { get; set; } = string.Empty;
-    public List<string> Sources { get; set; } = new();
+    public List<Source> Sources { get; set; } = new();
+    public bool LowConfidence { get; set; }
+}
+
+public class Source
+{
+    public string Title { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public double Score { get; set; }
 }

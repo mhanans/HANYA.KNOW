@@ -2,23 +2,23 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 export default function Ingest() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
 
   const submit = async () => {
     setStatus('');
-    if (!file && !text.trim()) {
-      setStatus('Please provide a PDF file or some text to upload.');
+    if (files.length === 0 && !text.trim()) {
+      setStatus('Please provide one or more PDF files or some text to upload.');
       return;
     }
     const form = new FormData();
-    if (file) form.append('file', file);
-    if (title) form.append('title', title);
+    files.forEach(f => form.append('files', f));
+    if (title && text) form.append('title', title);
     if (text) form.append('text', text);
     try {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       const res = await fetch(`${base}/api/ingest`, {
         method: 'POST',
         body: form
@@ -44,8 +44,8 @@ export default function Ingest() {
     <div className="container">
       <div className="card ingest-card">
         <h1>Upload Document</h1>
-        <p className="hint">Provide a PDF or paste text below to add it to the knowledge base.</p>
-        <input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
+        <p className="hint">Provide PDF files or paste text below to add them to the knowledge base.</p>
+        <input type="file" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
         <input
           placeholder="Title (optional)"
           value={title}
