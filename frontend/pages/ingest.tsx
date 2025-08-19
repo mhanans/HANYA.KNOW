@@ -12,6 +12,7 @@ export default function Ingest() {
   const [status, setStatus] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [category, setCategory] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -37,6 +38,8 @@ export default function Ingest() {
     if (title && text) form.append('title', title);
     if (text) form.append('text', text);
     if (category) form.append('categoryId', category);
+    setLoading(true);
+    setStatus('Uploading...');
     try {
       const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       const res = await fetch(`${base}/api/ingest`, {
@@ -61,6 +64,8 @@ export default function Ingest() {
       setStatus('Upload successful');
     } catch (err) {
       setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -85,7 +90,7 @@ export default function Ingest() {
           <option key={c.id} value={c.id}>{c.name}</option>
         ))}
       </select>
-      <button onClick={submit}>Upload</button>
+      <button onClick={submit} disabled={loading}>{loading ? 'Uploading...' : 'Upload'}</button>
       {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
       <style jsx>{`
         .ingest-card {

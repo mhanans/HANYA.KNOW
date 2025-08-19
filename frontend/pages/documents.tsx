@@ -18,6 +18,7 @@ export default function Documents() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [category, setCategory] = useState('');
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
@@ -47,6 +48,8 @@ export default function Documents() {
     if (title && text) form.append('title', title);
     if (text) form.append('text', text);
     if (category) form.append('categoryId', category);
+    setLoading(true);
+    setStatus('Uploading...');
     try {
       const res = await fetch(`${base}/api/ingest`, { method: 'POST', body: form });
       if (!res.ok) {
@@ -68,6 +71,8 @@ export default function Documents() {
       await load();
     } catch (err) {
       setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -114,7 +119,7 @@ export default function Documents() {
         </select>
       </div>
       <div className="actions">
-        <button onClick={upload}>Upload</button>
+        <button onClick={upload} disabled={loading}>{loading ? 'Uploading...' : 'Upload'}</button>
       </div>
       {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
 
