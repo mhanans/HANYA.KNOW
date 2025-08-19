@@ -184,44 +184,8 @@ export default function Cv() {
             <button onClick={() => retry(r.id)}>Retry</button>
             <button onClick={() => retrySummary(r.id)}>Retry Summary</button>
           </div>
-        );
-      })}
-
-      {viewId !== null && (() => {
-        const rec = recs.find(r => r.id === viewId);
-        let candidates: Candidate[] = [];
-        if (rec?.summaryJson) {
-          try { candidates = JSON.parse(rec.summaryJson); } catch { /* ignore */ }
-        }
-        return (
-          <div className="modal">
-            <div className="modal-content">
-              <h3>Top Candidates</h3>
-              {candidates.length ? (
-                <div className="cand-wrapper">
-                  <div className="cand-grid head">
-                    <div>No</div>
-                    <div>Candidate Name</div>
-                    <div>Reason</div>
-                  </div>
-                  {candidates.map((c, i) => (
-                    <div className="cand-grid row" key={i}>
-                      <div>{i + 1}</div>
-                      <div>{c.name}</div>
-                      <div className="reason">{c.reason}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p>No structured summary available.</p>
-              )}
-              <div className="actions">
-                <button onClick={() => setViewId(null)}>Close</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+        </div>
+      ))}
 
       {modal}
 

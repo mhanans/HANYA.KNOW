@@ -84,6 +84,8 @@ public class LlmClient
 
                 if (root.TryGetProperty("error", out var error))
                     throw new InvalidOperationException($"Gemini API error: {error}");
+
+                throw new InvalidOperationException("Gemini response missing text.");
             }
             catch (Exception ex) when (attempt < _options.MaxRetries)
             {
