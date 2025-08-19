@@ -27,15 +27,18 @@ public class EmbeddingClient
 
             if (_options.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
             {
-                var payload = new { model = _options.Model, input = text };
+                var payload = new { model = _options.Model, prompt = text };
                 _logger.LogDebug("Ollama embed payload: {Payload}", payload);
-                var response = await _http.PostAsJsonAsync("/api/embed", payload);
+                var response = await _http.PostAsJsonAsync("/api/embeddings", payload);
                 response.EnsureSuccessStatusCode();
-                var body = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>();
+                var jsonBody = await response.Content.ReadAsStringAsync();
+                var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var body = JsonSerializer.Deserialize<OllamaEmbedResponse>(jsonBody, opts);
                 var vec = body?.embedding;
                 if (vec == null || vec.Length == 0)
                 {
-                    _logger.LogWarning("Ollama returned empty embedding");
+                    var snippet = jsonBody.Length > 200 ? jsonBody.Substring(0, 200) + "..." : jsonBody;
+                    _logger.LogWarning("Ollama returned empty embedding: {Snippet}", snippet);
                     throw new InvalidOperationException("Embedding service returned empty vector.");
                 }
                 _logger.LogInformation("Received embedding with {Dim} dimensions", vec.Length);
