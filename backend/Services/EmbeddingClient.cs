@@ -34,18 +34,18 @@ public class EmbeddingClient
 
         // try plain float[]
         var array = JsonSerializer.Deserialize<float[]>(json, opts);
-        if (array != null)
+        if (array != null && array.Length > 0)
             return array;
 
         // try { "embedding": [...] }
         var wrapper = JsonSerializer.Deserialize<EmbedWrapper>(json, opts);
-        if (wrapper?.embedding != null)
+        if (wrapper?.embedding != null && wrapper.embedding.Length > 0)
             return wrapper.embedding;
 
         // try OpenAI style { "data": [ { "embedding": [...] } ] }
         var openAi = JsonSerializer.Deserialize<OpenAiResponse>(json, opts);
         var first = openAi?.data?.FirstOrDefault();
-        if (first?.embedding != null)
+        if (first?.embedding != null && first.embedding.Length > 0)
             return first.embedding;
 
         throw new InvalidOperationException("Embedding service returned empty or unrecognized payload.");
