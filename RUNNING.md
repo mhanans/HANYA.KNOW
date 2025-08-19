@@ -54,4 +54,4 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    npm run dev
    ```
 
-Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs or text and `/chat` to query stored knowledge.
+Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs (multiple files supported) or text and `/chat` to query stored knowledge.
