@@ -87,13 +87,18 @@ public class LlmClient
             }
             catch (Exception ex) when (attempt < _options.MaxRetries)
             {
-                // Swallow exception to allow retry
-                _logger.LogWarning(ex, "Gemini call failed on attempt {Attempt}", attempt);
+                // Notify about retry attempts for unstable connection
+                _logger.LogWarning(
+                    ex,
+                    "Connection to Gemini API not stable, retrying ({Attempt}/{Max})",
+                    attempt,
+                    _options.MaxRetries);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
         }
 
-        throw new InvalidOperationException("Gemini response missing text");
+        throw new InvalidOperationException(
+            $"Connection to Gemini API failed after {_options.MaxRetries} attempts. Please check connection to API server.");
     }
 }
