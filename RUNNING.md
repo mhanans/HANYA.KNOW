@@ -14,7 +14,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```sql
    CREATE EXTENSION IF NOT EXISTS vector;
    ```
-3. Apply the provided schema:
+3. Apply the provided schema (includes hybrid vector + language-agnostic full-text indexes):
    ```bash
    psql -d <db> -f schema.sql
    ```
@@ -54,4 +54,4 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    npm run dev
    ```
 
-Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs or text and `/chat` to query stored knowledge.
+Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs (multiple files supported) or text and `/chat` to query stored knowledge with citations and relevance warnings.

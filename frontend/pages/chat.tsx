@@ -1,10 +1,17 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
+interface Source {
+  title: string;
+  content: string;
+  score: number;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  sources?: string[];
+  sources?: Source[];
+  lowConfidence?: boolean;
 }
 
 export default function Chat() {
@@ -26,7 +33,7 @@ export default function Chat() {
     setError('');
     setLoading(true);
     try {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       const res = await fetch(`${base}/api/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,15 +42,19 @@ export default function Chat() {
       if (!res.ok) {
         let msg = res.statusText;
         try {
-          const text = await res.text();
-          if (!text.startsWith('<')) msg = text || msg;
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
         } catch {
-          /* ignore */
+          try {
+            msg = await res.text();
+          } catch {
+            /* ignore */
+          }
         }
-        throw new Error(`Request failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
+        throw new Error(`Request failed: ${msg}`);
       }
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources, lowConfidence: data.lowConfidence }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -58,10 +69,15 @@ export default function Chat() {
           {messages.map((m, i) => (
             <div key={i} className={`msg ${m.role}`}>
               <div className="bubble">{m.content}</div>
+              {m.role === 'assistant' && m.lowConfidence && (
+                <p className="warn">Low relevance of retrieved articles.</p>
+              )}
               {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
                 <ul className="sources">
                   {m.sources.map((s, idx) => (
-                    <li key={idx}>{s}</li>
+                    <li key={idx}>
+                      <strong>{s.title}</strong> ({s.score.toFixed(2)})
+                    </li>
                   ))}
                 </ul>
               )}
@@ -129,6 +145,11 @@ export default function Chat() {
         .sources {
           font-size: 0.8rem;
           color: #555;
+          margin-left: 0.5rem;
+        }
+        .warn {
+          color: #b36b00;
+          font-size: 0.8rem;
           margin-left: 0.5rem;
         }
         .controls {
