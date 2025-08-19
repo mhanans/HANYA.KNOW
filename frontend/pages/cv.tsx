@@ -147,8 +147,8 @@ export default function Cv() {
             <button onClick={() => retry(r.id)}>Retry</button>
             <button onClick={() => retrySummary(r.id)}>Retry Summary</button>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {viewId !== null && (() => {
         const rec = recs.find(r => r.id === viewId);
