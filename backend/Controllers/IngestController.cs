@@ -56,7 +56,12 @@ public class IngestController : ControllerBase
         }
 
         if (!string.IsNullOrWhiteSpace(form.Text))
-            uploads.Add((form.Title ?? "document", form.Text));
+        {
+            var title = string.IsNullOrWhiteSpace(form.Title)
+                ? (form.Text.Length > 30 ? form.Text[..30] + "..." : form.Text)
+                : form.Title;
+            uploads.Add((title, form.Text));
+        }
 
         foreach (var (title, text) in uploads)
         {

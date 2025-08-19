@@ -51,12 +51,12 @@ export default function Ingest() {
         <p className="hint">Provide PDF files or paste text below to add them to the knowledge base.</p>
         <input type="file" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
         <input
-          placeholder="Title (optional)"
+          placeholder="Document title (optional)"
           value={title}
           onChange={e => setTitle(e.target.value)}
         />
         <textarea
-          placeholder="Fallback text"
+          placeholder="Text content (optional)"
           value={text}
           onChange={e => setText(e.target.value)}
         />

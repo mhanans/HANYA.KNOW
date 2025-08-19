@@ -46,9 +46,10 @@ public class ChatController : ControllerBase
             _logger.LogError(ex, "Unexpected search failure for query {Query}", request.Query);
             return Problem(detail: ex.Message, statusCode: 500, title: "Search failed");
         }
-        var context = string.Join("\n", results.Select(r => $"[{r.Title}] {r.Content}"));
+        var enumerated = results.Select((r, idx) => (Index: idx + 1, r.Title, r.Content, r.Score)).ToList();
+        var context = string.Join("\n", enumerated.Select(r => $"[{r.Index}] {r.Title}\n{r.Content}"));
         var prompt = new StringBuilder()
-            .AppendLine("Use the following context to answer the question with citations.")
+            .AppendLine("Use the following context to answer the question. Cite sources using [number] notation.")
             .AppendLine(context)
             .AppendLine($"Question: {request.Query}")
             .ToString();
@@ -63,8 +64,9 @@ public class ChatController : ControllerBase
             _logger.LogError(ex, "LLM generation failed for query {Query}", request.Query);
             return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
-        var sources = results.Select(r => new Source
+        var sources = enumerated.Select(r => new Source
         {
+            Index = r.Index,
             Title = r.Title,
             Content = r.Content,
             Score = r.Score
@@ -89,6 +91,7 @@ public class ChatResponse
 
 public class Source
 {
+    public int Index { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public double Score { get; set; }

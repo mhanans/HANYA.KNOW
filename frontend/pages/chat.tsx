@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 interface Source {
+  index: number;
   title: string;
   content: string;
   score: number;
@@ -17,7 +18,6 @@ interface Message {
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
-  const [topK, setTopK] = useState(5);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -37,7 +37,7 @@ export default function Chat() {
       const res = await fetch(`${base}/api/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: currentQuery, topK })
+        body: JSON.stringify({ query: currentQuery })
       });
       if (!res.ok) {
         let msg = res.statusText;
@@ -72,11 +72,12 @@ export default function Chat() {
               {m.role === 'assistant' && m.lowConfidence && (
                 <p className="warn">Low relevance of retrieved articles.</p>
               )}
-              {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
+          {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
                 <ul className="sources">
-                  {m.sources.map((s, idx) => (
-                    <li key={idx}>
-                      <strong>{s.title}</strong> ({s.score.toFixed(2)})
+                  {m.sources.map((s) => (
+                    <li key={s.index}>
+                      <strong>[{s.index}] {s.title}</strong>
+                      <span className="score">relevance {(s.score * 100).toFixed(1)}%</span>
                     </li>
                   ))}
                 </ul>
@@ -93,14 +94,6 @@ export default function Chat() {
             onKeyDown={e => {
               if (e.key === 'Enter') submit();
             }}
-          />
-          <input
-            type="number"
-            min={1}
-            value={topK}
-            onChange={e => setTopK(Number(e.target.value))}
-            className="topk"
-            title="Number of relevant documents to retrieve"
           />
           <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
         </div>
@@ -156,11 +149,12 @@ export default function Chat() {
           display: flex;
           gap: 0.5rem;
         }
-        .controls input:not(.topk) {
+        .controls input {
           flex: 1;
         }
-        .topk {
-          width: 4rem;
+        .score {
+          margin-left: 0.25rem;
+          color: #555;
         }
         .error {
           color: #e00;
