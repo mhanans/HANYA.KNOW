@@ -18,5 +18,6 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 
 - `ConnectionStrings:Postgres`
 - `Embedding: { BaseUrl, Model, Provider }`
+
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `NEXT_PUBLIC_API_BASE_URL` for frontend
