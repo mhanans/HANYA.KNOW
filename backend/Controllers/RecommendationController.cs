@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace backend.Controllers;
 
@@ -33,7 +34,15 @@ public class RecommendationController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Position) || string.IsNullOrWhiteSpace(request.Details))
             return BadRequest("Position and details are required.");
 
-        var summary = await GenerateAsync(request.Position, request.Details);
+        string summary;
+        try
+        {
+            summary = await GenerateAsync(request.Position, request.Details);
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
+        }
         var rec = await _recStore.AddAsync(request.Position, request.Details, summary);
         return rec;
     }
@@ -44,7 +53,15 @@ public class RecommendationController : ControllerBase
         var existing = await _recStore.GetAsync(id);
         if (existing == null) return NotFound();
 
-        var summary = await GenerateAsync(existing.Position, existing.Details);
+        string summary;
+        try
+        {
+            summary = await GenerateAsync(existing.Position, existing.Details);
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
+        }
         var updated = await _recStore.UpdateSummaryAsync(id, summary);
         return updated;
     }
@@ -61,9 +78,20 @@ public class RecommendationController : ControllerBase
             .AppendLine($"Details: {details}")
             .AppendLine("CVs:")
             .AppendLine(context)
-            .AppendLine("Provide a numbered list of the top 3 candidates with short reasons.")
+            .AppendLine("Return only valid JSON array with three objects: [{\"name\":\"...\",\"reason\":\"...\"},...] with no extra text.")
             .ToString();
-        return await _llm.GenerateAsync(prompt);
+        var raw = await _llm.GenerateAsync(prompt);
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("LLM response was not a JSON array.");
+            return JsonSerializer.Serialize(doc.RootElement);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            throw new InvalidOperationException("Gemini response missing structured candidates", ex);
+        }
     }
 }
 
