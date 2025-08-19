@@ -45,50 +45,51 @@ export default function Chat() {
   };
 
   return (
-    <div className="chat-container">
-      <div className="messages">
-        {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
-            <div className="bubble">{m.content}</div>
-            {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
-              <ul className="sources">
-                {m.sources.map((s, idx) => (
-                  <li key={idx}>{s}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
+    <div className="container">
+      <div className="card chat-card">
+        <div className="messages">
+          {messages.map((m, i) => (
+            <div key={i} className={`msg ${m.role}`}>
+              <div className="bubble">{m.content}</div>
+              {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
+                <ul className="sources">
+                  {m.sources.map((s, idx) => (
+                    <li key={idx}>{s}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+        {error && <p className="error">{error}</p>}
+        <div className="controls">
+          <input
+            placeholder="Ask a question"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') submit();
+            }}
+          />
+          <input
+            type="number"
+            min={1}
+            value={topK}
+            onChange={e => setTopK(Number(e.target.value))}
+            className="topk"
+            title="Number of relevant documents to retrieve"
+          />
+          <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
+        </div>
+        <Link href="/">
+          <button className="secondary back">Back</button>
+        </Link>
       </div>
-      {error && <p className="error">{error}</p>}
-      <div className="controls">
-        <input
-          placeholder="Ask a question"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') submit();
-          }}
-        />
-        <input
-          type="number"
-          min={1}
-          value={topK}
-          onChange={e => setTopK(Number(e.target.value))}
-          className="topk"
-          title="Number of relevant documents to retrieve"
-        />
-        <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
-      </div>
-      <Link href="/">
-        <button className="back">Back</button>
-      </Link>
       <style jsx>{`
-        .chat-container {
+        .chat-card {
           display: flex;
           flex-direction: column;
-          height: 100vh;
-          padding: 1rem;
+          height: 100%;
         }
         .messages {
           flex: 1;
@@ -107,16 +108,16 @@ export default function Chat() {
         }
         .bubble {
           max-width: 70%;
-          padding: 0.5rem 1rem;
-          border-radius: 12px;
+          padding: 0.75rem 1rem;
+          border-radius: 8px;
           white-space: pre-wrap;
         }
         .msg.user .bubble {
           background: #0070f3;
-          color: white;
+          color: #fff;
         }
         .msg.assistant .bubble {
-          background: #eaeaea;
+          background: #f1f1f1;
         }
         .sources {
           font-size: 0.8rem;
@@ -127,16 +128,14 @@ export default function Chat() {
           display: flex;
           gap: 0.5rem;
         }
-        .controls input[type="text"], .controls input:not(.topk) {
+        .controls input:not(.topk) {
           flex: 1;
-          padding: 0.5rem;
         }
         .topk {
           width: 4rem;
-          padding: 0.5rem;
         }
         .error {
-          color: red;
+          color: #e00;
           margin-bottom: 0.5rem;
         }
         .back {

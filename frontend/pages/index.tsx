@@ -3,32 +3,34 @@ import Link from 'next/link';
 export default function Home() {
   return (
     <div className="container">
-      <h1>HANYA.KNOW</h1>
-      <p className="tagline">Upload your documents and ask questions about them.</p>
-      <div className="actions">
-        <Link href="/ingest"><button>Upload Document</button></Link>
-        <Link href="/chat"><button>Ask the Docs</button></Link>
+      <div className="card home-card">
+        <h1>HANYA.KNOW</h1>
+        <p className="tagline">Upload your documents and ask questions about them.</p>
+        <div className="actions">
+          <Link href="/ingest"><button>Upload Document</button></Link>
+          <Link href="/chat"><button>Ask the Docs</button></Link>
+        </div>
       </div>
       <style jsx>{`
-        .container {
+        .home-card {
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
-          height: 100vh;
           gap: 1rem;
+          text-align: center;
+        }
+        .tagline {
+          color: #666;
         }
         .tagline {
           text-align: center;
           color: #555;
         }
         .actions {
+          width: 100%;
           display: flex;
           flex-direction: column;
-          gap: 0.5rem;
-        }
-        button {
-          padding: 0.5rem 1rem;
+          gap: 0.75rem;
         }
       `}</style>
     </div>
