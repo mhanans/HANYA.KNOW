@@ -203,11 +203,19 @@ export default function Chat() {
           color: #555;
         }
         .error {
-          color: #e00;
           margin-bottom: 0.5rem;
         }
         .error button {
           margin-left: 0.5rem;
+        }
+        @media (max-width: 600px) {
+          .controls {
+            flex-direction: column;
+          }
+          .controls select,
+          .controls button {
+            width: 100%;
+          }
         }
       `}</style>
     </div>

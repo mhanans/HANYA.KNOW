@@ -103,8 +103,15 @@ export default function Categories() {
         .cat-grid { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.5rem; }
         .head { background: #e0e7ff; font-weight: 600; padding: 0.5rem; }
         .row { border-top: 1px solid #ddd; padding: 0.5rem 0; }
-        .row .actions button { margin-right: 0.5rem; }
-        .error { color: #e00; margin-top: 0.5rem; }
+        .error { margin-top: 0.5rem; }
+        @media (max-width: 600px) {
+          .cat-grid {
+            grid-template-columns: 1fr;
+          }
+          .head {
+            display: none;
+          }
+        }
       `}</style>
     </div>
   );
