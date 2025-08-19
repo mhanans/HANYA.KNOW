@@ -33,7 +33,15 @@ public class RecommendationController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Position) || string.IsNullOrWhiteSpace(request.Details))
             return BadRequest("Position and details are required.");
 
-        var summary = await GenerateAsync(request.Position, request.Details);
+        string summary;
+        try
+        {
+            summary = await GenerateAsync(request.Position, request.Details);
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
+        }
         var rec = await _recStore.AddAsync(request.Position, request.Details, summary);
         return rec;
     }
@@ -44,7 +52,15 @@ public class RecommendationController : ControllerBase
         var existing = await _recStore.GetAsync(id);
         if (existing == null) return NotFound();
 
-        var summary = await GenerateAsync(existing.Position, existing.Details);
+        string summary;
+        try
+        {
+            summary = await GenerateAsync(existing.Position, existing.Details);
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
+        }
         var updated = await _recStore.UpdateSummaryAsync(id, summary);
         return updated;
     }
