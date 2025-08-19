@@ -109,32 +109,7 @@ public class RecommendationController : ControllerBase
             .AppendLine("CVs:")
             .AppendLine(context)
             .ToString();
-        var raw = await _llm.GenerateAsync(prompt);
-        try
-        {
-            using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("LLM response was not a JSON array.");
-            return JsonSerializer.Serialize(doc.RootElement);
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-        {
-            throw new InvalidOperationException("Gemini response missing structured candidates", ex);
-        }
-    }
-
-    private async Task<string> SummarizeAsync(string raw)
-    {
-        var prompt = new StringBuilder()
-            .AppendLine("Convert the following recommendation into a JSON array of three objects with 'name' and 'reason' fields.")
-            .AppendLine("If not possible, return an empty array.")
-            .AppendLine(raw)
-            .ToString();
-        var json = await _llm.GenerateAsync(prompt);
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("LLM summary was not a JSON array.");
-        return JsonSerializer.Serialize(doc.RootElement);
+        return await _llm.GenerateAsync(prompt);
     }
 
     private async Task<string> SummarizeAsync(string raw)
