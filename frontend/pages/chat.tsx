@@ -12,14 +12,19 @@ export default function Chat() {
   const [query, setQuery] = useState('');
   const [topK, setTopK] = useState(5);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const submit = async () => {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      setError('Please enter a question.');
+      return;
+    }
     const userMessage: Message = { role: 'user', content: query };
     setMessages(prev => [...prev, userMessage]);
     const currentQuery = query;
     setQuery('');
     setError('');
+    setLoading(true);
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/chat/query`, {
         method: 'POST',
@@ -34,6 +39,8 @@ export default function Chat() {
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -69,8 +76,9 @@ export default function Chat() {
           value={topK}
           onChange={e => setTopK(Number(e.target.value))}
           className="topk"
+          title="Number of relevant documents to retrieve"
         />
-        <button onClick={submit}>Send</button>
+        <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
       </div>
       <Link href="/">
         <button className="back">Back</button>
