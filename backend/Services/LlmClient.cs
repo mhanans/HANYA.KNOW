@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 namespace backend.Services;
 
@@ -9,11 +10,13 @@ public class LlmClient
 {
     private readonly HttpClient _http;
     private readonly LlmOptions _options;
+    private readonly ILogger<LlmClient> _logger;
 
-    public LlmClient(HttpClient http, IOptions<LlmOptions> options)
+    public LlmClient(HttpClient http, IOptions<LlmOptions> options, ILogger<LlmClient> logger)
     {
         _http = http;
         _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<string> GenerateAsync(string prompt)
@@ -50,8 +53,31 @@ public class LlmClient
                 new { parts = new[] { new { text = prompt } } }
             }
         });
+
         res.EnsureSuccessStatusCode();
+
         using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
-        return doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty;
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("candidates", out var candidates) &&
+            candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
+        {
+            var cand = candidates[0];
+            if (cand.TryGetProperty("content", out var content) &&
+                content.TryGetProperty("parts", out var parts) &&
+                parts.ValueKind == JsonValueKind.Array && parts.GetArrayLength() > 0 &&
+                parts[0].TryGetProperty("text", out var text))
+            {
+                return text.GetString() ?? string.Empty;
+            }
+        }
+
+        // Log unexpected response for diagnostics
+        _logger.LogError("Unexpected Gemini response: {Response}", root.GetRawText());
+
+        if (root.TryGetProperty("error", out var error))
+            throw new InvalidOperationException($"Gemini API error: {error}");
+
+        throw new InvalidOperationException("Gemini response missing text");
     }
 }
