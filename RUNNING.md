@@ -14,10 +14,11 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```sql
    CREATE EXTENSION IF NOT EXISTS vector;
    ```
-3. Apply the provided schema:
-   ```bash
-   psql -d <db> -f schema.sql
-   ```
+3. Apply the provided schema (includes hybrid vector + language-agnostic full-text indexes):
+    ```bash
+    psql -d <db> -f schema.sql
+    ```
+   `schema.sql` defines `embedding vector(768)`; adjust the dimension if your model outputs a different size.
 
 ## Backend
 1. Navigate to the backend project:
@@ -29,9 +30,11 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    - `Embedding:BaseUrl` – defaults to `http://localhost:11434`
    - `Embedding:Model` – defaults to `nomic-embed-text`
    - `Embedding:Provider` – defaults to `ollama`
+   - `Embedding:Dimensions` – defaults to `768`; must match `schema.sql`
    - `Llm:Provider` – `openai` or `gemini`
    - `Llm:ApiKey` – API key for the chosen provider
    - `Llm:Model` – model name such as `gpt-3.5-turbo` or `gemini-pro`
+   - `Chat:CooldownSeconds` – minimum seconds between chat requests per client
 
 3. Restore and run the API:
    ```bash
@@ -54,4 +57,4 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    npm run dev
    ```
 
-Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs or text and `/chat` to query stored knowledge.
+Visit `http://localhost:3000` for the UI. Use `/ingest` to upload PDFs (multiple files supported) or text and `/chat` to query stored knowledge with citations and relevance warnings.
