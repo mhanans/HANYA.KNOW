@@ -114,6 +114,43 @@ export default function Cv() {
     }
   };
 
+  let modal: JSX.Element | null = null;
+  if (viewId !== null) {
+    const rec = recs.find(r => r.id === viewId);
+    let candidates: Candidate[] = [];
+    if (rec?.summaryJson) {
+      try { candidates = JSON.parse(rec.summaryJson); } catch { /* ignore */ }
+    }
+    modal = (
+      <div className="modal">
+        <div className="modal-content">
+          <h3>Top Candidates</h3>
+          {candidates.length ? (
+            <div className="cand-wrapper">
+              <div className="cand-grid head">
+                <div>No</div>
+                <div>Candidate Name</div>
+                <div>Reason</div>
+              </div>
+              {candidates.map((c, i) => (
+                <div className="cand-grid row" key={i}>
+                  <div>{i + 1}</div>
+                  <div>{c.name}</div>
+                  <div className="reason">{c.reason}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>No structured summary available.</p>
+          )}
+          <div className="actions">
+            <button onClick={() => setViewId(null)}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card cv-card">
       <h1>CV Recommendations</h1>
@@ -185,6 +222,8 @@ export default function Cv() {
           </div>
         );
       })()}
+
+      {modal}
 
       <style jsx>{`
         .cv-grid {

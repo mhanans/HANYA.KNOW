@@ -136,6 +136,20 @@ public class RecommendationController : ControllerBase
             throw new InvalidOperationException("LLM summary was not a JSON array.");
         return JsonSerializer.Serialize(doc.RootElement);
     }
+
+    private async Task<string> SummarizeAsync(string raw)
+    {
+        var prompt = new StringBuilder()
+            .AppendLine("Convert the following recommendation into a JSON array of three objects with 'name' and 'reason' fields.")
+            .AppendLine("If not possible, return an empty array.")
+            .AppendLine(raw)
+            .ToString();
+        var json = await _llm.GenerateAsync(prompt);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("LLM summary was not a JSON array.");
+        return JsonSerializer.Serialize(doc.RootElement);
+    }
 }
 
 public class RecommendationRequest
