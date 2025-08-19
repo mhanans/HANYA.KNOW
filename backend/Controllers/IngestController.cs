@@ -60,7 +60,6 @@ public class IngestController : ControllerBase
         {
             return Problem($"Failed to store document: {ex.Message}");
         }
-
         return Ok();
     }
 }

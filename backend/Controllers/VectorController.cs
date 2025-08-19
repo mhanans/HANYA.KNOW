@@ -22,7 +22,6 @@ public class VectorController : ControllerBase
 
         if (request.TopK <= 0)
             return BadRequest("TopK must be greater than 0.");
-
         var results = await _store.SearchAsync(request.Query, request.TopK);
         return results.Select(r => new SearchResult { Content = r.Content, Score = r.Score }).ToList();
     }

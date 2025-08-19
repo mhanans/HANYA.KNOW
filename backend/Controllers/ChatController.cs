@@ -43,7 +43,6 @@ public class ChatController : ControllerBase
         {
             return Problem($"LLM call failed: {ex.Message}");
         }
-
         var citations = results.Select(r => r.Content).ToList();
         return new ChatResponse { Answer = answer, Sources = citations };
     }
