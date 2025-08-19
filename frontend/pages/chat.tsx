@@ -42,12 +42,16 @@ export default function Chat() {
       if (!res.ok) {
         let msg = res.statusText;
         try {
-          const text = await res.text();
-          if (!text.startsWith('<')) msg = text || msg;
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
         } catch {
-          /* ignore */
+          try {
+            msg = await res.text();
+          } catch {
+            /* ignore */
+          }
         }
-        throw new Error(`Request failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
+        throw new Error(`Request failed: ${msg}`);
       }
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources, lowConfidence: data.lowConfidence }]);

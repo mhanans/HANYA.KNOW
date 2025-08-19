@@ -1,6 +1,7 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
+using System.Collections.Generic;
 using UglyToad.PdfPig;
 
 namespace backend.Controllers;
@@ -60,9 +61,13 @@ public class IngestController : ControllerBase
             {
                 await _store.IngestAsync(title, text);
             }
+            catch (InvalidOperationException ex)
+            {
+                return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
+            }
             catch (Exception ex)
             {
-                return Problem($"Failed to store document '{title}': {ex.Message}");
+                return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{title}'");
             }
         }
 

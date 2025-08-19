@@ -9,6 +9,7 @@ MVP knowledge base with retrieval augmented generation.
   - `POST /api/ingest` – upload text or one/many PDF files
   - `POST /api/vector/search`
   - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations
+  - full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
 ## Frontend
 - Next.js client with pages for ingesting PDFs and chatting.

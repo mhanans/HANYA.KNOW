@@ -14,7 +14,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```sql
    CREATE EXTENSION IF NOT EXISTS vector;
    ```
-3. Apply the provided schema (includes hybrid vector + full-text indexes):
+3. Apply the provided schema (includes hybrid vector + language-agnostic full-text indexes):
    ```bash
    psql -d <db> -f schema.sql
    ```

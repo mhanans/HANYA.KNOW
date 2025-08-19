@@ -45,7 +45,7 @@ public class VectorStore
         await conn.OpenAsync();
         var sql = @"SELECT title, content,
                 0.5 * (1 - (embedding <=> @embedding)) +
-                0.5 * ts_rank_cd(content_tsv, plainto_tsquery(@q)) AS score
+                0.5 * ts_rank_cd(content_tsv, plainto_tsquery('simple', @q)) AS score
             FROM documents
             ORDER BY score DESC
             LIMIT @k";

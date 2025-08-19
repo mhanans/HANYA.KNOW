@@ -1,6 +1,7 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
+using System.Collections.Generic;
 
 namespace backend.Controllers;
 
@@ -26,7 +27,19 @@ public class ChatController : ControllerBase
         if (request.TopK <= 0)
             return BadRequest("TopK must be greater than 0.");
 
-        var results = await _store.SearchAsync(request.Query, request.TopK);
+        List<(string Title, string Content, double Score)> results;
+        try
+        {
+            results = await _store.SearchAsync(request.Query, request.TopK);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(detail: ex.Message, statusCode: 502, title: "Search failed");
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: ex.Message, statusCode: 500, title: "Search failed");
+        }
         var context = string.Join("\n", results.Select(r => $"[{r.Title}] {r.Content}"));
         var prompt = new StringBuilder()
             .AppendLine("Use the following context to answer the question with citations.")
@@ -41,7 +54,7 @@ public class ChatController : ControllerBase
         }
         catch (Exception ex)
         {
-            return Problem($"LLM call failed: {ex.Message}");
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
         var sources = results.Select(r => new Source
         {

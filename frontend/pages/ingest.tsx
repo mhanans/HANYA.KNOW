@@ -26,12 +26,16 @@ export default function Ingest() {
       if (!res.ok) {
         let msg = res.statusText;
         try {
-          const text = await res.text();
-          if (!text.startsWith('<')) msg = text || msg;
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
         } catch {
-          /* ignore */
+          try {
+            msg = await res.text();
+          } catch {
+            /* ignore */
+          }
         }
-        setStatus(`Upload failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
+        setStatus(`Upload failed: ${msg}`);
         return;
       }
       setStatus('Upload successful');
@@ -57,7 +61,7 @@ export default function Ingest() {
           onChange={e => setText(e.target.value)}
         />
         <button onClick={submit}>Upload</button>
-        {status && <p className={status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
+        {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
         <Link href="/"><button className="secondary">Back</button></Link>
       </div>
       <style jsx>{`

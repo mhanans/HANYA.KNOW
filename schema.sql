@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS documents (
     id SERIAL PRIMARY KEY,
     title TEXT,
     content TEXT NOT NULL,
-    content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
+    content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
     embedding vector(1536) NOT NULL
 );
 
