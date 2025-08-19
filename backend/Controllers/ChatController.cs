@@ -1,5 +1,6 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
 
 namespace backend.Controllers;
 
@@ -8,17 +9,25 @@ namespace backend.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly VectorStore _store;
+    private readonly LlmClient _llm;
 
-    public ChatController(VectorStore store)
+    public ChatController(VectorStore store, LlmClient llm)
     {
         _store = store;
+        _llm = llm;
     }
 
     [HttpPost("query")]
     public async Task<ActionResult<ChatResponse>> Query(ChatQueryRequest request)
     {
         var results = await _store.SearchAsync(request.Query, request.TopK);
-        var answer = string.Join("\n", results.Select(r => r.Content));
+        var context = string.Join("\n", results.Select(r => r.Content));
+        var prompt = new StringBuilder()
+            .AppendLine("Use the following context to answer the question with citations.")
+            .AppendLine(context)
+            .AppendLine($"Question: {request.Query}")
+            .ToString();
+        var answer = await _llm.GenerateAsync(prompt);
         var citations = results.Select(r => r.Content).ToList();
         return new ChatResponse { Answer = answer, Sources = citations };
     }

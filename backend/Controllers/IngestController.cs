@@ -1,5 +1,7 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
+using UglyToad.PdfPig;
 
 namespace backend.Controllers;
 
@@ -21,8 +23,24 @@ public class IngestController : ControllerBase
         string text = form.Text ?? string.Empty;
         if (form.File != null)
         {
-            using var reader = new StreamReader(form.File.OpenReadStream());
-            text = await reader.ReadToEndAsync();
+            if (form.File.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                await using var ms = new MemoryStream();
+                await form.File.CopyToAsync(ms);
+                ms.Position = 0;
+                using var pdf = PdfDocument.Open(ms);
+                var sb = new StringBuilder();
+                foreach (var page in pdf.GetPages())
+                {
+                    sb.AppendLine(page.Text);
+                }
+                text = sb.ToString();
+            }
+            else
+            {
+                using var reader = new StreamReader(form.File.OpenReadStream());
+                text = await reader.ReadToEndAsync();
+            }
         }
         if (string.IsNullOrWhiteSpace(text))
             return BadRequest("No text provided");

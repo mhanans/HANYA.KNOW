@@ -11,6 +11,8 @@ builder.Services.Configure<PostgresOptions>(builder.Configuration.GetSection("Co
 builder.Services.Configure<EmbeddingOptions>(builder.Configuration.GetSection("Embedding"));
 builder.Services.AddSingleton<EmbeddingClient>();
 builder.Services.AddSingleton<VectorStore>();
+builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
+builder.Services.AddHttpClient<LlmClient>();
 
 var app = builder.Build();
 app.UseSwagger();

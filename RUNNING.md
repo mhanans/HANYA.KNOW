@@ -28,6 +28,10 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    - `ConnectionStrings:Postgres` – PostgreSQL connection string
    - `Embedding:BaseUrl` – URL of embedding service
    - `Embedding:Model` – model name to request from the embedding service
+   - `Llm:Provider` – `openai` or `gemini`
+   - `Llm:ApiKey` – API key for the chosen provider
+   - `Llm:Model` – model name such as `gpt-3.5-turbo` or `gemini-pro`
+
 3. Restore and run the API:
    ```bash
    dotnet restore
