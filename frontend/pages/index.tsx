@@ -67,9 +67,6 @@ export default function Home() {
             flex-direction: column;
           }
         }
-        .actions :global(.btn) {
-          width: 100%;
-        }
       `}</style>
     </div>
   );

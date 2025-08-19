@@ -6,7 +6,8 @@ const navItems = [
   { href: '/', label: 'Home' },
   { href: '/documents', label: 'Manage Documents' },
   { href: '/chat', label: 'Chat' },
-  { href: '/categories', label: 'Manage Categories' }
+  { href: '/categories', label: 'Manage Categories' },
+  { href: '/cv', label: 'CV Recommendations' }
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
