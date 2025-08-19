@@ -36,5 +36,6 @@ CREATE TABLE IF NOT EXISTS cv_recommendations (
     position TEXT NOT NULL,
     details TEXT NOT NULL,
     summary TEXT NOT NULL,
+    summary_json TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
