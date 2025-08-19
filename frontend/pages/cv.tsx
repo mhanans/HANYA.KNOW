@@ -127,18 +127,24 @@ export default function Cv() {
           <h3>Top Candidates</h3>
           {candidates.length ? (
             <div className="cand-wrapper">
-              <div className="cand-grid head">
-                <div>No</div>
-                <div>Candidate Name</div>
-                <div>Reason</div>
-              </div>
-              {candidates.map((c, i) => (
-                <div className="cand-grid row" key={i}>
-                  <div>{i + 1}</div>
-                  <div>{c.name}</div>
-                  <div className="reason">{c.reason}</div>
-                </div>
-              ))}
+              <table className="cand-table">
+                <thead>
+                  <tr>
+                    <th>No</th>
+                    <th>Candidate Name</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidates.map((c, i) => (
+                    <tr key={i}>
+                      <td>{i + 1}</td>
+                      <td>{c.name}</td>
+                      <td className="reason">{c.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <p>No structured summary available.</p>
@@ -168,24 +174,32 @@ export default function Cv() {
       {status && <p className="error">{status}</p>}
 
       <h2>Assessments</h2>
-      <div className="rec-grid head">
-        <div>Position</div>
-        <div>Details</div>
-        <div>Generated</div>
-        <div>Actions</div>
+      <div className="table-wrapper">
+        <table className="rec-table">
+          <thead>
+            <tr>
+              <th>Position</th>
+              <th>Details</th>
+              <th>Generated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recs.map(r => (
+              <tr key={r.id}>
+                <td className="name">{r.position}</td>
+                <td className="detail">{r.details}</td>
+                <td>{new Date(r.createdAt).toLocaleString()}</td>
+                <td className="actions">
+                  <button onClick={() => setViewId(r.id)}>View Result</button>
+                  <button onClick={() => retry(r.id)}>Retry</button>
+                  <button onClick={() => retrySummary(r.id)}>Retry Summary</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {recs.map(r => (
-        <div key={r.id} className="rec-grid row">
-          <div className="name">{r.position}</div>
-          <div className="detail">{r.details}</div>
-          <div>{new Date(r.createdAt).toLocaleString()}</div>
-          <div className="actions">
-            <button onClick={() => setViewId(r.id)}>View Result</button>
-            <button onClick={() => retry(r.id)}>Retry</button>
-            <button onClick={() => retrySummary(r.id)}>Retry Summary</button>
-          </div>
-        </div>
-      ))}
 
       {modal}
 
@@ -198,34 +212,40 @@ export default function Cv() {
         .cv-grid textarea {
           min-height: 80px;
         }
-        .rec-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr 150px auto;
-          gap: 0.5rem;
-          align-items: start;
-          padding: 0.25rem 0;
+        .table-wrapper { overflow-x: auto; }
+        .rec-table {
+          width: 100%;
+          border-collapse: collapse;
         }
-        .rec-grid.head {
-          font-weight: 600;
+        .rec-table th, .rec-table td {
+          padding: 0.5rem;
+          text-align: left;
+          border-top: 1px solid #ddd;
+        }
+        .rec-table thead {
           background: #e0e7ff;
-          padding: 0.5rem;
-        }
-        .rec-grid.row {
-          border-top: 1px solid #ddd;
-        }
-        .cand-grid {
-          display: grid;
-          grid-template-columns: 40px 1fr 2fr;
-          gap: 0.5rem;
-          padding: 0.25rem 0;
-        }
-        .cand-grid.head {
           font-weight: 600;
-          background: #f3f4f6;
-          padding: 0.5rem;
         }
-        .cand-grid.row {
+        .rec-table .actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .cand-wrapper { overflow-x: auto; }
+        .cand-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .cand-table th, .cand-table td {
+          padding: 0.5rem;
+          text-align: left;
           border-top: 1px solid #ddd;
+        }
+        .cand-table thead {
+          background: #f3f4f6;
+          font-weight: 600;
+        }
+        .cand-table .reason {
+          word-break: break-word;
         }
         .modal {
           position: fixed;
@@ -248,14 +268,7 @@ export default function Cv() {
           .cv-grid {
             grid-template-columns: 1fr;
           }
-          .rec-grid {
-            grid-template-columns: 1fr;
-          }
-          .rec-grid.head { display: none; }
-          .cand-grid {
-            grid-template-columns: 1fr;
-          }
-          .cand-grid.head { display: none; }
+          .table-wrapper { width: 100%; }
         }
       `}</style>
     </div>

@@ -97,9 +97,8 @@ export default function Ingest() {
           display: flex;
           flex-direction: column;
           gap: 0.75rem;
-          align-items: center;
           width: 100%;
-          max-width: 400px;
+          max-width: none;
         }
         .hint {
           text-align: center;

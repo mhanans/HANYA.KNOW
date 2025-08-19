@@ -124,31 +124,41 @@ export default function Documents() {
       {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
 
       <h2>Existing Documents</h2>
-      <div className="doc-grid head">
-        <div>Document</div>
-        <div>Category</div>
-        <div>Actions</div>
-      </div>
-      {docs.map(d => (
-        <div className="doc-grid row" key={d.source}>
-          <div className="name">{d.source}</div>
-          <select
-            value={d.categoryId ?? ''}
-            onChange={e =>
-              setDocs(prev => prev.map(p => p.source === d.source ? { ...p, categoryId: e.target.value ? Number(e.target.value) : null } : p))
-            }
-          >
-            <option value="">No category</option>
-            {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+      <div className="table-wrapper">
+        <table className="doc-table">
+          <thead>
+            <tr>
+              <th>Document</th>
+              <th>Category</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map(d => (
+              <tr key={d.source}>
+                <td className="name">{d.source}</td>
+                <td>
+                  <select
+                    value={d.categoryId ?? ''}
+                    onChange={e =>
+                      setDocs(prev => prev.map(p => p.source === d.source ? { ...p, categoryId: e.target.value ? Number(e.target.value) : null } : p))
+                    }
+                  >
+                    <option value="">No category</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </td>
+                <td className="actions">
+                  <button onClick={() => save(d)}>Save</button>
+                  <button onClick={() => remove(d.source)}>Delete</button>
+                </td>
+              </tr>
             ))}
-          </select>
-          <div className="actions">
-            <button onClick={() => save(d)}>Save</button>
-            <button onClick={() => remove(d.source)}>Delete</button>
-          </div>
-        </div>
-      ))}
+          </tbody>
+        </table>
+      </div>
 
       <style jsx>{`
         .docs-card { max-width: none; }
@@ -164,25 +174,30 @@ export default function Documents() {
         }
         .upload-grid select { width: 100%; }
         .actions { margin-top: 0.5rem; }
-        .doc-grid {
-          display: grid;
-          grid-template-columns: 1fr 200px auto;
-          gap: 0.5rem;
-          align-items: center;
-          padding: 0.25rem 0;
+        .table-wrapper { overflow-x: auto; }
+        .doc-table {
+          width: 100%;
+          border-collapse: collapse;
         }
-        .doc-grid.head { font-weight: 600; background: #e0e7ff; padding: 0.5rem; }
-        .doc-grid.row { border-top: 1px solid #ddd; }
-        .doc-grid .name { overflow-wrap: anywhere; }
+        .doc-table th, .doc-table td {
+          padding: 0.5rem;
+          text-align: left;
+          border-top: 1px solid #ddd;
+        }
+        .doc-table thead {
+          background: #e0e7ff;
+          font-weight: 600;
+        }
+        .doc-table .actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .doc-table .name {
+          word-break: break-word;
+        }
         @media (max-width: 600px) {
           .upload-grid {
             grid-template-columns: 1fr;
-          }
-          .doc-grid {
-            grid-template-columns: 1fr;
-          }
-          .doc-grid.head {
-            display: none;
           }
         }
       `}</style>
