@@ -20,14 +20,16 @@ public class ChatController : ControllerBase
     private readonly ILogger<ChatController> _logger;
     private readonly IMemoryCache _cache;
     private readonly ChatOptions _options;
+    private readonly StatsStore _stats;
 
-    public ChatController(VectorStore store, LlmClient llm, ILogger<ChatController> logger, IMemoryCache cache, IOptions<ChatOptions> options)
+    public ChatController(VectorStore store, LlmClient llm, ILogger<ChatController> logger, IMemoryCache cache, IOptions<ChatOptions> options, StatsStore stats)
     {
         _store = store;
         _llm = llm;
         _logger = logger;
         _cache = cache;
         _options = options.Value;
+        _stats = stats;
     }
 
     [HttpPost("query")]
@@ -100,6 +102,14 @@ public class ChatController : ControllerBase
             Score = r.Score
         }).ToList();
         var lowConfidence = sources.Count == 0 || sources[0].Score < 0.5;
+        try
+        {
+            await _stats.LogChatAsync(request.Query);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
+        }
         return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = lowConfidence };
     }
 }
