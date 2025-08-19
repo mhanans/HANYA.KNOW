@@ -8,6 +8,6 @@
     <PackageReference Include="Npgsql" Version="8.0.3" />
     <PackageReference Include="pgvector" Version="0.2.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.0.0" />
-    <PackageReference Include="UglyToad.PdfPig" Version="0.2.0" />
+    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
 </Project>
