@@ -93,18 +93,3 @@ input, textarea {
   padding: 1rem 2rem;
   overflow-y: auto;
 }
-
-@media (max-width: 600px) {
-  .layout {
-    flex-direction: column;
-  }
-  .sidebar {
-    width: 100%;
-    display: flex;
-    overflow-x: auto;
-  }
-  .sidebar nav a {
-    display: inline-block;
-    margin-right: 0.5rem;
-  }
-}

@@ -101,6 +101,12 @@ public class IngestController : ControllerBase
 
         return Ok();
     }
+
+    private static IEnumerable<string> Chunk(string text, int size)
+    {
+        for (int i = 0; i < text.Length; i += size)
+            yield return text.Substring(i, Math.Min(size, text.Length - i));
+    }
 }
 
 public class IngestForm
