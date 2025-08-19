@@ -119,7 +119,18 @@ public class RecommendationController : ControllerBase
             .AppendLine("If not possible, return an empty array.")
             .AppendLine(raw)
             .ToString();
-        var json = await _llm.GenerateAsync(prompt);
+        var json = (await _llm.GenerateAsync(prompt)).Trim();
+
+        if (json.StartsWith("```"))
+        {
+            var start = json.IndexOf('\n');
+            var end = json.LastIndexOf("```");
+            if (start >= 0 && end > start)
+                json = json.Substring(start + 1, end - start - 1).Trim();
+            else
+                json = json.Trim('`');
+        }
+
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException("LLM summary was not a JSON array.");
