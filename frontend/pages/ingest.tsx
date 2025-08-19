@@ -9,6 +9,10 @@ export default function Ingest() {
 
   const submit = async () => {
     setStatus('');
+    if (!file && !text.trim()) {
+      setStatus('Please provide a PDF file or some text to upload.');
+      return;
+    }
     const form = new FormData();
     if (file) form.append('file', file);
     if (title) form.append('title', title);
@@ -31,39 +35,46 @@ export default function Ingest() {
 
   return (
     <div className="container">
-      <h1>Upload Document</h1>
-      <input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
-      <input
-        placeholder="Title (optional)"
-        value={title}
-        onChange={e => setTitle(e.target.value)}
-      />
-      <textarea
-        placeholder="Fallback text"
-        value={text}
-        onChange={e => setText(e.target.value)}
-      />
-      <button onClick={submit}>Upload</button>
-      {status && <p>{status}</p>}
-      <Link href="/"><button>Back</button></Link>
+      <div className="card ingest-card">
+        <h1>Upload Document</h1>
+        <p className="hint">Provide a PDF or paste text below to add it to the knowledge base.</p>
+        <input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
+        <input
+          placeholder="Title (optional)"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+        />
+        <textarea
+          placeholder="Fallback text"
+          value={text}
+          onChange={e => setText(e.target.value)}
+        />
+        <button onClick={submit}>Upload</button>
+        {status && <p className={status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
+        <Link href="/"><button className="secondary">Back</button></Link>
+      </div>
       <style jsx>{`
-        .container {
+        .ingest-card {
           display: flex;
           flex-direction: column;
+          gap: 0.75rem;
           align-items: center;
-          gap: 0.5rem;
-          padding: 2rem;
-        }
-        input, textarea {
           width: 100%;
           max-width: 400px;
-          padding: 0.5rem;
+        }
+        .hint {
+          color: #666;
+          text-align: center;
         }
         textarea {
           min-height: 100px;
+          width: 100%;
         }
-        button {
-          padding: 0.5rem 1rem;
+        .error {
+          color: #e00;
+        }
+        .success {
+          color: #008000;
         }
       `}</style>
     </div>
