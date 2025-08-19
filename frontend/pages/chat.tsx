@@ -1,55 +1,98 @@
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface Source {
+  index: number;
+  file: string;
+  page?: number;
+  content: string;
+  score: number;
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  sources?: string[];
+  sources?: Source[];
+  lowConfidence?: boolean;
+}
+
+interface Category {
+  id: number;
+  name: string;
 }
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
-  const [topK, setTopK] = useState(5);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lastQuery, setLastQuery] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selected, setSelected] = useState<number[]>([]);
 
-  const submit = async () => {
-    if (!query.trim()) {
+  useEffect(() => {
+    const load = async () => {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      try {
+        const res = await fetch(`${base}/api/categories`);
+        if (res.ok) setCategories(await res.json());
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+  }, []);
+
+  const send = async (text: string, addUser: boolean) => {
+    if (!text.trim()) {
       setError('Please enter a question.');
       return;
     }
-    const userMessage: Message = { role: 'user', content: query };
-    setMessages(prev => [...prev, userMessage]);
-    const currentQuery = query;
-    setQuery('');
+    if (addUser) {
+      const userMessage: Message = { role: 'user', content: text };
+      setMessages(prev => [...prev, userMessage]);
+    }
+    setLastQuery(text);
     setError('');
     setLoading(true);
     try {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       const res = await fetch(`${base}/api/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: currentQuery, topK })
+        body: JSON.stringify({ query: text, categoryIds: selected })
       });
       if (!res.ok) {
         let msg = res.statusText;
         try {
-          const text = await res.text();
-          if (!text.startsWith('<')) msg = text || msg;
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
         } catch {
-          /* ignore */
+          try {
+            msg = await res.text();
+          } catch {
+            /* ignore */
+          }
         }
-        throw new Error(`Request failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
+        throw new Error(`Request failed: ${msg}`);
       }
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources, lowConfidence: data.lowConfidence }]);
+      setLastQuery('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   };
+
+  const submit = () => {
+    const currentQuery = query;
+    setQuery('');
+    send(currentQuery, true);
+  };
+
+  const retry = () => send(lastQuery, false);
 
   return (
     <div className="container">
@@ -58,17 +101,31 @@ export default function Chat() {
           {messages.map((m, i) => (
             <div key={i} className={`msg ${m.role}`}>
               <div className="bubble">{m.content}</div>
-              {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
+              {m.role === 'assistant' && m.lowConfidence && (
+                <p className="warn">Low relevance of retrieved articles.</p>
+              )}
+          {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
                 <ul className="sources">
-                  {m.sources.map((s, idx) => (
-                    <li key={idx}>{s}</li>
+                  {m.sources.map((s) => (
+                    <li key={s.index}>
+                      <strong>
+                        [{s.index}] {s.file}
+                        {s.page !== undefined && ` (p.${s.page})`}
+                      </strong>
+                      <span className="score">relevance {(s.score * 100).toFixed(1)}%</span>
+                    </li>
                   ))}
                 </ul>
               )}
             </div>
           ))}
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error">
+            {error}{' '}
+            {lastQuery && <button onClick={retry} disabled={loading}>Retry</button>}
+          </p>
+        )}
         <div className="controls">
           <input
             placeholder="Ask a question"
@@ -78,14 +135,14 @@ export default function Chat() {
               if (e.key === 'Enter') submit();
             }}
           />
-          <input
-            type="number"
-            min={1}
-            value={topK}
-            onChange={e => setTopK(Number(e.target.value))}
-            className="topk"
-            title="Number of relevant documents to retrieve"
-          />
+          <select multiple value={selected.map(String)} onChange={e => {
+            const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
+            setSelected(opts);
+          }}>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
           <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
         </div>
         <Link href="/">
@@ -131,19 +188,31 @@ export default function Chat() {
           color: #555;
           margin-left: 0.5rem;
         }
+        .warn {
+          color: #b36b00;
+          font-size: 0.8rem;
+          margin-left: 0.5rem;
+        }
         .controls {
           display: flex;
           gap: 0.5rem;
         }
-        .controls input:not(.topk) {
+        .controls input {
           flex: 1;
         }
-        .topk {
-          width: 4rem;
+        .controls select {
+          min-width: 120px;
+        }
+        .score {
+          margin-left: 0.25rem;
+          color: #555;
         }
         .error {
           color: #e00;
           margin-bottom: 0.5rem;
+        }
+        .error button {
+          margin-left: 0.5rem;
         }
         .back {
           margin-top: 0.5rem;

@@ -1,7 +1,10 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
+using System.Collections.Generic;
+using System.IO;
 using UglyToad.PdfPig;
+using Microsoft.Extensions.Logging;
 
 namespace backend.Controllers;
 
@@ -10,63 +13,106 @@ namespace backend.Controllers;
 public class IngestController : ControllerBase
 {
     private readonly VectorStore _store;
+    private readonly ILogger<IngestController> _logger;
 
-    public IngestController(VectorStore store)
+    public IngestController(VectorStore store, ILogger<IngestController> logger)
     {
         _store = store;
+        _logger = logger;
     }
 
     [HttpPost]
-    [RequestSizeLimit(25_000_000)]
+    [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> Post([FromForm] IngestForm form)
     {
-        if (form.File == null && string.IsNullOrWhiteSpace(form.Text))
-            return BadRequest("Provide a PDF file in 'file' or text in the 'text' field.");
+        _logger.LogInformation("Ingest request received: {FileCount} files, text length {TextLength}, category {Category}",
+            form.Files?.Count ?? 0, form.Text?.Length ?? 0, form.CategoryId);
 
-        string text = form.Text ?? string.Empty;
+        if ((form.Files == null || form.Files.Count == 0) && string.IsNullOrWhiteSpace(form.Text))
+            return BadRequest("Provide one or more PDF files in 'files' or text in the 'text' field.");
 
-        if (form.File != null)
+        if (form.Files != null)
         {
-            if (!form.File.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                return BadRequest("Unsupported file type. Only PDF files are accepted.");
-
-            try
+            foreach (var file in form.Files)
             {
-                await using var ms = new MemoryStream();
-                await form.File.CopyToAsync(ms);
-                ms.Position = 0;
-                using var pdf = PdfDocument.Open(ms);
-                var sb = new StringBuilder();
-                foreach (var page in pdf.GetPages())
+                if (!file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest("Unsupported file type. Only PDF files are accepted.");
+                try
                 {
-                    sb.AppendLine(page.Text);
+                    await using var ms = new MemoryStream();
+                    await file.CopyToAsync(ms);
+                    ms.Position = 0;
+                    using var pdf = PdfDocument.Open(ms);
+                    var pageNo = 1;
+                    foreach (var page in pdf.GetPages())
+                    {
+                        var text = page.Text;
+                        if (string.IsNullOrWhiteSpace(text)) { pageNo++; continue; }
+                        try
+                        {
+                            await _store.IngestAsync(file.FileName, pageNo, text, form.CategoryId);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            _logger.LogError(ex, "Failed to store document {File} page {Page}", file.FileName, pageNo);
+                            return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{file.FileName}'");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Unexpected failure storing document {File} page {Page}", file.FileName, pageNo);
+                            return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{file.FileName}'");
+                        }
+                        pageNo++;
+                    }
                 }
-                text = sb.ToString();
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to read PDF {File}", file.FileName);
+                    return BadRequest($"Failed to read PDF '{file.FileName}': {ex.Message}");
+                }
             }
-            catch (Exception ex)
+        }
+
+        if (!string.IsNullOrWhiteSpace(form.Text))
+        {
+            var title = string.IsNullOrWhiteSpace(form.Title)
+                ? (form.Text.Length > 30 ? form.Text[..30] + "..." : form.Text)
+                : form.Title;
+            int chunkIdx = 1;
+            foreach (var chunk in Chunk(form.Text, 500))
             {
-                return BadRequest($"Failed to read PDF: {ex.Message}");
+                try
+                {
+                    await _store.IngestAsync(title, null, chunk, form.CategoryId);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogError(ex, "Failed to store text chunk {Index} for {Title}", chunkIdx, title);
+                    return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unexpected failure storing text chunk {Index} for {Title}", chunkIdx, title);
+                    return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{title}'");
+                }
+                chunkIdx++;
             }
         }
 
-        if (string.IsNullOrWhiteSpace(text))
-            return BadRequest("Extracted text is empty. Check your file or input.");
-
-        try
-        {
-            await _store.IngestAsync(form.Title ?? form.File?.FileName ?? "document", text);
-        }
-        catch (Exception ex)
-        {
-            return Problem($"Failed to store document: {ex.Message}");
-        }
         return Ok();
     }
 }
 
 public class IngestForm
 {
-    public IFormFile? File { get; set; }
+    public List<IFormFile>? Files { get; set; }
     public string? Title { get; set; }
     public string? Text { get; set; }
+    public int? CategoryId { get; set; }
+}
+
+static IEnumerable<string> Chunk(string text, int size)
+{
+    for (int i = 0; i < text.Length; i += size)
+        yield return text.Substring(i, Math.Min(size, text.Length - i));
 }

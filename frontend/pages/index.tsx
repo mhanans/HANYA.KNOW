@@ -9,6 +9,7 @@ export default function Home() {
         <div className="actions">
           <Link href="/ingest"><button>Upload Document</button></Link>
           <Link href="/chat"><button>Ask the Docs</button></Link>
+          <Link href="/categories"><button>Manage Categories</button></Link>
         </div>
       </div>
       <style jsx>{`

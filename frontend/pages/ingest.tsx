@@ -1,24 +1,45 @@
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface Category {
+  id: number;
+  name: string;
+}
 
 export default function Ingest() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [category, setCategory] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      try {
+        const res = await fetch(`${base}/api/categories`);
+        if (res.ok) setCategories(await res.json());
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+  }, []);
 
   const submit = async () => {
     setStatus('');
-    if (!file && !text.trim()) {
-      setStatus('Please provide a PDF file or some text to upload.');
+    if (files.length === 0 && !text.trim()) {
+      setStatus('Please provide one or more PDF files or some text to upload.');
       return;
     }
     const form = new FormData();
-    if (file) form.append('file', file);
-    if (title) form.append('title', title);
+    files.forEach(f => form.append('files', f));
+    if (title && text) form.append('title', title);
     if (text) form.append('text', text);
+    if (category) form.append('categoryId', category);
     try {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       const res = await fetch(`${base}/api/ingest`, {
         method: 'POST',
         body: form
@@ -26,12 +47,16 @@ export default function Ingest() {
       if (!res.ok) {
         let msg = res.statusText;
         try {
-          const text = await res.text();
-          if (!text.startsWith('<')) msg = text || msg;
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
         } catch {
-          /* ignore */
+          try {
+            msg = await res.text();
+          } catch {
+            /* ignore */
+          }
         }
-        setStatus(`Upload failed: ${msg} (${res.status}). Ensure the API server is reachable.`);
+        setStatus(`Upload failed: ${msg}`);
         return;
       }
       setStatus('Upload successful');
@@ -44,20 +69,26 @@ export default function Ingest() {
     <div className="container">
       <div className="card ingest-card">
         <h1>Upload Document</h1>
-        <p className="hint">Provide a PDF or paste text below to add it to the knowledge base.</p>
-        <input type="file" onChange={e => setFile(e.target.files?.[0] ?? null)} />
+        <p className="hint">Provide PDF files or paste text below to add them to the knowledge base.</p>
+        <input type="file" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
         <input
-          placeholder="Title (optional)"
+          placeholder="Document title (optional)"
           value={title}
           onChange={e => setTitle(e.target.value)}
         />
         <textarea
-          placeholder="Fallback text"
+          placeholder="Text content (optional)"
           value={text}
           onChange={e => setText(e.target.value)}
         />
+        <select value={category} onChange={e => setCategory(e.target.value)}>
+          <option value="">No category</option>
+          {categories.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
         <button onClick={submit}>Upload</button>
-        {status && <p className={status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
+        {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
         <Link href="/"><button className="secondary">Back</button></Link>
       </div>
       <style jsx>{`
@@ -75,6 +106,9 @@ export default function Ingest() {
         }
         textarea {
           min-height: 100px;
+          width: 100%;
+        }
+        select {
           width: 100%;
         }
         .error {
