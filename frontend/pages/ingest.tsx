@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { useState, useEffect } from 'react';
 
 interface Category {
@@ -66,31 +65,28 @@ export default function Ingest() {
   };
 
   return (
-    <div className="container">
-      <div className="card ingest-card">
-        <h1>Upload Document</h1>
-        <p className="hint">Provide PDF files or paste text below to add them to the knowledge base.</p>
-        <input type="file" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
-        <input
-          placeholder="Document title (optional)"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-        />
-        <textarea
-          placeholder="Text content (optional)"
-          value={text}
-          onChange={e => setText(e.target.value)}
-        />
-        <select value={category} onChange={e => setCategory(e.target.value)}>
-          <option value="">No category</option>
-          {categories.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <button onClick={submit}>Upload</button>
-        {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
-        <Link href="/"><button className="secondary">Back</button></Link>
-      </div>
+    <div className="card ingest-card">
+      <h1>Upload Document</h1>
+      <p className="hint">Provide PDF files or paste text below to add them to the knowledge base.</p>
+      <input type="file" multiple onChange={e => setFiles(Array.from(e.target.files ?? []))} />
+      <input
+        placeholder="Document title (optional)"
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+      />
+      <textarea
+        placeholder="Text content (optional)"
+        value={text}
+        onChange={e => setText(e.target.value)}
+      />
+      <select value={category} onChange={e => setCategory(e.target.value)}>
+        <option value="">No category</option>
+        {categories.map(c => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      <button onClick={submit}>Upload</button>
+      {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
       <style jsx>{`
         .ingest-card {
           display: flex;

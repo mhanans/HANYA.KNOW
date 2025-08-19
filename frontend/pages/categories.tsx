@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { useState, useEffect } from 'react';
 
 interface Category {
@@ -71,27 +70,42 @@ export default function Categories() {
   };
 
   return (
-    <div className="container">
-      <div className="card">
-        <h1>Categories</h1>
-        <div className="new-cat">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" />
-          <button onClick={create}>Add</button>
-        </div>
-        {categories.map(c => (
-          <div key={c.id} className="row">
-            <input value={c.name} onChange={e => setCategories(prev => prev.map(p => p.id === c.id ? { ...p, name: e.target.value } : p))} />
-            <button onClick={() => update(c.id, c.name)}>Save</button>
-            <button onClick={() => remove(c.id)}>Delete</button>
-          </div>
-        ))}
-        {error && <p className="error">{error}</p>}
-        <Link href="/"><button className="secondary">Back</button></Link>
+    <div className="card categories-card">
+      <h1>Categories</h1>
+      <div className="new-cat">
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" />
+        <button onClick={create}>Add</button>
       </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {categories.map(c => (
+            <tr key={c.id}>
+              <td>
+                <input value={c.name} onChange={e => setCategories(prev => prev.map(p => p.id === c.id ? { ...p, name: e.target.value } : p))} />
+              </td>
+              <td>
+                <button onClick={() => update(c.id, c.name)}>Save</button>
+                <button onClick={() => remove(c.id)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {error && <p className="error">{error}</p>}
       <style jsx>{`
-        .row { display: flex; gap: 0.5rem; margin: 0.25rem 0; }
+        .categories-card { max-width: none; }
         .new-cat { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
-        .error { color: #e00; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 0.5rem; }
+        th { background: #e0e7ff; text-align: left; }
+        td button { margin-right: 0.5rem; }
+        .error { color: #e00; margin-top: 0.5rem; }
       `}</style>
     </div>
   );

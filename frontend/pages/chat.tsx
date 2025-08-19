@@ -1,13 +1,4 @@
-import Link from 'next/link';
 import { useState, useEffect } from 'react';
-
-interface Source {
-  index: number;
-  file: string;
-  page?: number;
-  content: string;
-  score: number;
-}
 
 interface Source {
   index: number;
@@ -103,65 +94,61 @@ export default function Chat() {
   const retry = () => send(lastQuery, false);
 
   return (
-    <div className="container">
-      <div className="card chat-card">
-        <div className="messages">
-          {messages.map((m, i) => (
-            <div key={i} className={`msg ${m.role}`}>
-              <div className="bubble">{m.content}</div>
-              {m.role === 'assistant' && m.lowConfidence && (
-                <p className="warn">Low relevance of retrieved articles.</p>
-              )}
-          {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
-                <ul className="sources">
-                  {m.sources.map((s) => (
-                    <li key={s.index}>
-                      <strong>
-                        [{s.index}] {s.file}
-                        {s.page !== undefined && ` (p.${s.page})`}
-                      </strong>
-                      <span className="score">relevance {(s.score * 100).toFixed(1)}%</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+    <div className="card chat-card">
+      <div className="messages">
+        {messages.map((m, i) => (
+          <div key={i} className={`msg ${m.role}`}>
+            <div className="bubble">{m.content}</div>
+            {m.role === 'assistant' && m.lowConfidence && (
+              <p className="warn">Low relevance of retrieved articles.</p>
+            )}
+            {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
+              <ul className="sources">
+                {m.sources.map((s) => (
+                  <li key={s.index}>
+                    <strong>
+                      [{s.index}] {s.file}
+                      {s.page !== undefined && ` (p.${s.page})`}
+                    </strong>
+                    <span className="score">relevance {(s.score * 100).toFixed(1)}%</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+      {error && (
+        <p className="error">
+          {error}{' '}
+          {lastQuery && <button onClick={retry} disabled={loading}>Retry</button>}
+        </p>
+      )}
+      <div className="controls">
+        <input
+          placeholder="Ask a question"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') submit();
+          }}
+        />
+        <select multiple value={selected.map(String)} onChange={e => {
+          const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
+          setSelected(opts);
+        }}>
+          {categories.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
-        </div>
-        {error && (
-          <p className="error">
-            {error}{' '}
-            {lastQuery && <button onClick={retry} disabled={loading}>Retry</button>}
-          </p>
-        )}
-        <div className="controls">
-          <input
-            placeholder="Ask a question"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') submit();
-            }}
-          />
-          <select multiple value={selected.map(String)} onChange={e => {
-            const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
-            setSelected(opts);
-          }}>
-            {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
-        </div>
-        <Link href="/">
-          <button className="secondary back">Back</button>
-        </Link>
+        </select>
+        <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
       </div>
       <style jsx>{`
         .chat-card {
           display: flex;
           flex-direction: column;
           height: 100%;
+          max-width: none;
         }
         .messages {
           flex: 1;
@@ -221,10 +208,6 @@ export default function Chat() {
         }
         .error button {
           margin-left: 0.5rem;
-        }
-        .back {
-          margin-top: 0.5rem;
-          align-self: flex-start;
         }
       `}</style>
     </div>
