@@ -40,7 +40,7 @@ export default function Home() {
           flex-direction: column;
           gap: 2rem;
           text-align: center;
-          max-width: 600px;
+          max-width: none;
         }
         .stats {
           display: flex;

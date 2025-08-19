@@ -76,41 +76,48 @@ export default function Categories() {
         <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" />
         <button onClick={create}>Add</button>
       </div>
-      <div className="cat-grid head">
-        <div>Name</div>
-        <div>Actions</div>
+      <div className="table-wrapper">
+        <table className="cat-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map(c => (
+              <tr key={c.id}>
+                <td>
+                  <input
+                    value={c.name}
+                    onChange={e =>
+                      setCategories(prev =>
+                        prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
+                      )
+                    }
+                  />
+                </td>
+                <td className="actions">
+                  <button onClick={() => update(c.id, c.name)}>Save</button>
+                  <button onClick={() => remove(c.id)}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {categories.map(c => (
-        <div className="cat-grid row" key={c.id}>
-          <input
-            value={c.name}
-            onChange={e =>
-              setCategories(prev =>
-                prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
-              )
-            }
-          />
-          <div className="actions">
-            <button onClick={() => update(c.id, c.name)}>Save</button>
-            <button onClick={() => remove(c.id)}>Delete</button>
-          </div>
-        </div>
-      ))}
       {error && <p className="error">{error}</p>}
       <style jsx>{`
         .categories-card { max-width: none; }
         .new-cat { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
-        .cat-grid { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.5rem; }
-        .head { background: #e0e7ff; font-weight: 600; padding: 0.5rem; }
-        .row { border-top: 1px solid #ddd; padding: 0.5rem 0; }
+        .table-wrapper { overflow-x: auto; }
+        .cat-table { width: 100%; border-collapse: collapse; }
+        .cat-table th, .cat-table td { padding: 0.5rem; text-align: left; border-top: 1px solid #ddd; }
+        .cat-table thead { background: #e0e7ff; font-weight: 600; }
+        .cat-table .actions { display: flex; gap: 0.5rem; }
         .error { margin-top: 0.5rem; }
         @media (max-width: 600px) {
-          .cat-grid {
-            grid-template-columns: 1fr;
-          }
-          .head {
-            display: none;
-          }
+          .new-cat { flex-direction: column; }
         }
       `}</style>
     </div>
