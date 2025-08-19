@@ -2,6 +2,7 @@ using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using System.Collections.Generic;
+using System.IO;
 using UglyToad.PdfPig;
 using Microsoft.Extensions.Logging;
 
@@ -25,7 +26,6 @@ public class IngestController : ControllerBase
     public async Task<IActionResult> Post([FromForm] IngestForm form)
     {
         _logger.LogInformation("Ingest request received: {FileCount} files, text length {TextLength}", form.Files?.Count ?? 0, form.Text?.Length ?? 0);
-        var uploads = new List<(string Title, string Text)>();
 
         if ((form.Files == null || form.Files.Count == 0) && string.IsNullOrWhiteSpace(form.Text))
             return BadRequest("Provide one or more PDF files in 'files' or text in the 'text' field.");
@@ -42,10 +42,27 @@ public class IngestController : ControllerBase
                     await file.CopyToAsync(ms);
                     ms.Position = 0;
                     using var pdf = PdfDocument.Open(ms);
-                    var sb = new StringBuilder();
+                    var pageNo = 1;
                     foreach (var page in pdf.GetPages())
-                        sb.AppendLine(page.Text);
-                    uploads.Add((file.FileName, sb.ToString()));
+                    {
+                        var text = page.Text;
+                        if (string.IsNullOrWhiteSpace(text)) { pageNo++; continue; }
+                        try
+                        {
+                            await _store.IngestAsync(file.FileName, pageNo, text);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            _logger.LogError(ex, "Failed to store document {File} page {Page}", file.FileName, pageNo);
+                            return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{file.FileName}'");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Unexpected failure storing document {File} page {Page}", file.FileName, pageNo);
+                            return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{file.FileName}'");
+                        }
+                        pageNo++;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -60,26 +77,24 @@ public class IngestController : ControllerBase
             var title = string.IsNullOrWhiteSpace(form.Title)
                 ? (form.Text.Length > 30 ? form.Text[..30] + "..." : form.Text)
                 : form.Title;
-            uploads.Add((title, form.Text));
-        }
-
-        foreach (var (title, text) in uploads)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return BadRequest($"Extracted text for '{title}' is empty. Check your file or input.");
-            try
+            int chunkIdx = 1;
+            foreach (var chunk in Chunk(form.Text, 500))
             {
-                await _store.IngestAsync(title, text);
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogError(ex, "Failed to store document {Title}", title);
-                return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unexpected failure storing document {Title}", title);
-                return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{title}'");
+                try
+                {
+                    await _store.IngestAsync(title, null, chunk);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogError(ex, "Failed to store text chunk {Index} for {Title}", chunkIdx, title);
+                    return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unexpected failure storing text chunk {Index} for {Title}", chunkIdx, title);
+                    return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{title}'");
+                }
+                chunkIdx++;
             }
         }
 
@@ -92,4 +107,10 @@ public class IngestForm
     public List<IFormFile>? Files { get; set; }
     public string? Title { get; set; }
     public string? Text { get; set; }
+}
+
+static IEnumerable<string> Chunk(string text, int size)
+{
+    for (int i = 0; i < text.Length; i += size)
+        yield return text.Substring(i, Math.Min(size, text.Length - i));
 }

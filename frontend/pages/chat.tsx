@@ -3,7 +3,8 @@ import { useState } from 'react';
 
 interface Source {
   index: number;
-  title: string;
+  file: string;
+  page?: number;
   content: string;
   score: number;
 }
@@ -20,16 +21,18 @@ export default function Chat() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lastQuery, setLastQuery] = useState('');
 
-  const submit = async () => {
-    if (!query.trim()) {
+  const send = async (text: string, addUser: boolean) => {
+    if (!text.trim()) {
       setError('Please enter a question.');
       return;
     }
-    const userMessage: Message = { role: 'user', content: query };
-    setMessages(prev => [...prev, userMessage]);
-    const currentQuery = query;
-    setQuery('');
+    if (addUser) {
+      const userMessage: Message = { role: 'user', content: text };
+      setMessages(prev => [...prev, userMessage]);
+    }
+    setLastQuery(text);
     setError('');
     setLoading(true);
     try {
@@ -37,7 +40,7 @@ export default function Chat() {
       const res = await fetch(`${base}/api/chat/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: currentQuery })
+        body: JSON.stringify({ query: text })
       });
       if (!res.ok) {
         let msg = res.statusText;
@@ -55,12 +58,21 @@ export default function Chat() {
       }
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources, lowConfidence: data.lowConfidence }]);
+      setLastQuery('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   };
+
+  const submit = () => {
+    const currentQuery = query;
+    setQuery('');
+    send(currentQuery, true);
+  };
+
+  const retry = () => send(lastQuery, false);
 
   return (
     <div className="container">
@@ -76,7 +88,10 @@ export default function Chat() {
                 <ul className="sources">
                   {m.sources.map((s) => (
                     <li key={s.index}>
-                      <strong>[{s.index}] {s.title}</strong>
+                      <strong>
+                        [{s.index}] {s.file}
+                        {s.page !== undefined && ` (p.${s.page})`}
+                      </strong>
                       <span className="score">relevance {(s.score * 100).toFixed(1)}%</span>
                     </li>
                   ))}
@@ -85,7 +100,12 @@ export default function Chat() {
             </div>
           ))}
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error">
+            {error}{' '}
+            {lastQuery && <button onClick={retry} disabled={loading}>Retry</button>}
+          </p>
+        )}
         <div className="controls">
           <input
             placeholder="Ask a question"
@@ -159,6 +179,9 @@ export default function Chat() {
         .error {
           color: #e00;
           margin-bottom: 0.5rem;
+        }
+        .error button {
+          margin-left: 0.5rem;
         }
         .back {
           margin-top: 0.5rem;

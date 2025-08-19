@@ -14,6 +14,8 @@ builder.Services.AddSingleton<EmbeddingClient>();
 builder.Services.AddSingleton<VectorStore>();
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>();
+builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));
+builder.Services.AddMemoryCache();
 
 // Add CORS policy using origins from configuration
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
