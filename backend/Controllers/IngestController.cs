@@ -1,6 +1,7 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
+using System.Collections.Generic;
 using UglyToad.PdfPig;
 
 namespace backend.Controllers;
@@ -17,56 +18,66 @@ public class IngestController : ControllerBase
     }
 
     [HttpPost]
-    [RequestSizeLimit(25_000_000)]
+    [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> Post([FromForm] IngestForm form)
     {
-        if (form.File == null && string.IsNullOrWhiteSpace(form.Text))
-            return BadRequest("Provide a PDF file in 'file' or text in the 'text' field.");
+        var uploads = new List<(string Title, string Text)>();
 
-        string text = form.Text ?? string.Empty;
+        if ((form.Files == null || form.Files.Count == 0) && string.IsNullOrWhiteSpace(form.Text))
+            return BadRequest("Provide one or more PDF files in 'files' or text in the 'text' field.");
 
-        if (form.File != null)
+        if (form.Files != null)
         {
-            if (!form.File.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                return BadRequest("Unsupported file type. Only PDF files are accepted.");
+            foreach (var file in form.Files)
+            {
+                if (!file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest("Unsupported file type. Only PDF files are accepted.");
+                try
+                {
+                    await using var ms = new MemoryStream();
+                    await file.CopyToAsync(ms);
+                    ms.Position = 0;
+                    using var pdf = PdfDocument.Open(ms);
+                    var sb = new StringBuilder();
+                    foreach (var page in pdf.GetPages())
+                        sb.AppendLine(page.Text);
+                    uploads.Add((file.FileName, sb.ToString()));
+                }
+                catch (Exception ex)
+                {
+                    return BadRequest($"Failed to read PDF '{file.FileName}': {ex.Message}");
+                }
+            }
+        }
 
+        if (!string.IsNullOrWhiteSpace(form.Text))
+            uploads.Add((form.Title ?? "document", form.Text));
+
+        foreach (var (title, text) in uploads)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return BadRequest($"Extracted text for '{title}' is empty. Check your file or input.");
             try
             {
-                await using var ms = new MemoryStream();
-                await form.File.CopyToAsync(ms);
-                ms.Position = 0;
-                using var pdf = PdfDocument.Open(ms);
-                var sb = new StringBuilder();
-                foreach (var page in pdf.GetPages())
-                {
-                    sb.AppendLine(page.Text);
-                }
-                text = sb.ToString();
+                await _store.IngestAsync(title, text);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
             }
             catch (Exception ex)
             {
-                return BadRequest($"Failed to read PDF: {ex.Message}");
+                return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{title}'");
             }
         }
 
-        if (string.IsNullOrWhiteSpace(text))
-            return BadRequest("Extracted text is empty. Check your file or input.");
-
-        try
-        {
-            await _store.IngestAsync(form.Title ?? form.File?.FileName ?? "document", text);
-        }
-        catch (Exception ex)
-        {
-            return Problem($"Failed to store document: {ex.Message}");
-        }
         return Ok();
     }
 }
 
 public class IngestForm
 {
-    public IFormFile? File { get; set; }
+    public List<IFormFile>? Files { get; set; }
     public string? Title { get; set; }
     public string? Text { get; set; }
 }
