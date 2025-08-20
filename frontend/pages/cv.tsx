@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface Recommendation {
   id: number;
@@ -21,6 +21,7 @@ export default function Cv() {
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [viewId, setViewId] = useState<number | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
   const load = async () => {
@@ -114,48 +115,19 @@ export default function Cv() {
     }
   };
 
-  let modal: JSX.Element | null = null;
-  if (viewId !== null) {
-    const rec = recs.find(r => r.id === viewId);
-    let candidates: Candidate[] = [];
-    if (rec?.summaryJson) {
-      try { candidates = JSON.parse(rec.summaryJson); } catch { /* ignore */ }
-    }
-    modal = (
-      <div className="modal">
-        <div className="modal-content">
-          <h3>Top Candidates</h3>
-          {candidates.length ? (
-            <div className="cand-wrapper">
-              <table className="cand-table">
-                <thead>
-                  <tr>
-                    <th>No</th>
-                    <th>Candidate Name</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {candidates.map((c, i) => (
-                    <tr key={i}>
-                      <td>{i + 1}</td>
-                      <td>{c.name}</td>
-                      <td className="reason">{c.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p>No structured summary available.</p>
-          )}
-          <div className="actions">
-            <button onClick={() => setViewId(null)}>Close</button>
-          </div>
-        </div>
-      </div>
-    );
+  let candidates: Candidate[] = [];
+  const rec = viewId !== null ? recs.find(r => r.id === viewId) : null;
+  if (rec?.summaryJson) {
+    try { candidates = JSON.parse(rec.summaryJson); } catch { /* ignore */ }
   }
+
+  useEffect(() => {
+    if (viewId !== null) {
+      dialogRef.current?.showModal();
+    } else {
+      dialogRef.current?.close();
+    }
+  }, [viewId]);
 
   return (
     <div className="card cv-card">
@@ -201,7 +173,36 @@ export default function Cv() {
         </table>
       </div>
 
-      {modal}
+      <dialog ref={dialogRef} className="result-dialog" onClose={() => setViewId(null)}>
+        <h3>Top Candidates</h3>
+        {candidates.length ? (
+          <div className="cand-wrapper">
+            <table className="cand-table">
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>Candidate Name</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map((c, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td>{c.name}</td>
+                    <td className="reason">{c.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No structured summary available.</p>
+        )}
+        <div className="actions">
+          <button onClick={() => setViewId(null)}>OK</button>
+        </div>
+      </dialog>
 
       <style jsx>{`
         .cv-grid {
@@ -234,11 +235,12 @@ export default function Cv() {
         .cand-table {
           width: 100%;
           border-collapse: collapse;
+          border: 1px solid #ddd;
         }
         .cand-table th, .cand-table td {
           padding: 0.5rem;
           text-align: left;
-          border-top: 1px solid #ddd;
+          border: 1px solid #ddd;
         }
         .cand-table thead {
           background: #f3f4f6;
@@ -247,19 +249,11 @@ export default function Cv() {
         .cand-table .reason {
           word-break: break-word;
         }
-        .modal {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
+        .result-dialog::backdrop {
           background: rgba(0,0,0,0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
         }
-        .modal-content {
-          background: #fff;
+        .result-dialog {
+          border: 1px solid #ccc;
           padding: 1rem;
           max-width: 500px;
           width: 100%;
