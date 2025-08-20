@@ -26,6 +26,7 @@ export default function Chat() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [error, setError] = useState('');
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,11 +40,20 @@ export default function Chat() {
       }
     };
     load();
+    const savedId = localStorage.getItem('conversationId');
+    const savedMessages = localStorage.getItem('conversationMessages');
+    if (savedId) setConversationId(savedId);
+    if (savedMessages) setMessages(JSON.parse(savedMessages));
   }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    localStorage.setItem('conversationMessages', JSON.stringify(messages));
   }, [messages]);
+
+  useEffect(() => {
+    if (conversationId) localStorage.setItem('conversationId', conversationId);
+  }, [conversationId]);
 
   const send = async () => {
     const text = query.trim();
@@ -60,7 +70,7 @@ export default function Chat() {
       const res = await fetch(`${base}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text })
+        body: JSON.stringify({ query: text, conversationId })
       });
       if (!res.ok || !res.body) {
         const msg = await res.text();
@@ -99,6 +109,8 @@ export default function Chat() {
             });
           } else if (event === 'error') {
             setError(data);
+          } else if (event === 'id') {
+            setConversationId(data);
           }
         }
       }

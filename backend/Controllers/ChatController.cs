@@ -20,8 +20,9 @@ public class ChatController : ControllerBase
     private readonly IMemoryCache _cache;
     private readonly ChatOptions _options;
     private readonly StatsStore _stats;
+    private readonly ConversationStore _conversations;
 
-    public ChatController(VectorStore store, LlmClient llm, ILogger<ChatController> logger, IMemoryCache cache, IOptions<ChatOptions> options, StatsStore stats)
+    public ChatController(VectorStore store, LlmClient llm, ILogger<ChatController> logger, IMemoryCache cache, IOptions<ChatOptions> options, StatsStore stats, ConversationStore conversations)
     {
         _store = store;
         _llm = llm;
@@ -29,6 +30,7 @@ public class ChatController : ControllerBase
         _cache = cache;
         _options = options.Value;
         _stats = stats;
+        _conversations = conversations;
     }
 
     [HttpPost("query")]
@@ -58,6 +60,10 @@ public class ChatController : ControllerBase
         }
 
         _logger.LogInformation("Chat query '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
+        var conversationId = request.ConversationId;
+        if (string.IsNullOrWhiteSpace(conversationId) || !_conversations.Exists(conversationId))
+            conversationId = _conversations.CreateConversation();
+        var history = _conversations.GetOrCreate(conversationId);
         List<(string Source, int? Page, string Content, double Score)> results;
         try
         {
@@ -89,16 +95,20 @@ public class ChatController : ControllerBase
             .AppendLine($"Question: {request.Query}")
             .ToString();
 
+        history.Add(new ChatMessage("user", prompt));
+
         string answer;
         try
         {
-            answer = await _llm.GenerateAsync(prompt);
+            answer = await _llm.GenerateAsync(history);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "LLM generation failed for query {Query}", request.Query);
             return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
+
+        history.Add(new ChatMessage("assistant", answer));
         var sources = enumerated.Select(r => new Source
         {
             Index = r.Index,
@@ -115,7 +125,7 @@ public class ChatController : ControllerBase
         {
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
-        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false };
+        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false, ConversationId = conversationId };
     }
 
     [HttpPost("stream")]
@@ -135,9 +145,9 @@ public class ChatController : ControllerBase
             return;
         }
 
-        Response.Headers.Add("Cache-Control", "no-cache");
-        Response.Headers.Add("Content-Type", "text/event-stream");
-        Response.Headers.Add("X-Accel-Buffering", "no");
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["Content-Type"] = "text/event-stream";
+        Response.Headers["X-Accel-Buffering"] = "no";
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var cooldown = _options.CooldownSeconds;
@@ -158,6 +168,10 @@ public class ChatController : ControllerBase
         }
 
         _logger.LogInformation("Chat stream '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
+        var conversationId = request.ConversationId;
+        if (string.IsNullOrWhiteSpace(conversationId) || !_conversations.Exists(conversationId))
+            conversationId = _conversations.CreateConversation();
+        var history = _conversations.GetOrCreate(conversationId);
         List<(string Source, int? Page, string Content, double Score)> results;
         try
         {
@@ -189,6 +203,8 @@ public class ChatController : ControllerBase
             .AppendLine($"Question: {request.Query}")
             .ToString();
 
+        history.Add(new ChatMessage("user", prompt));
+
         var sources = enumerated.Select(r => new Source
         {
             Index = r.Index,
@@ -198,14 +214,18 @@ public class ChatController : ControllerBase
             Score = r.Score
         }).ToList();
 
+        await Response.WriteAsync($"event: id\ndata: {conversationId}\n\n");
         await Response.WriteAsync($"event: sources\ndata: {JsonSerializer.Serialize(sources)}\n\n");
         await Response.Body.FlushAsync();
 
+        var sb = new StringBuilder();
+
         try
         {
-            await foreach (var token in _llm.GenerateStreamAsync(prompt))
+            await foreach (var token in _llm.GenerateStreamAsync(history))
             {
                 var payload = JsonSerializer.Serialize(token);
+                sb.Append(token);
                 await Response.WriteAsync($"event: token\ndata: {payload}\n\n");
                 await Response.Body.FlushAsync();
             }
@@ -216,6 +236,8 @@ public class ChatController : ControllerBase
             _logger.LogError(ex, "LLM streaming failed for query {Query}", request.Query);
             await Response.WriteAsync($"event: error\ndata: {ex.Message}\n\n");
         }
+
+        history.Add(new ChatMessage("assistant", sb.ToString()));
 
         try
         {
@@ -233,6 +255,7 @@ public class ChatQueryRequest
     public string Query { get; set; } = string.Empty;
     public int TopK { get; set; } = 5;
     public int[]? CategoryIds { get; set; }
+    public string? ConversationId { get; set; }
 }
 
 public class ChatResponse
@@ -240,6 +263,7 @@ public class ChatResponse
     public string Answer { get; set; } = string.Empty;
     public List<Source> Sources { get; set; } = new();
     public bool LowConfidence { get; set; }
+    public string ConversationId { get; set; } = string.Empty;
 }
 
 public class Source
