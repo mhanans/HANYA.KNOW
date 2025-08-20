@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 interface Source {
   index: number;
@@ -12,210 +12,161 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   sources?: Source[];
-  lowConfidence?: boolean;
-}
-
-interface Category {
-  id: number;
-  name: string;
 }
 
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [lastQuery, setLastQuery] = useState('');
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selected, setSelected] = useState<number[]>([]);
 
-  useEffect(() => {
-    const load = async () => {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-      try {
-        const res = await fetch(`${base}/api/categories`);
-        if (res.ok) setCategories(await res.json());
-      } catch {
-        /* ignore */
-      }
-    };
-    load();
-  }, []);
-
-  const send = async (text: string, addUser: boolean) => {
-    if (!text.trim()) {
-      setError('Please enter a question.');
-      return;
-    }
-    if (addUser) {
-      const userMessage: Message = { role: 'user', content: text };
-      setMessages(prev => [...prev, userMessage]);
-    }
-    setLastQuery(text);
-    setError('');
+  const send = async () => {
+    const text = query.trim();
+    if (!text) return;
+    setQuery('');
+    const user: Message = { role: 'user', content: text };
+    const assistant: Message = { role: 'assistant', content: '' };
+    const assistantIndex = messages.length + 1;
+    setMessages(prev => [...prev, user, assistant]);
     setLoading(true);
     try {
       const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-      const res = await fetch(`${base}/api/chat/query`, {
+      const res = await fetch(`${base}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, categoryIds: selected })
+        body: JSON.stringify({ query: text })
       });
-      if (!res.ok) {
-        let msg = res.statusText;
-        try {
-          const data = await res.json();
-          if (data?.detail) msg = data.detail;
-        } catch {
-          try {
-            msg = await res.text();
-          } catch {
-            /* ignore */
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No stream');
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const lines = part.split('\n');
+          let event = '';
+          let data = '';
+          for (const line of lines) {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            else if (line.startsWith('data:')) data += line.slice(5).trim();
+          }
+          if (event === 'token') {
+            const token = JSON.parse(data);
+            setMessages(prev => {
+              const ms = [...prev];
+              ms[assistantIndex].content += token;
+              return ms;
+            });
+          } else if (event === 'sources') {
+            const src = JSON.parse(data) as Source[];
+            setMessages(prev => {
+              const ms = [...prev];
+              ms[assistantIndex].sources = src;
+              return ms;
+            });
           }
         }
-        throw new Error(`Request failed: ${msg}`);
       }
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.answer, sources: data.sources, lowConfidence: data.lowConfidence }]);
-      setLastQuery('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setMessages(prev => {
+        const ms = [...prev];
+        ms[assistantIndex].content = err instanceof Error ? err.message : String(err);
+        return ms;
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const submit = () => {
-    const currentQuery = query;
-    setQuery('');
-    send(currentQuery, true);
-  };
-
-  const retry = () => send(lastQuery, false);
-
   return (
-    <div className="card chat-card">
+    <div className="chat-page">
       <div className="messages">
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
-            <div className="bubble">{m.content}</div>
-            {m.role === 'assistant' && m.lowConfidence && (
-              <p className="warn">Low relevance of retrieved articles.</p>
-            )}
-            {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
-              <ul className="sources">
-                {m.sources.map((s) => (
-                  <li key={s.index}>
-                    <strong>
+          <div key={i} className={`message ${m.role}`}>
+            <div className="avatar" />
+            <div className="bubble">
+              {m.content}
+              {m.role === 'assistant' && m.sources && (
+                <ul className="sources">
+                  {m.sources.map(s => (
+                    <li key={s.index}>
                       [{s.index}] {s.file}
                       {s.page !== undefined && ` (p.${s.page})`}
-                    </strong>
-                    <span className="score">relevance {(s.score * 100).toFixed(1)}%</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         ))}
       </div>
-      {error && (
-        <p className="error">
-          {error}{' '}
-          {lastQuery && <button onClick={retry} disabled={loading}>Retry</button>}
-        </p>
-      )}
-      <div className="controls">
-        <input
-          placeholder="Ask a question"
+      <div className="input" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }}}>
+        <textarea
+          placeholder="Send a message..."
           value={query}
           onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') submit();
-          }}
+          disabled={loading}
         />
-        <select multiple value={selected.map(String)} onChange={e => {
-          const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
-          setSelected(opts);
-        }}>
-          {categories.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <button onClick={submit} disabled={loading}>{loading ? 'Sending...' : 'Send'}</button>
+        <button onClick={send} disabled={loading || !query.trim()}>Send</button>
       </div>
       <style jsx>{`
-        .chat-card {
+        .chat-page {
+          height: 100%;
           display: flex;
           flex-direction: column;
-          height: 100%;
-          max-width: none;
+          background: #f7f7f8;
         }
         .messages {
           flex: 1;
           overflow-y: auto;
-          margin-bottom: 1rem;
+          padding: 1rem;
         }
-        .msg {
+        .message {
           display: flex;
-          margin: 0.5rem 0;
+          padding: 1rem;
+          border-bottom: 1px solid #e5e5e5;
         }
-        .msg.user {
-          justify-content: flex-end;
+        .message.user {
+          background: #fff;
         }
-        .msg.assistant {
-          justify-content: flex-start;
+        .message.assistant {
+          background: #f7f7f8;
+        }
+        .avatar {
+          width: 32px;
+          height: 32px;
+          border-radius: 4px;
+          background: #ccc;
+          margin-right: 1rem;
+          flex-shrink: 0;
         }
         .bubble {
-          max-width: 70%;
-          padding: 0.75rem 1rem;
-          border-radius: 8px;
           white-space: pre-wrap;
+          flex: 1;
         }
-        .msg.user .bubble {
-          background: #0070f3;
-          color: #fff;
+        .input {
+          border-top: 1px solid #e5e5e5;
+          padding: 1rem;
+          background: #f7f7f8;
         }
-        .msg.assistant .bubble {
-          background: #f1f1f1;
+        .input textarea {
+          width: 100%;
+          border-radius: 8px;
+          padding: 0.75rem;
+          resize: none;
+          height: 80px;
+        }
+        .input button {
+          margin-top: 0.5rem;
+          float: right;
         }
         .sources {
           font-size: 0.8rem;
+          margin-top: 0.5rem;
           color: #555;
-          margin-left: 0.5rem;
-        }
-        .warn {
-          color: #b36b00;
-          font-size: 0.8rem;
-          margin-left: 0.5rem;
-        }
-        .controls {
-          display: flex;
-          gap: 0.5rem;
-        }
-        .controls input {
-          flex: 1;
-        }
-        .controls select {
-          min-width: 120px;
-        }
-        .score {
-          margin-left: 0.25rem;
-          color: #555;
-        }
-        .error {
-          margin-bottom: 0.5rem;
-        }
-        .error button {
-          margin-left: 0.5rem;
-        }
-        @media (max-width: 600px) {
-          .controls {
-            flex-direction: column;
-          }
-          .controls select,
-          .controls button {
-            width: 100%;
-          }
         }
       `}</style>
     </div>
