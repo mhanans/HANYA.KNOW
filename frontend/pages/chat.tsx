@@ -60,7 +60,7 @@ export default function Chat() {
       const res = await fetch(`${base}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, categoryIds: selected })
+        body: JSON.stringify({ query: text })
       });
       if (!res.ok || !res.body) {
         const msg = await res.text();
@@ -103,7 +103,11 @@ export default function Chat() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setMessages(prev => {
+        const ms = [...prev];
+        ms[assistantIndex].content = err instanceof Error ? err.message : String(err);
+        return ms;
+      });
     } finally {
       setLoading(false);
     }
