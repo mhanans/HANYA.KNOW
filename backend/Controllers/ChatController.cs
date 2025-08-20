@@ -75,6 +75,25 @@ public class ChatController : ControllerBase
             return Problem(detail: ex.Message, statusCode: 500, title: "Search failed");
         }
         var enumerated = results.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
+        var lowConfidence = enumerated.Count == 0 || enumerated[0].Score < 0.5;
+        if (lowConfidence)
+        {
+            try
+            {
+                await _stats.LogChatAsync(request.Query);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
+            }
+            return new ChatResponse
+            {
+                Answer = "Maaf, knowledge belum tersedia. Silakan upload knowledge yang dibutuhkan.",
+                Sources = new(),
+                LowConfidence = true
+            };
+        }
+
         var context = string.Join("\n", enumerated.Select(r =>
             r.Page.HasValue ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}" : $"[{r.Index}] {r.Source}\n{r.Content}"));
         var prompt = new StringBuilder()
@@ -101,7 +120,6 @@ public class ChatController : ControllerBase
             Content = r.Content,
             Score = r.Score
         }).ToList();
-        var lowConfidence = sources.Count == 0 || sources[0].Score < 0.5;
         try
         {
             await _stats.LogChatAsync(request.Query);
@@ -110,7 +128,7 @@ public class ChatController : ControllerBase
         {
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
-        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = lowConfidence };
+        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false };
     }
 }
 

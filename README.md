@@ -19,7 +19,7 @@ MVP knowledge base with retrieval augmented generation.
   - `PUT /api/roles/{id}` – update a role's permissions
   - `DELETE /api/roles/{id}` – delete a role
   - `POST /api/vector/search` – vector similarity search
-  - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations
+  - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations; returns a friendly message prompting knowledge upload when no relevant context is found
   - `GET /api/stats` – usage metrics for the dashboard
   - `GET /api/recommendations` – list CV recommendations
   - `POST /api/recommendations` – generate a recommendation
