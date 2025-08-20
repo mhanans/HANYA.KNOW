@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Collections.Generic;
+using System.IO;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +28,50 @@ public class LlmClient
             "gemini" => await CallGeminiAsync(prompt),
             _ => await CallOpenAiAsync(prompt)
         };
+    }
+
+    public async IAsyncEnumerable<string> GenerateStreamAsync(string prompt)
+    {
+        if (_options.Provider.ToLower() == "gemini")
+        {
+            var text = await GenerateAsync(prompt);
+            yield return text;
+            yield break;
+        }
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+        req.Content = JsonContent.Create(new
+        {
+            model = _options.Model,
+            messages = new[] { new { role = "user", content = prompt } },
+            stream = true
+        });
+
+        var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        res.EnsureSuccessStatusCode();
+        var stream = await res.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+        string? line;
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            if (line.StartsWith("data: "))
+            {
+                var json = line[6..];
+                if (json == "[DONE]")
+                    yield break;
+
+                using var doc = JsonDocument.Parse(json);
+                var choice = doc.RootElement.GetProperty("choices")[0];
+                if (choice.TryGetProperty("delta", out var delta) &&
+                    delta.TryGetProperty("content", out var content))
+                {
+                    var text = content.GetString();
+                    if (!string.IsNullOrEmpty(text))
+                        yield return text;
+                }
+            }
+        }
     }
 
     private async Task<string> CallOpenAiAsync(string prompt)
