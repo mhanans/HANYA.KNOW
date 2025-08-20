@@ -21,6 +21,7 @@ builder.Services.AddHttpClient<LlmClient>();
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));
 builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSection("Recommendation"));
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ConversationStore>();
 
 // Add CORS policy using origins from configuration
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
