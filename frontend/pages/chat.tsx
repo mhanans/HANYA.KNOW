@@ -70,7 +70,7 @@ export default function Chat() {
       const res = await fetch(`${base}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, conversationId })
+        body: JSON.stringify({ query: text, categoryIds: selected, conversationId })
       });
       if (!res.ok || !res.body) {
         const msg = await res.text();
@@ -179,34 +179,42 @@ export default function Chat() {
           flex: 1;
           overflow-y: auto;
           padding: 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
         }
         .message {
           display: flex;
-          padding: 1rem;
-          border-bottom: 1px solid #e5e5e5;
+          gap: 1rem;
+          max-width: 800px;
+          margin: 0 auto;
         }
         .message.user {
-          background: #fff;
-        }
-        .message.assistant {
-          background: #f7f7f8;
+          flex-direction: row-reverse;
         }
         .avatar {
           width: 32px;
           height: 32px;
-          border-radius: 4px;
+          border-radius: 50%;
           background: #ccc;
-          margin-right: 1rem;
           flex-shrink: 0;
         }
         .bubble {
           white-space: pre-wrap;
-          flex: 1;
+          padding: 0.75rem 1rem;
+          border-radius: 8px;
+        }
+        .message.user .bubble {
+          background: #0070f3;
+          color: #fff;
+        }
+        .message.assistant .bubble {
+          background: #e5e5ea;
         }
         .input {
           border-top: 1px solid #e5e5e5;
           padding: 1rem;
-          background: #f7f7f8;
+          background: #fff;
         }
         .input textarea {
           width: 100%;
@@ -232,6 +240,8 @@ export default function Chat() {
           font-size: 0.8rem;
           margin-top: 0.5rem;
           color: #555;
+          list-style: none;
+          padding-left: 0;
         }
         .error {
           color: #c00;
