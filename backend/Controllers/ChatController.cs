@@ -108,7 +108,6 @@ public class ChatController : ControllerBase
             Content = r.Content,
             Score = r.Score
         }).ToList();
-        var lowConfidence = sources.Count == 0 || sources[0].Score < 0.5;
         try
         {
             await _stats.LogChatAsync(request.Query);
@@ -117,7 +116,7 @@ public class ChatController : ControllerBase
         {
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
-        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = lowConfidence };
+        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false };
     }
 }
 

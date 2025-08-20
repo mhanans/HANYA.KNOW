@@ -7,6 +7,7 @@ const navItems = [
   { href: '/documents', label: 'Manage Documents' },
   { href: '/chat', label: 'Chat' },
   { href: '/categories', label: 'Manage Categories' },
+  { href: '/roles', label: 'Manage Roles' },
   { href: '/cv', label: 'CV Recommendations' }
 ];
 
