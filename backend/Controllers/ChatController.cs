@@ -145,9 +145,9 @@ public class ChatController : ControllerBase
             return;
         }
 
-        Response.Headers.Add("Cache-Control", "no-cache");
-        Response.Headers.Add("Content-Type", "text/event-stream");
-        Response.Headers.Add("X-Accel-Buffering", "no");
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["Content-Type"] = "text/event-stream";
+        Response.Headers["X-Accel-Buffering"] = "no";
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var cooldown = _options.CooldownSeconds;

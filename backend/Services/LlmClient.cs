@@ -107,7 +107,11 @@ public class LlmClient
                 // an empty candidate without parts, which manifests as "response missing text".
                 var res = await _http.PostAsJsonAsync(url, new
                 {
-                    contents = messages.Select(m => new { role = m.Role, parts = new[] { new { text = m.Content } } })
+                    contents = messages.Select(m => new
+                    {
+                        role = m.Role == "assistant" ? "model" : m.Role,
+                        parts = new[] { new { text = m.Content } }
+                    })
                 });
 
                 var body = await res.Content.ReadAsStringAsync();
