@@ -6,8 +6,7 @@ using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace backend.Controllers;
 
@@ -117,6 +116,115 @@ public class ChatController : ControllerBase
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
         return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false };
+    }
+
+    [HttpPost("stream")]
+    public async Task Stream(ChatQueryRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Query))
+        {
+            Response.StatusCode = 400;
+            await Response.WriteAsync("Query is required.");
+            return;
+        }
+
+        if (request.TopK <= 0)
+        {
+            Response.StatusCode = 400;
+            await Response.WriteAsync("TopK must be greater than 0.");
+            return;
+        }
+
+        Response.Headers.Add("Cache-Control", "no-cache");
+        Response.Headers.Add("Content-Type", "text/event-stream");
+        Response.Headers.Add("X-Accel-Buffering", "no");
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var cooldown = _options.CooldownSeconds;
+        if (cooldown > 0)
+        {
+            var now = DateTime.UtcNow;
+            if (_cache.TryGetValue(ip, out DateTime last))
+            {
+                var diff = now - last;
+                if (diff.TotalSeconds < cooldown)
+                {
+                    Response.StatusCode = 429;
+                    await Response.WriteAsync($"Please wait {Math.Ceiling(cooldown - diff.TotalSeconds)} seconds before retrying.");
+                    return;
+                }
+            }
+            _cache.Set(ip, now, TimeSpan.FromSeconds(cooldown));
+        }
+
+        _logger.LogInformation("Chat stream '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
+        List<(string Source, int? Page, string Content, double Score)> results;
+        try
+        {
+            results = await _store.SearchAsync(request.Query, request.TopK, request.CategoryIds);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Response.StatusCode = 502;
+            await Response.WriteAsync($"Search failed: {ex.Message}");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Response.StatusCode = 500;
+            await Response.WriteAsync($"Search failed: {ex.Message}");
+            return;
+        }
+
+        var enumerated = results.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
+        var context = enumerated.Count > 0
+            ? string.Join("\n", enumerated.Select(r =>
+                r.Page.HasValue
+                    ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}"
+                    : $"[{r.Index}] {r.Source}\n{r.Content}"))
+            : "No relevant context found in the knowledge base.";
+        var prompt = new StringBuilder()
+            .AppendLine("Use the following context to answer the question. Cite sources using [number] notation.")
+            .AppendLine(context)
+            .AppendLine($"Question: {request.Query}")
+            .ToString();
+
+        var sources = enumerated.Select(r => new Source
+        {
+            Index = r.Index,
+            File = r.Source,
+            Page = r.Page,
+            Content = r.Content,
+            Score = r.Score
+        }).ToList();
+
+        await Response.WriteAsync($"event: sources\ndata: {JsonSerializer.Serialize(sources)}\n\n");
+        await Response.Body.FlushAsync();
+
+        try
+        {
+            await foreach (var token in _llm.GenerateStreamAsync(prompt))
+            {
+                var payload = JsonSerializer.Serialize(token);
+                await Response.WriteAsync($"event: token\ndata: {payload}\n\n");
+                await Response.Body.FlushAsync();
+            }
+            await Response.WriteAsync("event: done\ndata: end\n\n");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LLM streaming failed for query {Query}", request.Query);
+            await Response.WriteAsync($"event: error\ndata: {ex.Message}\n\n");
+        }
+
+        try
+        {
+            await _stats.LogChatAsync(request.Query);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
+        }
     }
 }
 
