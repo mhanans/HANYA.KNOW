@@ -13,6 +13,7 @@ builder.Services.Configure<EmbeddingOptions>(builder.Configuration.GetSection("E
 builder.Services.AddSingleton<EmbeddingClient>();
 builder.Services.AddSingleton<VectorStore>();
 builder.Services.AddSingleton<CategoryStore>();
+builder.Services.AddSingleton<RoleStore>();
 builder.Services.AddSingleton<StatsStore>();
 builder.Services.AddSingleton<RecommendationStore>();
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
