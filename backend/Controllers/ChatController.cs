@@ -75,8 +75,15 @@ public class ChatController : ControllerBase
             return Problem(detail: ex.Message, statusCode: 500, title: "Search failed");
         }
         var enumerated = results.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
-        var context = string.Join("\n", enumerated.Select(r =>
-            r.Page.HasValue ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}" : $"[{r.Index}] {r.Source}\n{r.Content}"));
+        // Always let the LLM attempt an answer even when no relevant documents are found.
+        // Provide a placeholder context so the model can still respond instead of returning
+        // the "knowledge belum tersedia" message.
+        var context = enumerated.Count > 0
+            ? string.Join("\n", enumerated.Select(r =>
+                r.Page.HasValue
+                    ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}"
+                    : $"[{r.Index}] {r.Source}\n{r.Content}"))
+            : "No relevant context found in the knowledge base.";
         var prompt = new StringBuilder()
             .AppendLine("Use the following context to answer the question. Cite sources using [number] notation.")
             .AppendLine(context)
