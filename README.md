@@ -14,6 +14,10 @@ MVP knowledge base with retrieval augmented generation.
   - `POST /api/categories` – create a category
   - `PUT /api/categories/{id}` – rename a category
   - `DELETE /api/categories/{id}` – delete a category (fails if in use)
+  - `GET /api/roles` – list roles and their category access
+  - `POST /api/roles` – create a role
+  - `PUT /api/roles/{id}` – update a role's permissions
+  - `DELETE /api/roles/{id}` – delete a role
   - `POST /api/vector/search` – vector similarity search
   - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations
   - `GET /api/stats` – usage metrics for the dashboard
@@ -24,10 +28,10 @@ MVP knowledge base with retrieval augmented generation.
 - Full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
 ## Frontend
-- Next.js client with pages for managing documents, chatting, and generating CV-based recommendations.
+- Next.js client with pages for managing documents, roles, chatting, and generating CV-based recommendations.
 - Dashboard shows counts of chats, documents, and categories.
 - Chat answers include numbered citations with relevance scores.
-- Documents can be tagged with categories for targeted queries; manage categories on the frontend and filter questions by category.
+- Documents can be tagged with categories for targeted queries; manage categories and roles on the frontend and filter questions by category.
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.

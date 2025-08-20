@@ -39,3 +39,15 @@ CREATE TABLE IF NOT EXISTS cv_recommendations (
     summary_json TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS roles (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    all_categories BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS role_categories (
+    role_id INT REFERENCES roles(id) ON DELETE CASCADE,
+    category_id INT REFERENCES categories(id) ON DELETE CASCADE,
+    PRIMARY KEY(role_id, category_id)
+);

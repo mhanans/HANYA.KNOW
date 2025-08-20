@@ -61,9 +61,17 @@ public class LlmClient
                     }
                 });
 
-                res.EnsureSuccessStatusCode();
+                var body = await res.Content.ReadAsStringAsync();
+                if (!res.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "Gemini API returned {StatusCode}: {Body}",
+                        (int)res.StatusCode,
+                        body);
+                    res.EnsureSuccessStatusCode();
+                }
 
-                using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
+                using var doc = JsonDocument.Parse(body);
                 var root = doc.RootElement;
 
                 if (root.TryGetProperty("candidates", out var candidates) &&
@@ -82,22 +90,42 @@ public class LlmClient
                 // Log unexpected response for diagnostics
                 _logger.LogError("Unexpected Gemini response: {Response}", root.GetRawText());
 
+                if (root.TryGetProperty("promptFeedback", out var feedback) &&
+                    feedback.TryGetProperty("blockReason", out var reason))
+                {
+                    throw new InvalidOperationException(
+                        $"Gemini blocked response: {reason.GetString()}");
+                }
+
                 if (root.TryGetProperty("error", out var error))
                     throw new InvalidOperationException($"Gemini API error: {error}");
 
                 throw new InvalidOperationException("Gemini response missing text.");
             }
-            catch (Exception ex) when (attempt < _options.MaxRetries)
+            catch (HttpRequestException ex) when (attempt < _options.MaxRetries)
             {
-                // Notify about retry attempts for unstable connection
+                var delay = ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests
+                    ? TimeSpan.FromSeconds(Math.Pow(2, attempt))
+                    : TimeSpan.FromMilliseconds(500 * attempt);
+
                 _logger.LogWarning(
                     ex,
                     "Connection to Gemini API not stable, retrying ({Attempt}/{Max})",
                     attempt,
                     _options.MaxRetries);
-            }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
+                await Task.Delay(delay);
+            }
+            catch (Exception ex) when (attempt < _options.MaxRetries)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Connection to Gemini API not stable, retrying ({Attempt}/{Max})",
+                    attempt,
+                    _options.MaxRetries);
+
+                await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
+            }
         }
 
         throw new InvalidOperationException(
