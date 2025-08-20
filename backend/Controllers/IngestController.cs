@@ -1,5 +1,6 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using System.Text;
 using System.Collections.Generic;
 using System.IO;
@@ -115,10 +116,4 @@ public class IngestForm
     public string? Title { get; set; }
     public string? Text { get; set; }
     public int? CategoryId { get; set; }
-}
-
-static IEnumerable<string> Chunk(string text, int size)
-{
-    for (int i = 0; i < text.Length; i += size)
-        yield return text.Substring(i, Math.Min(size, text.Length - i));
 }

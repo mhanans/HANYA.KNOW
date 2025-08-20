@@ -21,20 +21,26 @@ public class LlmClient
         _logger = logger;
     }
 
-    public async Task<string> GenerateAsync(string prompt)
+    public Task<string> GenerateAsync(string prompt)
+        => GenerateAsync(new[] { new ChatMessage("user", prompt) });
+
+    public async Task<string> GenerateAsync(IEnumerable<ChatMessage> messages)
     {
         return _options.Provider.ToLower() switch
         {
-            "gemini" => await CallGeminiAsync(prompt),
-            _ => await CallOpenAiAsync(prompt)
+            "gemini" => await CallGeminiAsync(messages),
+            _ => await CallOpenAiAsync(messages)
         };
     }
 
-    public async IAsyncEnumerable<string> GenerateStreamAsync(string prompt)
+    public IAsyncEnumerable<string> GenerateStreamAsync(string prompt)
+        => GenerateStreamAsync(new[] { new ChatMessage("user", prompt) });
+
+    public async IAsyncEnumerable<string> GenerateStreamAsync(IEnumerable<ChatMessage> messages)
     {
         if (_options.Provider.ToLower() == "gemini")
         {
-            var text = await GenerateAsync(prompt);
+            var text = await GenerateAsync(messages);
             yield return text;
             yield break;
         }
@@ -44,7 +50,7 @@ public class LlmClient
         req.Content = JsonContent.Create(new
         {
             model = _options.Model,
-            messages = new[] { new { role = "user", content = prompt } },
+            messages = messages.Select(m => new { role = m.Role, content = m.Content }),
             stream = true
         });
 
@@ -74,14 +80,14 @@ public class LlmClient
         }
     }
 
-    private async Task<string> CallOpenAiAsync(string prompt)
+    private async Task<string> CallOpenAiAsync(IEnumerable<ChatMessage> messages)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
         req.Content = JsonContent.Create(new
         {
             model = _options.Model,
-            messages = new[] { new { role = "user", content = prompt } }
+            messages = messages.Select(m => new { role = m.Role, content = m.Content })
         });
         var res = await _http.SendAsync(req);
         res.EnsureSuccessStatusCode();
@@ -89,7 +95,7 @@ public class LlmClient
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
     }
 
-    private async Task<string> CallGeminiAsync(string prompt)
+    private async Task<string> CallGeminiAsync(IEnumerable<ChatMessage> messages)
     {
         var url = $"https://generativelanguage.googleapis.com/v1/models/{_options.Model}:generateContent?key={_options.ApiKey}";
 
@@ -101,10 +107,11 @@ public class LlmClient
                 // an empty candidate without parts, which manifests as "response missing text".
                 var res = await _http.PostAsJsonAsync(url, new
                 {
-                    contents = new[]
+                    contents = messages.Select(m => new
                     {
-                        new { role = "user", parts = new[] { new { text = prompt } } }
-                    }
+                        role = m.Role == "assistant" ? "model" : m.Role,
+                        parts = new[] { new { text = m.Content } }
+                    })
                 });
 
                 var body = await res.Content.ReadAsStringAsync();
