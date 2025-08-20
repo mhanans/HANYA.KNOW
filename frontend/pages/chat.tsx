@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Source {
   index: number;
@@ -14,15 +14,42 @@ interface Message {
   sources?: Source[];
 }
 
+interface Category {
+  id: number;
+  name: string;
+}
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [error, setError] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      try {
+        const res = await fetch(`${base}/api/categories`);
+        if (res.ok) setCategories(await res.json());
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const send = async () => {
     const text = query.trim();
-    if (!text) return;
+    if (!text || loading) return;
     setQuery('');
+    setError('');
     const user: Message = { role: 'user', content: text };
     const assistant: Message = { role: 'assistant', content: '' };
     const assistantIndex = messages.length + 1;
@@ -35,18 +62,21 @@ export default function Chat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: text })
       });
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No stream');
+      if (!res.ok || !res.body) {
+        const msg = await res.text();
+        throw new Error(msg || 'Request failed');
+      }
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        let parts = buffer.split('\n\n');
+        const parts = buffer.split('\n\n');
         buffer = parts.pop() || '';
         for (const part of parts) {
-          const lines = part.split('\n');
+          const lines = part.split(/\r?\n/);
           let event = '';
           let data = '';
           for (const line of lines) {
@@ -67,6 +97,8 @@ export default function Chat() {
               ms[assistantIndex].sources = src;
               return ms;
             });
+          } else if (event === 'error') {
+            setError(data);
           }
         }
       }
@@ -102,15 +134,27 @@ export default function Chat() {
             </div>
           </div>
         ))}
+        <div ref={endRef} />
       </div>
       <div className="input" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }}}>
+        {error && <p className="error">{error}</p>}
         <textarea
           placeholder="Send a message..."
           value={query}
           onChange={e => setQuery(e.target.value)}
           disabled={loading}
         />
-        <button onClick={send} disabled={loading || !query.trim()}>Send</button>
+        <div className="actions">
+          <select multiple value={selected.map(String)} onChange={e => {
+            const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
+            setSelected(opts);
+          }}>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <button onClick={send} disabled={loading || !query.trim()}>Send</button>
+        </div>
       </div>
       <style jsx>{`
         .chat-page {
@@ -159,14 +203,27 @@ export default function Chat() {
           resize: none;
           height: 80px;
         }
-        .input button {
+        .actions {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
           margin-top: 0.5rem;
-          float: right;
+          gap: 0.5rem;
+        }
+        .actions select {
+          min-width: 160px;
+        }
+        .actions button {
+          padding: 0.5rem 1rem;
         }
         .sources {
           font-size: 0.8rem;
           margin-top: 0.5rem;
           color: #555;
+        }
+        .error {
+          color: #c00;
+          margin-bottom: 0.5rem;
         }
       `}</style>
     </div>
