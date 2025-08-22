@@ -20,6 +20,19 @@ interface Category {
   name: string;
 }
 
+const SendIcon = ({ disabled }: { disabled: boolean }) => (
+  <svg
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={`send-icon ${disabled ? 'disabled' : ''}`}
+  >
+    <path d="M12 2L2 22L12 18L22 22L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+  </svg>
+);
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
@@ -54,6 +67,10 @@ export default function Chat() {
   useEffect(() => {
     if (conversationId) localStorage.setItem('conversationId', conversationId);
   }, [conversationId]);
+
+  const toggleCategory = (id: number) => {
+    setSelected(prev => (prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]));
+  };
 
   const send = async () => {
     const text = query.trim();
@@ -125,129 +142,60 @@ export default function Chat() {
   };
 
   return (
-    <div className="chat-page">
-      <h1>New Chat</h1>
-      <div className="messages">
+    <div className="chat-interface">
+      <div className="messages-container">
         {messages.map((m, i) => (
-          <div key={i} className={`message ${m.role}`}>
+          <div key={i} className={`chat-message ${m.role === 'assistant' ? 'assistant' : 'user'}`}>
             <div className="avatar" />
             <div className="bubble">
               {m.content}
               {m.role === 'assistant' && m.sources && (
-                <ul className="sources">
-                  {m.sources.map(s => (
-                    <li key={s.index}>
-                      [{s.index}] {s.file}
-                      {s.page !== undefined && ` (p.${s.page})`}
-                    </li>
-                  ))}
-                </ul>
+                <div className="sources-container">
+                  <h4>Sources:</h4>
+                  <ul className="sources">
+                    {m.sources.map(s => (
+                      <li key={s.index}>
+                        <span className="source-index">[{s.index}]</span>
+                        <span className="source-file">{s.file}{s.page !== undefined && ` (p.${s.page})`}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           </div>
         ))}
         <div ref={endRef} />
       </div>
-      <div className="input" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }}}>
+      <div className="input-area" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }}}>
         {error && <p className="error">{error}</p>}
-        <textarea
-          placeholder="Send a message..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          disabled={loading}
-        />
-        <div className="actions">
-          <select multiple value={selected.map(String)} onChange={e => {
-            const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
-            setSelected(opts);
-          }}>
+        <div className="chat-input-wrapper">
+          <div className="category-tags-container">
             {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+              <button
+                key={c.id}
+                className={`category-tag ${selected.includes(c.id) ? 'selected' : ''}`}
+                onClick={() => toggleCategory(c.id)}
+              >
+                {c.name}
+              </button>
             ))}
-          </select>
-          <button onClick={send} disabled={loading || !query.trim()}>Send</button>
+          </div>
+          <div className="chat-input-container">
+            <textarea
+              placeholder="Send a message..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              disabled={loading}
+              className="chat-input"
+            />
+            <button className="send-button" onClick={send} disabled={loading || !query.trim()} aria-label="Send message">
+              <SendIcon disabled={loading || !query.trim()} />
+            </button>
+          </div>
         </div>
       </div>
-      <style jsx>{`
-        .chat-page {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          background: #f7f7f8;
-        }
-        .messages {
-          flex: 1;
-          overflow-y: auto;
-          padding: 1rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-        .message {
-          display: flex;
-          gap: 1rem;
-          max-width: 800px;
-          margin: 0 auto;
-        }
-        .message.user {
-          flex-direction: row-reverse;
-        }
-        .avatar {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: #ccc;
-          flex-shrink: 0;
-        }
-        .bubble {
-          white-space: pre-wrap;
-          padding: 0.75rem 1rem;
-          border-radius: 8px;
-        }
-        .message.user .bubble {
-          background: #0070f3;
-          color: #fff;
-        }
-        .message.assistant .bubble {
-          background: #e5e5ea;
-        }
-        .input {
-          border-top: 1px solid #e5e5e5;
-          padding: 1rem;
-          background: #fff;
-        }
-        .input textarea {
-          width: 100%;
-          border-radius: 8px;
-          padding: 0.75rem;
-          resize: none;
-          height: 80px;
-        }
-        .actions {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 0.5rem;
-          gap: 0.5rem;
-        }
-        .actions select {
-          min-width: 160px;
-        }
-        .actions button {
-          padding: 0.5rem 1rem;
-        }
-        .sources {
-          font-size: 0.8rem;
-          margin-top: 0.5rem;
-          color: #555;
-          list-style: none;
-          padding-left: 0;
-        }
-        .error {
-          color: #c00;
-          margin-bottom: 0.5rem;
-        }
-      `}</style>
     </div>
   );
 }
+
