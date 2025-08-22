@@ -42,6 +42,7 @@ export default function Chat() {
   const [error, setError] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const userInitials = 'AD';
 
   useEffect(() => {
     const load = async () => {
@@ -146,17 +147,24 @@ export default function Chat() {
       <div className="messages-container">
         {messages.map((m, i) => (
           <div key={i} className={`chat-message ${m.role === 'assistant' ? 'assistant' : 'user'}`}>
-            <div className="avatar" />
+            <div className="avatar">
+              {m.role === 'assistant' ? '🤖' : userInitials}
+            </div>
             <div className="bubble">
-              {m.content}
-              {m.role === 'assistant' && m.sources && (
+              {m.content || (loading && m.role === 'assistant' && i === messages.length - 1 ? (
+                <div className="typing-indicator"><span /><span /><span /></div>
+              ) : null)}
+              {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
                 <div className="sources-container">
                   <h4>Sources:</h4>
                   <ul className="sources">
                     {m.sources.map(s => (
-                      <li key={s.index}>
-                        <span className="source-index">[{s.index}]</span>
-                        <span className="source-file">{s.file}{s.page !== undefined && ` (p.${s.page})`}</span>
+                      <li key={s.index} className="source-item">
+                        <span className="source-icon">📄</span>
+                        <span className="source-filename">{s.file}</span>
+                        {s.page !== undefined && (
+                          <span className="source-page">(Page {s.page})</span>
+                        )}
                       </li>
                     ))}
                   </ul>
