@@ -11,10 +11,22 @@ interface Message {
 export interface ChatInterfaceProps {
   initialMessages?: Message[];
   botAvatar?: string;
+  categories?: { id: number; name: string }[];
 }
 
-export const ChatInterface = ({ initialMessages = [], botAvatar }: ChatInterfaceProps) => {
+export const ChatInterface = ({
+  initialMessages = [],
+  botAvatar,
+  categories = [
+    { id: 1, name: 'General' },
+    { id: 2, name: 'Support' },
+    { id: 3, name: 'Fun' },
+  ],
+}: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -25,17 +37,21 @@ export const ChatInterface = ({ initialMessages = [], botAvatar }: ChatInterface
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = (text: string) => {
-    const newUserMessage: Message = { text, sender: 'user' };
-    setMessages((prevMessages) => [...prevMessages, newUserMessage]);
+  const send = () => {
+    if (!query.trim()) return;
+    const newUserMessage: Message = { text: query, sender: 'user' };
+    setMessages(prev => [...prev, newUserMessage]);
+    setQuery('');
+    setLoading(true);
 
     // Simulate a bot response
     setTimeout(() => {
       const botResponse: Message = {
-        text: `This is a simulated response to "${text}"`,
+        text: `This is a simulated response to "${newUserMessage.text}"`,
         sender: 'bot',
       };
-      setMessages((prevMessages) => [...prevMessages, botResponse]);
+      setMessages(prev => [...prev, botResponse]);
+      setLoading(false);
     }, 1000);
   };
 
@@ -48,7 +64,15 @@ export const ChatInterface = ({ initialMessages = [], botAvatar }: ChatInterface
         <div ref={messagesEndRef} />
       </div>
       <div className="input-container">
-        <ChatInput onSendMessage={handleSendMessage} />
+        <ChatInput
+          query={query}
+          setQuery={setQuery}
+          send={send}
+          loading={loading}
+          categories={categories}
+          selected={selected}
+          setSelected={setSelected}
+        />
       </div>
     </div>
   );
