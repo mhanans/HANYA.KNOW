@@ -5,12 +5,17 @@ INSERT INTO categories (name) VALUES ('General') ON CONFLICT DO NOTHING;
 
 -- UI pages
 INSERT INTO ui_pages (key) VALUES
+  ('dashboard'),
   ('documents'),
-  ('chat'),
   ('categories'),
+  ('upload'),
+  ('document-analytics'),
+  ('chat'),
+  ('chat-history'),
+  ('cv'),
+  ('users'),
   ('roles'),
   ('role-ui'),
-  ('users'),
   ('settings')
 ON CONFLICT DO NOTHING;
 

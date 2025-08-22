@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 
 namespace backend.Controllers;
 
@@ -248,6 +249,23 @@ public class ChatController : ControllerBase
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
     }
+
+    [HttpGet("history")]
+    public ActionResult<IEnumerable<ConversationInfo>> History()
+    {
+        var items = _conversations.GetHistory()
+            .Select(h => new ConversationInfo(h.Id, h.Created, h.FirstMessage ?? string.Empty))
+            .OrderByDescending(h => h.Created);
+        return Ok(items);
+    }
+
+    [HttpGet("history/{id}")]
+    public ActionResult<IEnumerable<ChatMessage>> GetConversation(string id)
+    {
+        var convo = _conversations.GetConversation(id);
+        if (convo == null) return NotFound();
+        return Ok(convo);
+    }
 }
 
 public class ChatQueryRequest
@@ -274,3 +292,5 @@ public class Source
     public string Content { get; set; } = string.Empty;
     public double Score { get; set; }
 }
+
+public record ConversationInfo(string Id, DateTime Created, string FirstMessage);

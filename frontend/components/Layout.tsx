@@ -7,27 +7,40 @@ interface Settings { applicationName?: string; logoUrl?: string; }
 
 const navGroups = [
   {
-    label: 'General',
+    label: 'Dashboard',
     items: [
-      { href: '/', label: 'Home' },
-      { href: '/chat', label: 'Chat' },
-      { href: '/documents', label: 'Manage Documents' }
+      { href: '/', label: 'Dashboard' }
     ]
   },
   {
-    label: 'Management',
+    label: 'Documents',
     items: [
-      { href: '/categories', label: 'Manage Categories' },
-      { href: '/roles', label: 'Manage Role to Category' },
-      { href: '/role-ui', label: 'Manage Role to UI' },
-      { href: '/users', label: 'Manage Users' },
-      { href: '/settings', label: 'General Settings' }
+      { href: '/documents', label: 'All Documents' },
+      { href: '/categories', label: 'Categories' },
+      { href: '/upload', label: 'Upload Document' },
+      { href: '/document-analytics', label: 'Document Analytics' }
     ]
   },
   {
-    label: 'Other',
+    label: 'AI Assistant',
     items: [
-      { href: '/cv', label: 'CV Recommendations' }
+      { href: '/chat', label: 'New Chat' },
+      { href: '/chat-history', label: 'Chat History' }
+    ]
+  },
+  {
+    label: 'CV Tools',
+    items: [
+      { href: '/cv', label: 'Job Vacancy Analysis' }
+    ]
+  },
+  {
+    label: 'Admin Panel',
+    items: [
+      { href: '/users', label: 'User Management' },
+      { href: '/roles', label: 'Role Management' },
+      { href: '/role-ui', label: 'Access Control' },
+      { href: '/settings', label: 'System Settings' }
     ]
   }
 ];

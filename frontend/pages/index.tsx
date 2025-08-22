@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { apiFetch } from '../lib/api';
 
 interface Stats {
   chats: number;
   documents: number;
   categories: number;
+  users: number;
 }
 
 export default function Home() {
@@ -13,7 +15,7 @@ export default function Home() {
     apiFetch('/api/stats')
       .then(res => res.json())
       .then(setStats)
-      .catch(() => setStats({ chats: 0, documents: 0, categories: 0 }));
+      .catch(() => setStats({ chats: 0, documents: 0, categories: 0, users: 0 }));
   }, []);
 
   return (
@@ -32,6 +34,18 @@ export default function Home() {
           <span className="stat-number">{stats?.categories ?? 0}</span>
           <span className="stat-label">Categories</span>
         </div>
+        <div className="stat">
+          <span className="stat-number">{stats?.users ?? 0}</span>
+          <span className="stat-label">Users</span>
+        </div>
+      </div>
+      <div className="quick-links">
+        <h2>Quick Links</h2>
+        <div className="links">
+          <Link href="/upload">Upload Document</Link>
+          <Link href="/chat">New Chat</Link>
+          <Link href="/cv">Job Vacancy Analysis</Link>
+        </div>
       </div>
       <style jsx>{`
         .home-card {
@@ -44,6 +58,7 @@ export default function Home() {
         .stats {
           display: flex;
           gap: 1rem;
+          flex-wrap: wrap;
         }
         .stat {
           flex: 1;
@@ -61,8 +76,15 @@ export default function Home() {
         .stat-label {
           color: #555;
         }
+        .quick-links .links {
+          display: flex;
+          gap: 1rem;
+        }
         @media (max-width: 600px) {
           .stats {
+            flex-direction: column;
+          }
+          .quick-links .links {
             flex-direction: column;
           }
         }

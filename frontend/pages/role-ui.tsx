@@ -39,7 +39,7 @@ export default function RoleUi() {
 
   return (
     <div className="card">
-      <h1>Manage Role to UI</h1>
+      <h1>Access Control</h1>
       <div className="table-wrapper">
         <table className="role-table">
           <thead>

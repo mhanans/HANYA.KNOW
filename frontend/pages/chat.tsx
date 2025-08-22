@@ -126,6 +126,7 @@ export default function Chat() {
 
   return (
     <div className="chat-page">
+      <h1>New Chat</h1>
       <div className="messages">
         {messages.map((m, i) => (
           <div key={i} className={`message ${m.role}`}>

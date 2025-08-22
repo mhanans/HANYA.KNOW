@@ -62,7 +62,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    npm run dev
    ```
 
-Visit `http://localhost:3000` for the UI. Use `/documents` to upload or manage PDFs and `/chat` to query stored knowledge with citations and relevance warnings.
+Visit `http://localhost:3000` for the UI. Use `/documents` to view existing PDFs, `/upload` to add new ones, `/document-analytics` for summaries, and `/chat` to query stored knowledge with citations and relevance warnings.
 Manage categories at `/categories`, roles at `/roles`, and filter chat questions by one or more categories.
 Manage role-to-UI access at `/role-ui`, users at `/users`, and application settings at `/settings`.
-The dashboard at `/` shows basic stats, and `/cv` generates candidate recommendations from uploaded CVs.
+The dashboard at `/` shows basic stats, `/chat-history` lists past conversations, and `/cv` performs job vacancy analysis from uploaded CVs.

@@ -130,7 +130,7 @@ export default function Cv() {
 
   return (
     <div className="card cv-card">
-      <h1>CV Recommendations</h1>
+      <h1>Job Vacancy Analysis</h1>
       <p className="hint">Enter position details to get top candidates from uploaded CVs.</p>
 
       <div className="cv-grid">

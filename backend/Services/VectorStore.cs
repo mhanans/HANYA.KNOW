@@ -145,6 +145,24 @@ public class VectorStore
         cmd.Parameters.AddWithValue("src", source);
         await cmd.ExecuteNonQueryAsync();
     }
+
+    public async Task<string?> GetDocumentSummaryAsync(string source)
+    {
+        const string sql = "SELECT content FROM documents WHERE source = @src ORDER BY page LIMIT 5";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("src", source);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var sb = new System.Text.StringBuilder();
+        while (await reader.ReadAsync())
+        {
+            sb.AppendLine(reader.GetString(0));
+        }
+        var text = sb.ToString().Trim();
+        if (string.IsNullOrEmpty(text)) return null;
+        return text.Length > 500 ? text.Substring(0, 500) + "..." : text;
+    }
 }
 
 public record DocumentInfo(string Source, int? CategoryId, int Pages);
