@@ -63,7 +63,7 @@ const globalCss = `
     .modal-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--border-color); }
     .close-button { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
     .close-button:hover { color: var(--text-primary); }
-
+    
     /*
      * =================================================================
      * B. LAYOUT STYLES (appLayout.css)
