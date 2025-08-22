@@ -5,7 +5,12 @@ export const config = { api: { bodyParser: false } };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const base = (process.env.API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-  const apiKey = process.env.API_KEY || 'dummy-api-key';
+  const apiKey =
+    (req.headers['x-api-key'] as string | undefined) ||
+    (req.query.apiKey as string | undefined) ||
+    process.env.API_KEY ||
+    process.env.NEXT_PUBLIC_API_KEY ||
+    'dummy-api-key';
   const params = new URLSearchParams();
   Object.entries(req.query).forEach(([k, v]) => {
     if (Array.isArray(v)) v.forEach(val => params.append(k, val));
