@@ -114,6 +114,27 @@ export default function Cv() {
     }
   };
 
+  const parseReason = (reason: string) => {
+    const levelMatch = reason.match(/(Top Candidate|Highly Recommended|Recommended with Reservations)/i);
+    const level = levelMatch ? levelMatch[1] : '';
+    let remaining = levelMatch ? reason.replace(levelMatch[0], '').trim() : reason.trim();
+    const skillsMatch = remaining.match(/(?:Skills?|Tech(?: Stack|nologies)?)[:\-]\s*([A-Za-z0-9+,\s]+)/i);
+    let skills: string[] = [];
+    if (skillsMatch) {
+      skills = skillsMatch[1].split(/,\s*/).filter(Boolean);
+      remaining = remaining.replace(skillsMatch[0], '').trim();
+    }
+    return { level, summary: remaining, skills };
+  };
+
+  const levelClass = (level: string) => {
+    const l = level.toLowerCase();
+    if (l.includes('top')) return 'recommendation-top';
+    if (l.includes('high')) return 'recommendation-high';
+    if (l.includes('reservation')) return 'recommendation-reservations';
+    return '';
+  };
+
   let candidates: Candidate[] = [];
   if (recommendationData?.summaryJson) {
     try { candidates = JSON.parse(recommendationData.summaryJson); } catch { /* ignore */ }
@@ -170,25 +191,26 @@ export default function Cv() {
         title="CV Recommendation"
       >
         {candidates.length ? (
-          <div className="table-wrapper">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>No</th>
-                  <th>Candidate Name</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((c, i) => (
-                  <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td>{c.name}</td>
-                    <td>{c.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="candidate-list">
+            {candidates.map((c, i) => {
+              const { level, summary, skills } = parseReason(c.reason);
+              return (
+                <div key={i} className="candidate-card">
+                  <div className="candidate-card-header">
+                    <span className="candidate-name">{i + 1}. {c.name}</span>
+                    {level && <span className={`recommendation-tag ${levelClass(level)}`}>{level}</span>}
+                  </div>
+                  {summary && <p className="candidate-summary">{summary}</p>}
+                  {skills.length > 0 && (
+                    <div className="candidate-skills">
+                      {skills.map(skill => (
+                        <span key={skill} className="skill-tag">{skill}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <p>No structured summary available.</p>

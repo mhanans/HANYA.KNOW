@@ -40,14 +40,20 @@ export default function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>({});
   const [username, setUsername] = useState('');
+  const [openSection, setOpenSection] = useState<string>(navSections[0].title);
 
   useEffect(() => {
     apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => {});
     if (router.pathname === '/login') return;
-    apiFetch('/api/me').then(res => {
-      if (res.ok) return res.json();
-      throw new Error('unauthenticated');
-    }).then(u => setUsername(u.username)).catch(() => router.push('/login'));
+    const current = navSections.find(s => s.links.some(l => l.href === router.pathname));
+    if (current) setOpenSection(current.title);
+    apiFetch('/api/me')
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('unauthenticated');
+      })
+      .then(u => setUsername(u.username))
+      .catch(() => router.push('/login'));
   }, [router.pathname]);
 
   const logout = async () => {
@@ -70,19 +76,26 @@ export default function Layout({ children }: { children: ReactNode }) {
           <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
           {navSections.map(section => (
             <div className="nav-group" key={section.title}>
-              <h3 className="nav-group-title">{section.title}</h3>
-              <ul className="nav-links">
-                {section.links.map(link => (
-                  <li key={link.href}>
-                    <Link href={link.href} legacyBehavior>
-                      <a className={router.pathname === link.href ? 'active' : ''}>
-                        <span className="nav-icon">{link.icon}</span>
-                        {link.label}
-                      </a>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <h3
+                className="nav-group-title"
+                onClick={() => setOpenSection(section.title)}
+              >
+                {section.title}
+              </h3>
+              {openSection === section.title && (
+                <ul className="nav-links">
+                  {section.links.map(link => (
+                    <li key={link.href}>
+                      <Link href={link.href} legacyBehavior>
+                        <a className={router.pathname === link.href ? 'active' : ''}>
+                          <span className="nav-icon">{link.icon}</span>
+                          {link.label}
+                        </a>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ))}
         </div>
@@ -93,11 +106,13 @@ export default function Layout({ children }: { children: ReactNode }) {
               <span className="user-name">{username}</span>
               <span className="user-role">administrator</span>
             </div>
-            <button className="btn-logout" onClick={logout} title="Logout">⎋</button>
+            <button className="btn-logout" onClick={logout} title="Logout">
+              ⎋ Logout
+            </button>
           </div>
         )}
       </nav>
-      <main className="main-content">{children}</main>
+      <main className={`main-content${router.pathname === '/chat' ? ' chat-page' : ''}`}>{children}</main>
     </div>
   );
 }
