@@ -1,19 +1,18 @@
 import React from 'react';
 import './dataTable.css';
 
-interface DataTableColumn {
+interface DataTableColumn<T extends Record<string, unknown>> {
   header: string;
-  accessor: string;
-  render?: (row: any) => React.ReactNode;
+  accessor: keyof T;
+  render?: (row: T) => React.ReactNode;
 }
 
-interface DataTableProps {
-  columns: DataTableColumn[];
-  data: any[];
-  onRowAction?: (row: any, action: string) => void;
+interface DataTableProps<T extends Record<string, unknown>> {
+  columns: DataTableColumn<T>[];
+  data: T[];
 }
 
-export const DataTable: React.FC<DataTableProps> = ({ columns, data, onRowAction }) => {
+export function DataTable<T extends Record<string, unknown> = Record<string, unknown>>({ columns, data }: DataTableProps<T>) {
   return (
     <div className="datatable-container">
       <div className="table-wrapper">
@@ -21,7 +20,7 @@ export const DataTable: React.FC<DataTableProps> = ({ columns, data, onRowAction
           <thead>
             <tr>
               {columns.map((col) => (
-                <th key={col.accessor}>{col.header}</th>
+                <th key={String(col.accessor)}>{col.header}</th>
               ))}
             </tr>
           </thead>
@@ -29,8 +28,8 @@ export const DataTable: React.FC<DataTableProps> = ({ columns, data, onRowAction
             {data.map((row, rowIndex) => (
               <tr key={rowIndex}>
                 {columns.map((col) => (
-                  <td key={col.accessor}>
-                    {col.render ? col.render(row) : row[col.accessor]}
+                  <td key={String(col.accessor)}>
+                    {col.render ? col.render(row) : String(row[col.accessor])}
                   </td>
                 ))}
               </tr>
@@ -40,4 +39,4 @@ export const DataTable: React.FC<DataTableProps> = ({ columns, data, onRowAction
       </div>
     </div>
   );
-};
+}

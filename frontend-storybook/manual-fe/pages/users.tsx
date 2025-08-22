@@ -17,7 +17,10 @@ export default function Users() {
         apiFetch('/api/roles')
       ]);
       if (u.ok) setUsers(await u.json());
-      if (r.ok) setRoles((await r.json()).map((x: any) => ({ id: x.id, name: x.name })));
+      if (r.ok) {
+        const roleData: Role[] = await r.json();
+        setRoles(roleData.map((x) => ({ id: x.id, name: x.name })));
+      }
     } catch {}
   };
 
