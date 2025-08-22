@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
-import Layout from '../components/Layout';
+import Layout from '../../../frontend/components/Layout';
 import React from 'react';
 
 const meta = {
@@ -23,3 +23,4 @@ export const Default: Story = {
     children: <div style={{ padding: '1rem' }}>Content</div>,
   },
 };
+
