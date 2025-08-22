@@ -132,7 +132,12 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(options =>
+{
+    // Allow Swagger "try it out" requests to include cookies so
+    // authenticated endpoints can be tested from the UI.
+    options.UseRequestInterceptor("(req) => { req.credentials = 'include'; return req; }");
+});
 // Use the CORS policy
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
