@@ -32,12 +32,24 @@ export default function Settings() {
   };
 
   return (
-    <div className="card">
-      <h1>General Settings</h1>
-      <input value={settings.applicationName || ''} onChange={e => setSettings({ ...settings, applicationName: e.target.value })} placeholder="Application Name" />
-      <input value={settings.logoUrl || ''} onChange={e => setSettings({ ...settings, logoUrl: e.target.value })} placeholder="Logo URL" />
-      <button onClick={save}>Save</button>
-      {msg && <p>{msg}</p>}
+    <div className="page-container">
+      <div className="card" style={{ maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <h1>General Settings</h1>
+        <input
+          value={settings.applicationName || ''}
+          onChange={e => setSettings({ ...settings, applicationName: e.target.value })}
+          placeholder="Application Name"
+          className="form-input"
+        />
+        <input
+          value={settings.logoUrl || ''}
+          onChange={e => setSettings({ ...settings, logoUrl: e.target.value })}
+          placeholder="Logo URL"
+          className="form-input"
+        />
+        <button onClick={save} className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>Save</button>
+        {msg && <p>{msg}</p>}
+      </div>
     </div>
   );
 }

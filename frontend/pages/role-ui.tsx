@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
+import TagInput from '../components/TagInput';
 
 interface Role { id: number; name: string; uiIds: number[]; }
 interface UiPage { id: number; key: string; }
@@ -38,10 +39,10 @@ export default function RoleUi() {
   };
 
   return (
-    <div className="card">
+    <div className="page-container">
       <h1>Access Control</h1>
-      <div className="table-wrapper">
-        <table className="role-table">
+      <div className="card table-wrapper">
+        <table className="table">
           <thead>
             <tr>
               <th>Role</th>
@@ -54,29 +55,15 @@ export default function RoleUi() {
               <tr key={r.id}>
                 <td>{r.name}</td>
                 <td>
-                  <select multiple value={r.uiIds.map(String)} onChange={e => {
-                    const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-                    setRoles(prev => prev.map(p => p.id === r.id ? { ...p, uiIds: opts } : p));
-                  }}>
-                    {uiOptions.map(u => (
-                      <option key={u.id} value={u.id}>{u.key}</option>
-                    ))}
-                  </select>
+                  <TagInput options={uiOptions.map(u => ({ id: u.id, name: u.key }))} selected={r.uiIds} onChange={ids => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, uiIds: ids } : p))} />
                 </td>
-                <td className="actions"><button onClick={() => update(r)}>Save</button></td>
+                <td style={{ display: 'flex', gap: '8px' }}><button className="btn btn-primary" onClick={() => update(r)}>Save</button></td>
               </tr>
             ))}
           </tbody>
         </table>
+        {error && <p className="error">{error}</p>}
       </div>
-      {error && <p className="error">{error}</p>}
-      <style jsx>{`
-        .table-wrapper { overflow-x: auto; }
-        .role-table { width: 100%; border-collapse: collapse; }
-        .role-table th, .role-table td { padding: 0.5rem; text-align: left; border-top: 1px solid #ddd; }
-        .role-table thead { background: #e0e7ff; font-weight: 600; }
-        .role-table .actions { display: flex; gap: 0.5rem; }
-      `}</style>
     </div>
   );
 }

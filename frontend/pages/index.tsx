@@ -19,76 +19,22 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="card home-card">
+    <div className="page-container">
       <h1>Dashboard</h1>
-      <div className="stats">
-        <div className="stat">
-          <span className="stat-number">{stats?.chats ?? 0}</span>
-          <span className="stat-label">Chats</span>
-        </div>
-        <div className="stat">
-          <span className="stat-number">{stats?.documents ?? 0}</span>
-          <span className="stat-label">Documents</span>
-        </div>
-        <div className="stat">
-          <span className="stat-number">{stats?.categories ?? 0}</span>
-          <span className="stat-label">Categories</span>
-        </div>
-        <div className="stat">
-          <span className="stat-number">{stats?.users ?? 0}</span>
-          <span className="stat-label">Users</span>
-        </div>
+      <div className="stats-grid">
+        <div className="card stat-card"><span className="stat-icon">💬</span><div><h3 className="stat-title">Chats</h3><p className="stat-value">{stats?.chats ?? 0}</p></div></div>
+        <div className="card stat-card"><span className="stat-icon">📄</span><div><h3 className="stat-title">Documents</h3><p className="stat-value">{stats?.documents ?? 0}</p></div></div>
+        <div className="card stat-card"><span className="stat-icon">🗂</span><div><h3 className="stat-title">Categories</h3><p className="stat-value">{stats?.categories ?? 0}</p></div></div>
+        <div className="card stat-card"><span className="stat-icon">👤</span><div><h3 className="stat-title">Users</h3><p className="stat-value">{stats?.users ?? 0}</p></div></div>
       </div>
-      <div className="quick-links">
+      <div className="card">
         <h2>Quick Links</h2>
-        <div className="links">
-          <Link href="/upload">Upload Document</Link>
-          <Link href="/chat">New Chat</Link>
-          <Link href="/cv">Job Vacancy Analysis</Link>
+        <div className="quick-links">
+          <Link href="/upload" className="btn btn-primary">Upload Document</Link>
+          <Link href="/chat" className="btn btn-secondary">New Chat</Link>
+          <Link href="/cv" className="btn btn-secondary">Job Vacancy Analysis</Link>
         </div>
       </div>
-      <style jsx>{`
-        .home-card {
-          display: flex;
-          flex-direction: column;
-          gap: 2rem;
-          text-align: center;
-          max-width: none;
-        }
-        .stats {
-          display: flex;
-          gap: 1rem;
-          flex-wrap: wrap;
-        }
-        .stat {
-          flex: 1;
-          background: #f9f9f9;
-          border-radius: 8px;
-          padding: 1rem;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-        }
-        .stat-number {
-          display: block;
-          font-size: 2rem;
-          font-weight: bold;
-          color: #0070f3;
-        }
-        .stat-label {
-          color: #555;
-        }
-        .quick-links .links {
-          display: flex;
-          gap: 1rem;
-        }
-        @media (max-width: 600px) {
-          .stats {
-            flex-direction: column;
-          }
-          .quick-links .links {
-            flex-direction: column;
-          }
-        }
-      `}</style>
     </div>
   );
 }
