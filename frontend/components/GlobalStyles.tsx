@@ -80,6 +80,7 @@ const globalCss = `
     .nav-links a.active { background-color: var(--primary-accent); color: white; }
     .nav-icon { font-size: 1.2rem; }
     .main-content { flex-grow: 1; overflow-y: auto; height: 100vh; padding: 32px; }
+    .main-content.chat-page { display: flex; flex-direction: column; overflow: hidden; }
     .user-profile { margin-top: auto; padding-top: calc(var(--spacing-unit) * 2); border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: var(--spacing-unit); }
     .user-profile .avatar { width: 40px; height: 40px; border-radius: 50%; background-color: var(--primary-accent); flex-shrink: 0; }
     .user-profile .user-info { display: flex; flex-direction: column; flex-grow: 1; } .user-name { color: var(--text-primary); font-weight: 500; } .user-role { color: var(--text-secondary); font-size: 0.8rem; text-transform: capitalize; }

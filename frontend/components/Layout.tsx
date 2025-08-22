@@ -112,7 +112,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
       </nav>
-      <main className="main-content">{children}</main>
+      <main className={`main-content${router.pathname === '/chat' ? ' chat-page' : ''}`}>{children}</main>
     </div>
   );
 }
