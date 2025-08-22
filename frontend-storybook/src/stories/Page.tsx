@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { Header } from './Header';
+import { Menu } from './Menu';
 import './page.css';
 
 type User = {
@@ -18,6 +19,8 @@ export const Page: React.FC = () => {
         onLogout={() => setUser(undefined)}
         onCreateAccount={() => setUser({ name: 'Jane Doe' })}
       />
+
+      <Menu items={["Home", "Docs", "About"]} />
 
       <section className="storybook-page">
         <h2>Pages in Storybook</h2>
