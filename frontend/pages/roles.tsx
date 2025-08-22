@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/api';
+import TagInput from '../components/TagInput';
 
 interface Role {
   id: number;
@@ -77,27 +78,20 @@ export default function Roles() {
   };
 
   return (
-    <div className="card roles-card">
+    <div className="page-container">
       <h1>Manage Role to Category</h1>
-      <div className="new-role">
-        <input value={newRole.name} onChange={e => setNewRole({ ...newRole, name: e.target.value })} placeholder="New role" />
-        <label>
+      <div className="controls">
+        <input className="form-input" value={newRole.name} onChange={e => setNewRole({ ...newRole, name: e.target.value })} placeholder="New role" />
+        <label className="form-input" style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: 'none', padding: 0 }}>
           <input type="checkbox" checked={newRole.allCategories} onChange={e => setNewRole({ ...newRole, allCategories: e.target.checked })} /> All categories
         </label>
         {!newRole.allCategories && (
-          <select multiple value={newRole.categoryIds.map(String)} onChange={e => {
-            const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-            setNewRole({ ...newRole, categoryIds: opts });
-          }}>
-            {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <TagInput options={categories} selected={newRole.categoryIds} onChange={ids => setNewRole({ ...newRole, categoryIds: ids })} />
         )}
-        <button onClick={create}>Add</button>
+        <button onClick={create} className="btn btn-primary">Add</button>
       </div>
-      <div className="table-wrapper">
-        <table className="role-table">
+      <div className="card table-wrapper">
+        <table className="table">
           <thead>
             <tr>
               <th>Name</th>
@@ -109,47 +103,23 @@ export default function Roles() {
           <tbody>
             {roles.map(r => (
               <tr key={r.id}>
-                <td>
-                  <input value={r.name} onChange={e => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, name: e.target.value } : p))} />
-                </td>
-                <td>
-                  <input type="checkbox" checked={r.allCategories} onChange={e => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, allCategories: e.target.checked } : p))} />
-                </td>
+                <td><input className="form-input" value={r.name} onChange={e => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, name: e.target.value } : p))} /></td>
+                <td><input type="checkbox" checked={r.allCategories} onChange={e => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, allCategories: e.target.checked } : p))} /></td>
                 <td>
                   {!r.allCategories && (
-                    <select multiple value={r.categoryIds.map(String)} onChange={e => {
-                      const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-                      setRoles(prev => prev.map(p => p.id === r.id ? { ...p, categoryIds: opts } : p));
-                    }}>
-                      {categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                    <TagInput options={categories} selected={r.categoryIds} onChange={ids => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, categoryIds: ids } : p))} />
                   )}
                 </td>
-                <td className="actions">
-                  <button onClick={() => update(r)}>Save</button>
-                  <button onClick={() => remove(r.id)}>Delete</button>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary" onClick={() => update(r)}>Save</button>
+                  <button className="btn btn-danger" onClick={() => remove(r.id)}>Delete</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {error && <p className="error">{error}</p>}
       </div>
-      {error && <p className="error">{error}</p>}
-      <style jsx>{`
-        .roles-card { max-width: none; }
-        .new-role { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-        .new-role select { min-width: 10rem; }
-        .table-wrapper { overflow-x: auto; }
-        .role-table { width: 100%; border-collapse: collapse; }
-        .role-table th, .role-table td { padding: 0.5rem; text-align: left; border-top: 1px solid #ddd; }
-        .role-table thead { background: #e0e7ff; font-weight: 600; }
-        .role-table .actions { display: flex; gap: 0.5rem; }
-        @media (max-width: 600px) {
-          .new-role { flex-direction: column; }
-        }
-      `}</style>
     </div>
   );
 }
