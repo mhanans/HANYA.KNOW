@@ -56,6 +56,14 @@ const globalCss = `
     .tag-input .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
     .tag-input select { min-width: 10rem; }
 
+    .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); max-width: 600px; width: 100%; }
+    .modal-header, .modal-body, .modal-footer { padding: 16px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); }
+    .modal-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--border-color); }
+    .close-button { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
+    .close-button:hover { color: var(--text-primary); }
+    
     /*
      * =================================================================
      * B. LAYOUT STYLES (appLayout.css)
@@ -64,10 +72,10 @@ const globalCss = `
     .app-layout { display: flex; height: 100vh; width: 100%; background-color: var(--bg-primary); }
     .sidebar { width: 240px; flex-shrink: 0; background-color: var(--bg-secondary); border-right: 1px solid var(--border-color); padding: calc(var(--spacing-unit) * 2); display: flex; flex-direction: column; }
     .sidebar-header h2 { padding: var(--spacing-unit); }
-    .nav-section { margin-top: calc(var(--spacing-unit) * 2); }
-    .nav-section h3 { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: var(--spacing-unit); text-transform: uppercase; }
+    .nav-group { margin-top: calc(var(--spacing-unit) * 2); }
+    .nav-group-title { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: var(--spacing-unit); text-transform: uppercase; }
     .nav-links { list-style: none; }
-    .nav-links a { display: flex; align-items: center; gap: 8px; padding: calc(var(--spacing-unit) * 1.5) var(--spacing-unit); color: var(--text-secondary); text-decoration: none; border-radius: var(--border-radius-md); transition: all 0.2s ease; }
+    .nav-links a { display: flex; align-items: center; gap: 8px; padding: calc(var(--spacing-unit) * 1.5) var(--spacing-unit); color: var(--text-secondary); text-decoration: none; border-radius: var(--border-radius-md); transition: all 0.2s ease; white-space: nowrap; }
     .nav-links a:hover { background-color: var(--surface); color: var(--text-primary); }
     .nav-links a.active { background-color: var(--primary-accent); color: white; }
     .nav-icon { font-size: 1.2rem; }
@@ -94,8 +102,6 @@ const globalCss = `
     .stat-icon { font-size: 2rem; }
     .summary { background-color: var(--surface); padding: 16px; white-space: pre-wrap; }
     .error { color: var(--error-color); }
-    .result-dialog::backdrop { background: rgba(0,0,0,0.5); }
-    .result-dialog { border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); padding: 16px; border-radius: var(--border-radius-md); max-width: 500px; width: 100%; }
     .page-header { display: flex; justify-content: space-between; align-items: center; }
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; }
     .stat-title { font-size: 1rem; color: var(--text-secondary); margin-bottom: 8px; } .stat-value { font-size: 2.5rem; color: var(--text-primary); font-weight: 600; line-height: 1; }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
+import Modal from '../components/Modal';
 
 interface Doc { source: string; }
 
 export default function DocumentAnalytics() {
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [summary, setSummary] = useState('');
+  const [summary, setSummary] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -56,7 +57,13 @@ export default function DocumentAnalytics() {
           </tbody>
         </table>
       </div>
-      {summary && <pre className="summary">{summary}</pre>}
+      <Modal
+        isOpen={summary !== null}
+        onClose={() => setSummary(null)}
+        title="Document Summary"
+      >
+        <pre className="summary">{summary}</pre>
+      </Modal>
     </div>
   );
 }

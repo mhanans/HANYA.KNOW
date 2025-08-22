@@ -69,8 +69,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div>
           <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
           {navSections.map(section => (
-            <div className="nav-section" key={section.title}>
-              <h3>{section.title}</h3>
+            <div className="nav-group" key={section.title}>
+              <h3 className="nav-group-title">{section.title}</h3>
               <ul className="nav-links">
                 {section.links.map(link => (
                   <li key={link.href}>

@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
+import Modal from '../components/Modal';
 
 interface Recommendation {
   id: number;
@@ -21,8 +22,7 @@ export default function Cv() {
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
-  const [viewId, setViewId] = useState<number | null>(null);
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [recommendationData, setRecommendationData] = useState<Recommendation | null>(null);
   const load = async () => {
     try {
       const res = await apiFetch('/api/recommendations');
@@ -115,18 +115,9 @@ export default function Cv() {
   };
 
   let candidates: Candidate[] = [];
-  const rec = viewId !== null ? recs.find(r => r.id === viewId) : null;
-  if (rec?.summaryJson) {
-    try { candidates = JSON.parse(rec.summaryJson); } catch { /* ignore */ }
+  if (recommendationData?.summaryJson) {
+    try { candidates = JSON.parse(recommendationData.summaryJson); } catch { /* ignore */ }
   }
-
-  useEffect(() => {
-    if (viewId !== null) {
-      dialogRef.current?.showModal();
-    } else {
-      dialogRef.current?.close();
-    }
-  }, [viewId]);
 
   return (
     <div className="page-container">
@@ -163,7 +154,7 @@ export default function Cv() {
                 <td>{r.details}</td>
                 <td>{new Date(r.createdAt).toLocaleString()}</td>
                 <td style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-secondary" onClick={() => setViewId(r.id)}>View Result</button>
+                  <button className="btn btn-secondary" onClick={() => setRecommendationData(r)}>View Result</button>
                   <button className="btn btn-secondary" onClick={() => retry(r.id)}>Retry</button>
                   <button className="btn btn-secondary" onClick={() => retrySummary(r.id)}>Retry Summary</button>
                 </td>
@@ -173,8 +164,11 @@ export default function Cv() {
         </table>
       </div>
 
-      <dialog ref={dialogRef} className="result-dialog" onClose={() => setViewId(null)}>
-        <h3>Top Candidates</h3>
+      <Modal
+        isOpen={!!recommendationData}
+        onClose={() => setRecommendationData(null)}
+        title="CV Recommendation"
+      >
         {candidates.length ? (
           <div className="table-wrapper">
             <table className="table">
@@ -199,10 +193,7 @@ export default function Cv() {
         ) : (
           <p>No structured summary available.</p>
         )}
-        <div className="actions">
-          <button className="btn btn-primary" onClick={() => setViewId(null)}>OK</button>
-        </div>
-      </dialog>
+      </Modal>
     </div>
   );
 }
