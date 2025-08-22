@@ -129,9 +129,8 @@ public class ChatController : ControllerBase
         return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false, ConversationId = conversationId };
     }
 
-    [HttpPost("stream")]
     [HttpGet("stream")]
-    public async Task Stream(ChatQueryRequest request)
+    public async Task Stream([FromQuery] ChatQueryRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Query))
         {
