@@ -26,9 +26,18 @@ namespace backend.Middleware
 
             if (!context.Request.Headers.TryGetValue(ApiKeyHeaderName, out var extractedApiKey))
             {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                await context.Response.WriteAsync("API Key was not provided.");
-                return;
+                // Allow passing the key as a query parameter when custom headers
+                // cannot be supplied (e.g., EventSource).
+                if (context.Request.Query.TryGetValue("apiKey", out var queryKey))
+                {
+                    extractedApiKey = queryKey;
+                }
+                else
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsync("API Key was not provided.");
+                    return;
+                }
             }
 
             if (!_apiKey.Equals(extractedApiKey))

@@ -73,7 +73,7 @@ export default function Chat() {
     setSelected(prev => (prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]));
   };
 
-  const send = async () => {
+  const send = () => {
     const text = query.trim();
     if (!text || loading) return;
     setQuery('');
@@ -83,63 +83,54 @@ export default function Chat() {
     const assistantIndex = messages.length + 1;
     setMessages(prev => [...prev, user, assistant]);
     setLoading(true);
-    try {
-      const res = await apiFetch('/api/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, categoryIds: selected, conversationId })
-      });
-      if (!res.ok || !res.body) {
-        const msg = await res.text();
-        throw new Error(msg || 'Request failed');
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-        for (const part of parts) {
-          const lines = part.split(/\r?\n/);
-          let event = '';
-          let data = '';
-          for (const line of lines) {
-            if (line.startsWith('event:')) event = line.slice(6).trim();
-            else if (line.startsWith('data:')) data += line.slice(5).trim();
-          }
-          if (event === 'token') {
-            const token = JSON.parse(data);
-            setMessages(prev => {
-              const ms = [...prev];
-              ms[assistantIndex].content += token;
-              return ms;
-            });
-          } else if (event === 'sources') {
-            const src = JSON.parse(data) as Source[];
-            setMessages(prev => {
-              const ms = [...prev];
-              ms[assistantIndex].sources = src;
-              return ms;
-            });
-          } else if (event === 'error') {
-            setError(data);
-          } else if (event === 'id') {
-            setConversationId(data);
-          }
-        }
-      }
-    } catch (err) {
+
+    const base = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
+    const apiKey = process.env.NEXT_PUBLIC_API_KEY;
+    if (!base || !apiKey) {
+      setError('API configuration missing');
+      setLoading(false);
+      return;
+    }
+
+    const params = new URLSearchParams({ query: text, apiKey });
+    if (conversationId) params.append('conversationId', conversationId);
+    selected.forEach(id => params.append('categoryIds', id.toString()));
+
+    const es = new EventSource(`${base}/api/chat/stream?${params.toString()}`);
+
+    es.addEventListener('id', e => {
+      setConversationId((e as MessageEvent).data);
+    });
+
+    es.addEventListener('sources', e => {
+      const src = JSON.parse((e as MessageEvent).data) as Source[];
       setMessages(prev => {
         const ms = [...prev];
-        ms[assistantIndex].content = err instanceof Error ? err.message : String(err);
+        ms[assistantIndex].sources = src;
         return ms;
       });
-    } finally {
+    });
+
+    es.addEventListener('token', e => {
+      const token = JSON.parse((e as MessageEvent).data);
+      setMessages(prev => {
+        const ms = [...prev];
+        ms[assistantIndex].content += token;
+        return ms;
+      });
+    });
+
+    es.addEventListener('error', e => {
+      const msg = (e as MessageEvent).data || 'Stream error';
+      setError(msg);
+      es.close();
       setLoading(false);
-    }
+    });
+
+    es.addEventListener('done', () => {
+      es.close();
+      setLoading(false);
+    });
   };
 
   return (
