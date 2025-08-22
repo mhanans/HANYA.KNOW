@@ -84,19 +84,11 @@ export default function Chat() {
     setMessages(prev => [...prev, user, assistant]);
     setLoading(true);
 
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
-    const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-    if (!base || !apiKey) {
-      setError('API configuration missing');
-      setLoading(false);
-      return;
-    }
-
-    const params = new URLSearchParams({ query: text, apiKey });
+    const params = new URLSearchParams({ query: text });
     if (conversationId) params.append('conversationId', conversationId);
     selected.forEach(id => params.append('categoryIds', id.toString()));
 
-    const es = new EventSource(`${base}/api/chat/stream?${params.toString()}`);
+    const es = new EventSource(`/api/chat/stream?${params.toString()}`, { withCredentials: true });
 
     es.addEventListener('id', e => {
       setConversationId((e as MessageEvent).data);
