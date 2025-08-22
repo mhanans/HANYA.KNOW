@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 // Make sure to import your version of ChatMessage and its props (if needed)
 import { ChatMessage } from './ChatMessage'; 
 import { ChatInput } from './ChatInput';
-import './chatInterface.css';
 
 // Define the internal Message type for the interface's state
 interface Message {

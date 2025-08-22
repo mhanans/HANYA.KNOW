@@ -1,5 +1,4 @@
 import React from 'react';
-import './dataTable.css';
 
 interface DataTableColumn<T extends Record<string, unknown>> {
   header: string;

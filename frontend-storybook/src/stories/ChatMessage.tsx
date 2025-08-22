@@ -1,6 +1,5 @@
 // src/stories/ChatMessage.tsx
 import React from 'react';
-import './chatMessage.css';
 
 export interface ChatMessageProps {
   // We'll allow 'bot' as an alias for 'assistant' for easier integration

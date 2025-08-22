@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Button } from './Button';
-import './loginPage.css';
 
 export interface LoginPageProps {
   onSubmit: (data: { username: string; password: string }) => void;
