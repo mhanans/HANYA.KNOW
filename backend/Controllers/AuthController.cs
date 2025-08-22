@@ -1,9 +1,10 @@
 using backend.Services;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
 
 namespace backend.Controllers;
 
@@ -12,10 +13,12 @@ namespace backend.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly UserStore _users;
+    private readonly IConfiguration _config;
 
-    public AuthController(UserStore users)
+    public AuthController(UserStore users, IConfiguration config)
     {
         _users = users;
+        _config = config;
     }
 
     [AllowAnonymous]
@@ -33,18 +36,21 @@ public class AuthController : ControllerBase
         foreach (var rid in user.RoleIds)
             claims.Add(new Claim(ClaimTypes.Role, rid.ToString()));
 
-        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-        await HttpContext.SignInAsync(new ClaimsPrincipal(identity));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"] ?? string.Empty));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        return Ok(new { user.Id, user.Username, Roles = user.RoleIds });
+        var token = new JwtSecurityToken(
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(1),
+            signingCredentials: creds);
+
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+        return Ok(new { user.Id, user.Username, Roles = user.RoleIds, Token = tokenString });
     }
 
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout()
-    {
-        await HttpContext.SignOutAsync();
-        return Ok();
-    }
+    public IActionResult Logout() => Ok();
 
     [HttpGet("me")]
     public IActionResult Me()

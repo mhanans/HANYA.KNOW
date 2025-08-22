@@ -62,6 +62,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await apiFetch('/api/logout', { method: 'POST' });
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+    }
     setUsername('');
     router.push('/login');
   };
