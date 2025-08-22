@@ -1,6 +1,5 @@
 import React from 'react';
 import { Button } from './Button';
-import './chatInput.css';
 
 export interface ChatInputProps {
   query: string;
