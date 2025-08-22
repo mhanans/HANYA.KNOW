@@ -17,6 +17,10 @@ export default function Login() {
         body: JSON.stringify({ username, password })
       });
       if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('token', data.token);
+      }
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

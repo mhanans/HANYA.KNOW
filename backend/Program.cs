@@ -1,12 +1,13 @@
 using backend.Services;
 using backend.Middleware;
-using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,15 @@ builder.Services.AddSwaggerGen(options =>
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey
     });
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -36,6 +46,20 @@ builder.Services.AddSwaggerGen(options =>
                     Id = "ApiKey"
                 },
                 In = ParameterLocation.Header
+            },
+            Array.Empty<string>()
+        }
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
             },
             Array.Empty<string>()
         }
@@ -60,17 +84,16 @@ builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSecti
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
 
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-    .AddCookie(options =>
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        options.Cookie.Name = "auth";
-        options.Cookie.HttpOnly = true;
-        options.Cookie.SameSite = SameSiteMode.None;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.None;
-        options.Events.OnRedirectToLogin = ctx =>
+        var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? string.Empty);
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(key)
         };
     });
 builder.Services.AddAuthorization();
