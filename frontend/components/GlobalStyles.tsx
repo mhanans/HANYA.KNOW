@@ -120,6 +120,24 @@ const globalCss = `
     .send-button { background: #3a3a3a; border: none; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s ease-in-out; color: #a0a0a0; margin-left: 8px; flex-shrink: 0; }
     .send-button:hover:not(:disabled) { background: #4a4a4a; color: #fff; } .send-button:disabled { cursor: not-allowed; background-color: transparent; }
     .send-icon { color: var(--primary-accent); transition: color 0.2s ease-in-out; } .send-icon.disabled { color: #6d6d6d; }
+
+    /* Login Page */
+    .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 32px; background: radial-gradient(circle at top, rgba(255,255,255,0.05), transparent); }
+    .login-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 16px; }
+    .logo { width: 80px; height: auto; margin: 0 auto 8px; }
+    .login-header { text-align: center; font-weight: 600; }
+    .login-subtitle { text-align: center; color: var(--text-secondary); margin-top: -16px; margin-bottom: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 8px; }
+    .input-wrapper { position: relative; }
+    .input-wrapper .input-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; }
+    .input-wrapper .toggle-password { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 0; display: flex; align-items: center; }
+    .input-wrapper input { padding-left: 40px; padding-right: 40px; }
+    .remember-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; }
+    .login-button { width: 100%; }
+    .forgot-link { color: var(--primary-accent); font-size: 0.9rem; }
+    .error-banner { display: flex; align-items: center; gap: 8px; background-color: rgba(229,62,62,0.1); border: 1px solid var(--error-color); color: var(--error-color); padding: 8px 12px; border-radius: var(--border-radius-md); }
+    .spinner { width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `;
 
 const GlobalStyles = () => (
