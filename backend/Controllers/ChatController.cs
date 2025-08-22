@@ -130,6 +130,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpPost("stream")]
+    [HttpGet("stream")]
     public async Task Stream(ChatQueryRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Query))
