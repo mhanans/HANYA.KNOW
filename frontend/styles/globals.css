@@ -167,6 +167,12 @@ select:focus {
   overflow-y: auto;
 }
 
+.main-content.chat-page {
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+
 .user-profile {
   display: flex;
   align-items: center;
