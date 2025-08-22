@@ -133,7 +133,7 @@ export default function Chat() {
   };
 
   return (
-    <div className="chat-interface">
+    <>
       <div className="messages-container">
         {messages.map((m, i) => (
           <div key={i} className={`chat-message ${m.role === 'assistant' ? 'assistant' : 'user'}`}>
@@ -193,7 +193,7 @@ export default function Chat() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
