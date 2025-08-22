@@ -115,7 +115,7 @@ export default function Cv() {
   };
 
   const parseReason = (reason: string) => {
-    const levelMatch = reason.match(/(Top Candidate|Highly Recommended|Recommended with Reservations)/i);
+    const levelMatch = reason.match(/( Top Candidate| Highly Recommended| Recommended with Reservations)/i);
     const level = levelMatch ? levelMatch[1] : '';
     let remaining = levelMatch ? reason.replace(levelMatch[0], '').trim() : reason.trim();
     const skillsMatch = remaining.match(/(?:Skills?|Tech(?: Stack|nologies)?)[:\-]\s*([A-Za-z0-9+,\s]+)/i);

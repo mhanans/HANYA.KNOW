@@ -29,7 +29,7 @@ const navSections: { title: string; links: NavItem[] }[] = [
     title: 'Admin',
     links: [
       { href: '/users', label: 'User Management', icon: '👤' },
-      { href: '/roles', label: 'Manage Role to Category', icon: '🔧' },
+      { href: '/roles', label: 'Manage Role', icon: '🔧' },
       { href: '/role-ui', label: 'Access Control', icon: '🔐' },
       { href: '/settings', label: 'System Settings', icon: '⚙️' },
     ],
