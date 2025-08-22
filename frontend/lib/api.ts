@@ -4,8 +4,8 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   if (!base || !apiKey) {
     throw new Error('NEXT_PUBLIC_API_BASE_URL and NEXT_PUBLIC_API_KEY must be set');
   }
-  const headers: HeadersInit = {
-    ...(options.headers || {}),
+  const headers: Record<string, string> = {
+    ...((options.headers as Record<string, string>) || {}),
     'X-API-KEY': apiKey,
   };
   if (typeof window !== 'undefined') {

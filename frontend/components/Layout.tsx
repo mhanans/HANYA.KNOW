@@ -5,49 +5,39 @@ import { apiFetch } from '../lib/api';
 
 interface Settings { applicationName?: string; logoUrl?: string; }
 
-const navGroups = [
+interface NavItem { href: string; label: string; icon: string; }
+const navSections: { title: string; links: NavItem[] }[] = [
+  { title: 'General', links: [{ href: '/', label: 'Dashboard', icon: '🏠' }] },
   {
-    label: 'Dashboard',
-    items: [
-      { href: '/', label: 'Dashboard' }
-    ]
+    title: 'Content Management',
+    links: [
+      { href: '/documents', label: 'All Documents', icon: '📄' },
+      { href: '/categories', label: 'Categories', icon: '🗂' },
+      { href: '/upload', label: 'Upload Document', icon: '⬆️' },
+      { href: '/document-analytics', label: 'Document Analytics', icon: '📈' },
+    ],
   },
   {
-    label: 'Documents',
-    items: [
-      { href: '/documents', label: 'All Documents' },
-      { href: '/categories', label: 'Categories' },
-      { href: '/upload', label: 'Upload Document' },
-      { href: '/document-analytics', label: 'Document Analytics' }
-    ]
+    title: 'Chat',
+    links: [
+      { href: '/chat', label: 'New Chat', icon: '💬' },
+      { href: '/chat-history', label: 'Chat History', icon: '🕓' },
+    ],
   },
+  { title: 'AI Tools', links: [{ href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠' }] },
   {
-    label: 'AI Assistant',
-    items: [
-      { href: '/chat', label: 'New Chat' },
-      { href: '/chat-history', label: 'Chat History' }
-    ]
+    title: 'Admin',
+    links: [
+      { href: '/users', label: 'User Management', icon: '👤' },
+      { href: '/roles', label: 'Manage Role to Category', icon: '🔧' },
+      { href: '/role-ui', label: 'Access Control', icon: '🔐' },
+      { href: '/settings', label: 'System Settings', icon: '⚙️' },
+    ],
   },
-  {
-    label: 'CV Tools',
-    items: [
-      { href: '/cv', label: 'Job Vacancy Analysis' }
-    ]
-  },
-  {
-    label: 'Admin Panel',
-    items: [
-      { href: '/users', label: 'User Management' },
-      { href: '/roles', label: 'Manage Role to Category' },
-      { href: '/role-ui', label: 'Access Control' },
-      { href: '/settings', label: 'System Settings' }
-    ]
-  }
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [open, setOpen] = useState<{ [key: string]: boolean }>({});
   const [settings, setSettings] = useState<Settings>({});
   const [username, setUsername] = useState('');
 
@@ -69,45 +59,45 @@ export default function Layout({ children }: { children: ReactNode }) {
     router.push('/login');
   };
 
-  const toggle = (label: string) => setOpen(o => ({ ...o, [label]: !o[label] }));
-
   if (router.pathname === '/login') {
-    return <main className="content">{children}</main>;
+    return <main className="main-content">{children}</main>;
   }
 
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        {settings.applicationName && (
-          <div className="brand">
-            {settings.logoUrl && <img src={settings.logoUrl} alt="logo" />}
-            <span>{settings.applicationName}</span>
-          </div>
-        )}
-        {username && <p className="hello">Hello, {username}</p>}
-        {username && <button onClick={logout}>Logout</button>}
-        <nav>
-          {navGroups.map(g => (
-            <div key={g.label} className="nav-group">
-              <div className="group-label" onClick={() => toggle(g.label)}>{g.label}</div>
-              {open[g.label] && g.items.map(item => (
-                <Link key={item.href} href={item.href} legacyBehavior>
-                  <a className={router.pathname === item.href ? 'active' : ''}>{item.label}</a>
-                </Link>
-              ))}
+    <div className="app-layout">
+      <nav className="sidebar">
+        <div>
+          <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
+          {navSections.map(section => (
+            <div className="nav-group" key={section.title}>
+              <h3 className="nav-group-title">{section.title}</h3>
+              <ul className="nav-links">
+                {section.links.map(link => (
+                  <li key={link.href}>
+                    <Link href={link.href} legacyBehavior>
+                      <a className={router.pathname === link.href ? 'active' : ''}>
+                        <span className="nav-icon">{link.icon}</span>
+                        {link.label}
+                      </a>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </div>
           ))}
-        </nav>
-      </aside>
-      <main className="content">{children}</main>
-      <style jsx>{`
-        .group-label { cursor: pointer; font-weight: 600; margin-top: 0.5rem; }
-        .nav-group a { display: block; margin-left: 1rem; }
-        .brand { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; }
-        .brand img { height: 32px; }
-        .hello { padding: 0.5rem 0; }
-        .sidebar button { margin-bottom: 0.5rem; }
-      `}</style>
+        </div>
+        {username && (
+          <div className="user-profile">
+            <div className="avatar"></div>
+            <div className="user-info">
+              <span className="user-name">{username}</span>
+              <span className="user-role">administrator</span>
+            </div>
+            <button className="btn-logout" onClick={logout} title="Logout">⎋</button>
+          </div>
+        )}
+      </nav>
+      <main className="main-content">{children}</main>
     </div>
   );
 }

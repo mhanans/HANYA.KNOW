@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
+import Modal from '../components/Modal';
 
 interface Doc { source: string; }
 
 export default function DocumentAnalytics() {
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [summary, setSummary] = useState('');
+  const [summary, setSummary] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -34,10 +35,10 @@ export default function DocumentAnalytics() {
   };
 
   return (
-    <div className="card docs-card">
+    <div className="page-container">
       <h1>Document Analytics</h1>
-      <div className="table-wrapper">
-        <table className="doc-table">
+      <div className="card table-wrapper">
+        <table className="table">
           <thead>
             <tr>
               <th>Document</th>
@@ -47,24 +48,22 @@ export default function DocumentAnalytics() {
           <tbody>
             {docs.map(d => (
               <tr key={d.source}>
-                <td className="name">{d.source}</td>
-                <td className="actions"><button onClick={() => analyze(d.source)}>View Summary</button></td>
+                <td>{d.source}</td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-secondary" onClick={() => analyze(d.source)}>View Summary</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {summary && <pre className="summary">{summary}</pre>}
-      <style jsx>{`
-        .docs-card { max-width: none; }
-        .table-wrapper { overflow-x: auto; margin-bottom: 1rem; }
-        .doc-table { width: 100%; border-collapse: collapse; }
-        .doc-table th, .doc-table td { padding: 0.5rem; text-align: left; border-top: 1px solid #ddd; }
-        .doc-table thead { background: #e0e7ff; font-weight: 600; }
-        .doc-table .actions { display: flex; gap: 0.5rem; }
-        .doc-table .name { word-break: break-word; }
-        .summary { background: #f5f5f5; padding: 1rem; white-space: pre-wrap; }
-      `}</style>
+      <Modal
+        isOpen={summary !== null}
+        onClose={() => setSummary(null)}
+        title="Document Summary"
+      >
+        <pre className="summary">{summary}</pre>
+      </Modal>
     </div>
   );
 }
