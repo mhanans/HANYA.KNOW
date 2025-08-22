@@ -51,11 +51,13 @@ export default function Documents() {
     await load();
   };
 
-  const filtered = docs.filter(
-    d =>
-      (!filter || d.source.toLowerCase().includes(filter.toLowerCase())) &&
-      (!catFilter || String(d.categoryId ?? '') === catFilter)
-  );
+  const filtered = docs.filter(d => {
+    const matchesText =
+      !filter || d.source.toLowerCase().includes(filter.toLowerCase());
+    const matchesCategory =
+      !catFilter || String(d.categoryId ?? '') === catFilter;
+    return matchesText && matchesCategory;
+  });
 
   return (
     <div className="page-container">
