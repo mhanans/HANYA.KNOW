@@ -1,7 +1,6 @@
 import React from 'react';
 
-const GlobalStyles = () => (
-  <style>{`
+const globalCss = `
     /*
      * =================================================================
      * A. GLOBAL THEME & RESET (theme.css)
@@ -47,7 +46,7 @@ const GlobalStyles = () => (
     .form-input, .form-textarea, .form-select { width: 100%; background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: calc(var(--spacing-unit) * 1.5); color: var(--text-primary); font-size: 1rem; transition: all 0.2s ease; }
     .form-input:focus, .form-textarea:focus, .form-select:focus { outline: none; border-color: var(--border-color-focus); box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25); }
     .form-input::placeholder, .form-textarea::placeholder { color: var(--text-secondary); }
-    .card { background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: calc(var(--spacing-unit) * 3); box-shadow: var(--shadow-sm); }
+    .card { background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: calc(var(--spacing-unit) * 3); box-shadow: var(--shadow-sm); margin: 0 auto; }
     .table { width: 100%; border-collapse: collapse; margin-top: calc(var(--spacing-unit) * 2); }
     .table th, .table td { padding: calc(var(--spacing-unit) * 1.5); text-align: left; border-bottom: 1px solid var(--border-color); }
     .table th { color: var(--text-primary); font-weight: 600; } .table tbody tr:hover { background-color: var(--surface); }
@@ -76,7 +75,7 @@ const GlobalStyles = () => (
      * C. PAGE-SPECIFIC LAYOUTS (page-specific.css)
      * =================================================================
      */
-    .page-container { padding: 32px; display: flex; flex-direction: column; gap: 32px; }
+    .page-container { padding: 32px; display: flex; flex-direction: column; gap: 32px; max-width: 1200px; margin: 0 auto; }
     .page-header { display: flex; justify-content: space-between; align-items: center; }
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; }
     .stat-title { font-size: 1rem; color: var(--text-secondary); margin-bottom: 8px; } .stat-value { font-size: 2.5rem; color: var(--text-primary); font-weight: 600; line-height: 1; }
@@ -121,7 +120,10 @@ const GlobalStyles = () => (
     .send-button { background: #3a3a3a; border: none; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s ease-in-out; color: #a0a0a0; margin-left: 8px; flex-shrink: 0; }
     .send-button:hover:not(:disabled) { background: #4a4a4a; color: #fff; } .send-button:disabled { cursor: not-allowed; background-color: transparent; }
     .send-icon { color: var(--primary-accent); transition: color 0.2s ease-in-out; } .send-icon.disabled { color: #6d6d6d; }
-  `}</style>
+`;
+
+const GlobalStyles = () => (
+  <style suppressHydrationWarning dangerouslySetInnerHTML={{ __html: globalCss }} />
 );
 
 export default GlobalStyles;
