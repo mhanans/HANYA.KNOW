@@ -1,5 +1,4 @@
 import React from 'react';
-import './chatMessage.css';
 
 export interface ChatMessageProps {
   role: 'user' | 'assistant';
