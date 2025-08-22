@@ -4,39 +4,25 @@ import { ChatMessage } from './ChatMessage';
 const meta = {
   title: 'Components/ChatMessage',
   component: ChatMessage,
-  parameters: {
-    layout: 'padded',
-  },
-  tags: ['autodocs'],
 } satisfies Meta<typeof ChatMessage>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const UserMessage: Story = {
+export const User: Story = {
   args: {
-    message: {
-      text: 'Hello, this is a message from the user.',
-      sender: 'user',
-    },
+    role: 'user',
+    content: 'Hello, this is a user message.',
   },
 };
 
-export const BotMessage: Story = {
+export const Assistant: Story = {
   args: {
-    message: {
-      text: 'Hello, this is a response from the bot.',
-      sender: 'bot',
-    },
-  },
-};
-
-export const BotMessageWithAvatar: Story = {
-  args: {
-    message: {
-      text: 'I have a custom avatar!',
-      sender: 'bot',
-    },
-    botAvatar: 'https://storybook.js.org/images/brand/storybook-icon.svg',
+    role: 'assistant',
+    content: 'Hello, this is an assistant message with sources.',
+    sources: [
+      { index: 1, file: 'document1.pdf', page: 2 },
+      { index: 2, file: 'document2.pdf' },
+    ],
   },
 };

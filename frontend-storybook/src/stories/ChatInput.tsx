@@ -1,57 +1,48 @@
 import React from 'react';
+import { Button } from './Button';
 import './chatInput.css';
 
 export interface ChatInputProps {
-  disabled?: boolean;
-  onSendMessage: (message: string) => void;
+  query: string;
+  setQuery: (query: string) => void;
+  send: () => void;
+  loading: boolean;
+  categories: { id: number; name: string }[];
+  selected: number[];
+  setSelected: (selected: number[]) => void;
+  error?: string;
 }
 
-export const ChatInput = ({ disabled, onSendMessage }: ChatInputProps) => {
-  const [message, setMessage] = React.useState('');
-
-  const handleSendMessage = () => {
-    if (message.trim()) {
-      onSendMessage(message);
-      setMessage('');
-    }
-  };
-
+export const ChatInput: React.FC<ChatInputProps> = ({
+  query,
+  setQuery,
+  send,
+  loading,
+  categories,
+  selected,
+  setSelected,
+  error,
+}) => {
   return (
-    <div className="chat-input-container">
+    <div className="chat-input" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }}}>
+      {error && <p className="error">{error}</p>}
       <textarea
-        className="chat-input"
-        placeholder="Type your message..."
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSendMessage();
-          }
-        }}
-        disabled={disabled}
-        rows={1}
+        placeholder="Send a message..."
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        disabled={loading}
       />
-      <button
-        className="send-button"
-        onClick={handleSendMessage}
-        disabled={disabled || !message.trim()}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="22" y1="2" x2="11" y2="13" />
-          <polygon points="22 2 15 22 11 13 2 9 22 2" />
-        </svg>
-      </button>
+      <div className="actions">
+        <select multiple value={selected.map(String)} onChange={e => {
+          const opts = Array.from(e.target.selectedOptions).map(o => parseInt(o.value));
+          setSelected(opts);
+        }}>
+          {categories.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <Button onClick={send} disabled={loading || !query.trim()} label="Send" />
+      </div>
     </div>
   );
 };

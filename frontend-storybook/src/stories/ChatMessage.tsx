@@ -2,25 +2,28 @@ import React from 'react';
 import './chatMessage.css';
 
 export interface ChatMessageProps {
-  message: {
-    text: string;
-    sender: 'user' | 'bot';
-  };
-  botAvatar?: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: { index: number; file: string; page?: number }[];
 }
 
-export const ChatMessage = ({ message, botAvatar }: ChatMessageProps) => {
-  const { text, sender } = message;
-  const isUser = sender === 'user';
-
+export const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, sources }) => {
   return (
-    <div className={`chat-message ${isUser ? 'user-message' : 'bot-message'}`}>
-      {!isUser && (
-        <div className="avatar">
-          {botAvatar ? <img src={botAvatar} alt="Bot Avatar" /> : '🤖'}
-        </div>
-      )}
-      <div className="message-bubble">{text}</div>
+    <div className={`chat-message ${role}`}>
+      <div className="avatar" />
+      <div className="bubble">
+        {content}
+        {role === 'assistant' && sources && (
+          <ul className="sources">
+            {sources.map(s => (
+              <li key={s.index}>
+                [{s.index}] {s.file}
+                {s.page !== undefined && ` (p.${s.page})`}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 };
