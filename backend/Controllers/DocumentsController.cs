@@ -36,7 +36,18 @@ public class DocumentsController : ControllerBase
         await _store.DeleteDocumentAsync(source);
         return NoContent();
     }
+
+    [HttpGet("summary")]
+    public async Task<ActionResult<DocumentSummary>> Summary([FromQuery] string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return BadRequest("Source is required.");
+        var summary = await _store.GetDocumentSummaryAsync(source) ?? string.Empty;
+        return Ok(new DocumentSummary(source, summary));
+    }
 }
 
 public record DocumentUpdate(string Source, int? CategoryId);
+
+public record DocumentSummary(string Source, string Summary);
 

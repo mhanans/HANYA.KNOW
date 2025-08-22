@@ -1,0 +1,23 @@
+.storybook-menu {
+  background: #111827;
+  padding: 10px 20px;
+}
+
+.storybook-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 1rem;
+}
+
+.storybook-menu a {
+  color: #f3f4f6;
+  text-decoration: none;
+  font-family: 'Nunito Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+.storybook-menu a:hover {
+  color: #3b82f6;
+}
+

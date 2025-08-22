@@ -1,12 +1,20 @@
 using backend.Services;
 using backend.Middleware;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    var policy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -42,12 +50,30 @@ builder.Services.AddSingleton<CategoryStore>();
 builder.Services.AddSingleton<RoleStore>();
 builder.Services.AddSingleton<StatsStore>();
 builder.Services.AddSingleton<RecommendationStore>();
+builder.Services.AddSingleton<UserStore>();
+builder.Services.AddSingleton<SettingsStore>();
+builder.Services.AddSingleton<UiStore>();
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>();
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));
 builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSection("Recommendation"));
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.None;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.None;
+        options.Events.OnRedirectToLogin = ctx =>
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+    });
+builder.Services.AddAuthorization();
 
 // Add CORS policy using origins from configuration
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
@@ -56,9 +82,13 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         if (allowedOrigins.Length == 0)
-            policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+        {
+            policy.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        }
         else
-            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+        {
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        }
     });
 });
 
@@ -82,6 +112,8 @@ app.UseSwagger();
 app.UseSwaggerUI();
 // Use the CORS policy
 app.UseCors("AllowFrontend");
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
 app.Run();

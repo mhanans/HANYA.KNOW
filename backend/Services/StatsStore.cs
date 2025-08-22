@@ -27,7 +27,8 @@ public class StatsStore
         const string sql = @"SELECT
             (SELECT COUNT(*) FROM chats) AS chats,
             (SELECT COUNT(*) FROM documents) AS documents,
-            (SELECT COUNT(*) FROM categories) AS categories";
+            (SELECT COUNT(*) FROM categories) AS categories,
+            (SELECT COUNT(*) FROM users) AS users";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -36,9 +37,10 @@ public class StatsStore
         var chats = reader.GetInt64(0);
         var documents = reader.GetInt64(1);
         var categories = reader.GetInt64(2);
-        return new DashboardStats(chats, documents, categories);
+        var users = reader.GetInt64(3);
+        return new DashboardStats(chats, documents, categories, users);
     }
 }
 
-public record DashboardStats(long Chats, long Documents, long Categories);
+public record DashboardStats(long Chats, long Documents, long Categories, long Users);
 
