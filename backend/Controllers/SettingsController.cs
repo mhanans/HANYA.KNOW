@@ -1,4 +1,5 @@
 using backend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace backend.Controllers;
@@ -14,6 +15,7 @@ public class SettingsController : ControllerBase
         _settings = settings;
     }
 
+    [AllowAnonymous]
     [HttpGet]
     public async Task<AppSettings> Get()
     {

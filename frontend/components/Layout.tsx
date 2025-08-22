@@ -38,7 +38,7 @@ const navGroups = [
     label: 'Admin Panel',
     items: [
       { href: '/users', label: 'User Management' },
-      { href: '/roles', label: 'Role Management' },
+      { href: '/roles', label: 'Manage Role to Category' },
       { href: '/role-ui', label: 'Access Control' },
       { href: '/settings', label: 'System Settings' }
     ]
@@ -53,11 +53,24 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => {});
-    const u = localStorage.getItem('username');
-    if (u) setUsername(u);
-  }, []);
+    if (router.pathname === '/login') return;
+    apiFetch('/api/me').then(res => {
+      if (res.ok) return res.json();
+      throw new Error('unauthenticated');
+    }).then(u => setUsername(u.username)).catch(() => router.push('/login'));
+  }, [router.pathname]);
+
+  const logout = async () => {
+    await apiFetch('/api/logout', { method: 'POST' });
+    setUsername('');
+    router.push('/login');
+  };
 
   const toggle = (label: string) => setOpen(o => ({ ...o, [label]: !o[label] }));
+
+  if (router.pathname === '/login') {
+    return <main className="content">{children}</main>;
+  }
 
   return (
     <div className="layout">
@@ -69,6 +82,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
         {username && <p className="hello">Hello, {username}</p>}
+        {username && <button onClick={logout}>Logout</button>}
         <nav>
           {navGroups.map(g => (
             <div key={g.label} className="nav-group">
@@ -89,6 +103,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         .brand { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; }
         .brand img { height: 32px; }
         .hello { padding: 0.5rem 0; }
+        .sidebar button { margin-bottom: 0.5rem; }
       `}</style>
     </div>
   );

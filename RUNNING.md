@@ -63,6 +63,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```
 
 Visit `http://localhost:3000` for the UI. Use `/documents` to view existing PDFs, `/upload` to add new ones, `/document-analytics` for summaries, and `/chat` to query stored knowledge with citations and relevance warnings.
+Log in at `/login` (sample credentials `admin/password` from `sample-data.sql`). All pages require authentication and will redirect to the login screen when accessed anonymously.
 Manage categories at `/categories`, roles at `/roles`, and filter chat questions by one or more categories.
 Manage role-to-UI access at `/role-ui`, users at `/users`, and application settings at `/settings`.
 The dashboard at `/` shows basic stats, `/chat-history` lists past conversations, and `/cv` performs job vacancy analysis from uploaded CVs.

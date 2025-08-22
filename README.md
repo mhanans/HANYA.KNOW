@@ -21,6 +21,8 @@ MVP knowledge base with retrieval augmented generation.
 - `DELETE /api/roles/{id}` – delete a role
 - Roles include UI access permissions
 - `POST /api/login` – authenticate a user
+- `POST /api/logout` – end the current session
+- `GET /api/me` – fetch the currently authenticated user
 - `GET /api/users` – list users and their roles
 - `POST /api/users` – create a user
 - `PUT /api/users/{id}` – update a user and role assignments
@@ -39,11 +41,11 @@ MVP knowledge base with retrieval augmented generation.
 - `POST /api/recommendations/{id}/retry-summary` – regenerate JSON candidate summaries
 - Full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
-All requests to the API must include an `X-API-KEY` header matching the `ApiKey` value in the backend configuration. Interactive documentation is available at `/swagger`, where you can supply the key via the **Authorize** button and try each endpoint directly from the browser.
+All requests to the API must include an `X-API-KEY` header matching the `ApiKey` value in the backend configuration. Users must also authenticate via `POST /api/login`; authenticated sessions are stored in a cookie and required for all other endpoints, which respond with `401 Unauthorized` when accessed anonymously. Interactive documentation is available at `/swagger`, where you can supply the key via the **Authorize** button and try each endpoint directly from the browser.
 
 ## Frontend
 - Next.js client with pages for managing documents, roles, chatting, and generating CV-based recommendations.
-- User login and user management with role assignments.
+- User login/logout with role-based access control.
 - Role-to-UI mapping controls which pages each role can access.
 - General settings page to update application name and logo.
 - Dashboard shows counts of chats, documents, categories, and users with quick links to common tasks.

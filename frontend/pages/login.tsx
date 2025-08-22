@@ -17,7 +17,6 @@ export default function Login() {
         body: JSON.stringify({ username, password })
       });
       if (!res.ok) throw new Error(await res.text());
-      localStorage.setItem('username', username);
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

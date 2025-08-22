@@ -8,5 +8,5 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     ...(options.headers || {}),
     'X-API-KEY': apiKey,
   };
-  return fetch(`${base}${path}`, { ...options, headers });
+  return fetch(`${base}${path}`, { ...options, headers, credentials: 'include' });
 }
