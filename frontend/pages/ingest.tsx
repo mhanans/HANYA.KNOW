@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Category {
   id: number;
@@ -16,9 +17,8 @@ export default function Ingest() {
 
   useEffect(() => {
     const load = async () => {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       try {
-        const res = await fetch(`${base}/api/categories`);
+        const res = await apiFetch('/api/categories');
         if (res.ok) setCategories(await res.json());
       } catch {
         /* ignore */
@@ -41,8 +41,7 @@ export default function Ingest() {
     setLoading(true);
     setStatus('Uploading...');
     try {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-      const res = await fetch(`${base}/api/ingest`, {
+      const res = await apiFetch('/api/ingest', {
         method: 'POST',
         body: form
       });

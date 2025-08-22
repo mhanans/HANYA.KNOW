@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Source {
   index: number;
@@ -31,9 +32,8 @@ export default function Chat() {
 
   useEffect(() => {
     const load = async () => {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
       try {
-        const res = await fetch(`${base}/api/categories`);
+        const res = await apiFetch('/api/categories');
         if (res.ok) setCategories(await res.json());
       } catch {
         /* ignore */
@@ -66,8 +66,7 @@ export default function Chat() {
     setMessages(prev => [...prev, user, assistant]);
     setLoading(true);
     try {
-      const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-      const res = await fetch(`${base}/api/chat/stream`, {
+      const res = await apiFetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: text, categoryIds: selected, conversationId })

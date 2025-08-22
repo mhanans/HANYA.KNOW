@@ -8,6 +8,9 @@ obj/
 
 # Misc
 .env
+.env.local
+frontend/.env
+frontend/.env.local
 backend/appsettings.json
 
 *storybook.log

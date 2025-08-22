@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Role {
   id: number;
@@ -18,13 +19,11 @@ export default function Roles() {
   const [newRole, setNewRole] = useState({ name: '', allCategories: true, categoryIds: [] as number[] });
   const [error, setError] = useState('');
 
-  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-
   const load = async () => {
     try {
       const [r, c] = await Promise.all([
-        fetch(`${base}/api/roles`),
-        fetch(`${base}/api/categories`)
+        apiFetch('/api/roles'),
+        apiFetch('/api/categories')
       ]);
       if (r.ok) setRoles(await r.json());
       if (c.ok) setCategories(await c.json());
@@ -38,7 +37,7 @@ export default function Roles() {
   const create = async () => {
     setError('');
     try {
-      const res = await fetch(`${base}/api/roles`, {
+      const res = await apiFetch('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRole)
@@ -54,7 +53,7 @@ export default function Roles() {
   const update = async (role: Role) => {
     setError('');
     try {
-      const res = await fetch(`${base}/api/roles/${role.id}`, {
+      const res = await apiFetch(`/api/roles/${role.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(role)
@@ -69,7 +68,7 @@ export default function Roles() {
   const remove = async (id: number) => {
     setError('');
     try {
-      const res = await fetch(`${base}/api/roles/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/roles/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
       await load();
     } catch (err) {

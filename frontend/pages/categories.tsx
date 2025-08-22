@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Category {
   id: number;
@@ -10,11 +11,9 @@ export default function Categories() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
 
-  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-
   const load = async () => {
     try {
-      const res = await fetch(`${base}/api/categories`);
+      const res = await apiFetch('/api/categories');
       if (res.ok) setCategories(await res.json());
     } catch {
       /* ignore */
@@ -26,7 +25,7 @@ export default function Categories() {
   const create = async () => {
     setError('');
     try {
-      const res = await fetch(`${base}/api/categories`, {
+      const res = await apiFetch('/api/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
@@ -42,7 +41,7 @@ export default function Categories() {
   const update = async (id: number, newName: string) => {
     setError('');
     try {
-      const res = await fetch(`${base}/api/categories/${id}`, {
+      const res = await apiFetch(`/api/categories/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName })
@@ -57,7 +56,7 @@ export default function Categories() {
   const remove = async (id: number) => {
     setError('');
     try {
-      const res = await fetch(`${base}/api/categories/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         let msg = res.statusText;
         try { const data = await res.json(); if (data?.detail) msg = data.detail; } catch {}

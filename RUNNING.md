@@ -51,9 +51,10 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    cd ../frontend
    npm install
    ```
-2. Create `.env.local` with:
+2. Copy `.env.local.example` to `.env.local` and update values:
    ```bash
    NEXT_PUBLIC_API_BASE_URL=http://localhost:5000
+   NEXT_PUBLIC_API_KEY=dummy-api-key
    ```
 3. Start the dev server:
    ```bash
