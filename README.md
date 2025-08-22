@@ -22,12 +22,12 @@ MVP knowledge base with retrieval augmented generation.
   - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations; returns a friendly message prompting knowledge upload when no relevant context is found
   - `GET /api/stats` – usage metrics for the dashboard
   - `GET /api/recommendations` – list CV recommendations
-  - `POST /api/recommendations` – generate a recommendation
-  - `POST /api/recommendations/{id}/retry` – regenerate an existing recommendation
-  - `POST /api/recommendations/{id}/retry-summary` – regenerate JSON candidate summaries
+- `POST /api/recommendations` – generate a recommendation
+- `POST /api/recommendations/{id}/retry` – regenerate an existing recommendation
+- `POST /api/recommendations/{id}/retry-summary` – regenerate JSON candidate summaries
 - Full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
-All requests to the API must include an `X-API-KEY` header matching the `ApiKey` value in the backend configuration. A ready-to-import Postman collection (`HANYA.KNOW.postman_collection.json`) demonstrates sample requests and sets this header automatically via the `api_key` variable.
+All requests to the API must include an `X-API-KEY` header matching the `ApiKey` value in the backend configuration. Interactive documentation is available at `/swagger`, where you can supply the key via the **Authorize** button and try each endpoint directly from the browser.
 
 ## Frontend
 - Next.js client with pages for managing documents, roles, chatting, and generating CV-based recommendations.
