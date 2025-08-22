@@ -1,0 +1,19 @@
+.category-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.category-select .option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.category-select .option input {
+  accent-color: #0070f3;
+  width: 1rem;
+  height: 1rem;
+}
