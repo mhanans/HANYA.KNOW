@@ -8,5 +8,9 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     ...(options.headers || {}),
     'X-API-KEY': apiKey,
   };
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+  }
   return fetch(`${base}${path}`, { ...options, headers });
 }
