@@ -95,7 +95,14 @@ export default function Chat() {
     });
 
     es.addEventListener('sources', e => {
-      const src = JSON.parse((e as MessageEvent).data) as Source[];
+      const raw = JSON.parse((e as MessageEvent).data) as any[];
+      const src: Source[] = raw.map(s => ({
+        index: s.Index ?? s.index,
+        file: s.File ?? s.file,
+        page: s.Page ?? s.page,
+        content: s.Content ?? s.content,
+        score: s.Score ?? s.score,
+      }));
       setMessages(prev => {
         const ms = [...prev];
         ms[assistantIndex].sources = src;
