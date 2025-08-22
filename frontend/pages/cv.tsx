@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Recommendation {
   id: number;
@@ -22,11 +23,9 @@ export default function Cv() {
   const [loading, setLoading] = useState(false);
   const [viewId, setViewId] = useState<number | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-
   const load = async () => {
     try {
-      const res = await fetch(`${base}/api/recommendations`);
+      const res = await apiFetch('/api/recommendations');
       if (res.ok) setRecs(await res.json());
     } catch {
       /* ignore */
@@ -44,7 +43,7 @@ export default function Cv() {
     setLoading(true);
     setStatus('Generating...');
     try {
-      const res = await fetch(`${base}/api/recommendations`, {
+      const res = await apiFetch('/api/recommendations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ position, details })
@@ -74,7 +73,7 @@ export default function Cv() {
   const retry = async (id: number) => {
     setStatus('Retrying...');
     try {
-      const res = await fetch(`${base}/api/recommendations/${id}/retry`, { method: 'POST' });
+      const res = await apiFetch(`/api/recommendations/${id}/retry`, { method: 'POST' });
       if (!res.ok) {
         let msg = res.statusText;
         try {
@@ -96,7 +95,7 @@ export default function Cv() {
   const retrySummary = async (id: number) => {
     setStatus('Retrying summary...');
     try {
-      const res = await fetch(`${base}/api/recommendations/${id}/retry-summary`, { method: 'POST' });
+      const res = await apiFetch(`/api/recommendations/${id}/retry-summary`, { method: 'POST' });
       if (!res.ok) {
         let msg = res.statusText;
         try {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Stats {
   chats: number;
@@ -8,10 +9,8 @@ interface Stats {
 
 export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-
   useEffect(() => {
-    fetch(`${base}/api/stats`)
+    apiFetch('/api/stats')
       .then(res => res.json())
       .then(setStats)
       .catch(() => setStats({ chats: 0, documents: 0, categories: 0 }));

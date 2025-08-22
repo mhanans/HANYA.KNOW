@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api';
 
 interface Category {
   id: number;
@@ -20,13 +21,11 @@ export default function Documents() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
-
   const load = async () => {
     try {
       const [catRes, docRes] = await Promise.all([
-        fetch(`${base}/api/categories`),
-        fetch(`${base}/api/documents`)
+        apiFetch('/api/categories'),
+        apiFetch('/api/documents')
       ]);
       if (catRes.ok) setCategories(await catRes.json());
       if (docRes.ok) setDocs(await docRes.json());
@@ -51,7 +50,7 @@ export default function Documents() {
     setLoading(true);
     setStatus('Uploading...');
     try {
-      const res = await fetch(`${base}/api/ingest`, { method: 'POST', body: form });
+      const res = await apiFetch('/api/ingest', { method: 'POST', body: form });
       if (!res.ok) {
         let msg = res.statusText;
         try {
@@ -77,7 +76,7 @@ export default function Documents() {
   };
 
   const save = async (doc: Doc) => {
-    await fetch(`${base}/api/documents`, {
+    await apiFetch('/api/documents', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source: doc.source, categoryId: doc.categoryId })
@@ -86,7 +85,7 @@ export default function Documents() {
   };
 
   const remove = async (source: string) => {
-    await fetch(`${base}/api/documents?source=${encodeURIComponent(source)}`, { method: 'DELETE' });
+    await apiFetch(`/api/documents?source=${encodeURIComponent(source)}`, { method: 'DELETE' });
     await load();
   };
 

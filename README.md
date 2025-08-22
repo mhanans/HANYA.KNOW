@@ -43,7 +43,7 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `Chat: { CooldownSeconds }` – minimum seconds a client must wait between chat requests
 - `ApiKey` – shared secret required in `X-API-KEY` header for all API calls
-- `NEXT_PUBLIC_API_BASE_URL` for frontend (defaults to `http://localhost:5000` if unset)
+- `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_API_KEY` for the frontend (configure in `.env.local`; see `frontend/.env.local.example`)
 
 To verify your embedding service responds correctly, send a sample request (adjust the URL and model for your setup):
 
