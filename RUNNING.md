@@ -14,11 +14,12 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    ```sql
    CREATE EXTENSION IF NOT EXISTS vector;
    ```
-3. Apply the provided schema (includes hybrid vector + language-agnostic full-text indexes):
+3. Apply the provided schema and optional sample data:
     ```bash
     psql -d <db> -f schema.sql
+    psql -d <db> -f sample-data.sql # optional seed data
     ```
-   `schema.sql` defines `embedding vector(768)` and a `categories` table; adjust the dimension if your model outputs a different size.
+   `schema.sql` defines `embedding vector(768)` and tables for categories, users, UI pages, role mappings and settings.
 
 ## Backend
 1. Navigate to the backend project:
@@ -63,4 +64,5 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
 
 Visit `http://localhost:3000` for the UI. Use `/documents` to upload or manage PDFs and `/chat` to query stored knowledge with citations and relevance warnings.
 Manage categories at `/categories`, roles at `/roles`, and filter chat questions by one or more categories.
+Manage role-to-UI access at `/role-ui`, users at `/users`, and application settings at `/settings`.
 The dashboard at `/` shows basic stats, and `/cv` generates candidate recommendations from uploaded CVs.

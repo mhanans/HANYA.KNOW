@@ -78,7 +78,7 @@ export default function Roles() {
 
   return (
     <div className="card roles-card">
-      <h1>Manage Roles</h1>
+      <h1>Manage Role to Category</h1>
       <div className="new-role">
         <input value={newRole.name} onChange={e => setNewRole({ ...newRole, name: e.target.value })} placeholder="New role" />
         <label>

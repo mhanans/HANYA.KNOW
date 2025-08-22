@@ -51,3 +51,31 @@ CREATE TABLE IF NOT EXISTS role_categories (
     category_id INT REFERENCES categories(id) ON DELETE CASCADE,
     PRIMARY KEY(role_id, category_id)
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    role_id INT REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY(user_id, role_id)
+);
+
+CREATE TABLE IF NOT EXISTS ui_pages (
+    id SERIAL PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS role_ui (
+    role_id INT REFERENCES roles(id) ON DELETE CASCADE,
+    ui_id INT REFERENCES ui_pages(id) ON DELETE CASCADE,
+    PRIMARY KEY(role_id, ui_id)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
