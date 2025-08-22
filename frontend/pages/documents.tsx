@@ -126,55 +126,23 @@ export default function Documents() {
                 </td>
                 <td>{d.pages}</td>
                 <td style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-primary" onClick={() => save(d)}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => save(d)}
+                  >
                     Save
                   </button>
-                  <button className="btn btn-danger" onClick={() => remove(d.source)}>
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => remove(d.source)}
+                  >
                     Delete
                   </button>
                 </td>
               </tr>
             ))}
-          </select>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Document</th>
-                <th>Category</th>
-                <th>Pages</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(d => (
-                <tr key={d.source}>
-                  <td>{d.source}</td>
-                  <td>
-                    <select
-                      className="form-select"
-                      value={d.categoryId ?? ''}
-                      onChange={e =>
-                        setDocs(prev => prev.map(p => p.source === d.source ? { ...p, categoryId: e.target.value ? Number(e.target.value) : null } : p))
-                      }
-                    >
-                      <option value="">No category</option>
-                      {categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>{d.pages}</td>
-                  <td style={{ display: 'flex', gap: '8px' }}>
-                    <button className="btn btn-primary" onClick={() => save(d)}>Save</button>
-                    <button className="btn btn-secondary" onClick={() => remove(d.source)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          </tbody>
+        </table>
       </div>
     </div>
   );
