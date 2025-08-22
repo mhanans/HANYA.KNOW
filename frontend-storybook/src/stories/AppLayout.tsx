@@ -1,7 +1,6 @@
 import React from 'react';
 import { Sidebar, SidebarProps } from './Sidebar';
 import { ChatInterface, ChatInterfaceProps } from './ChatInterface';
-import './appLayout.css';
 
 export interface AppLayoutProps {
   sidebar: SidebarProps;

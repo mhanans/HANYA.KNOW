@@ -1,7 +1,7 @@
-import { LoginForm } from '../stories/LoginForm';
+import { LoginPage } from '../stories/LoginPage';
 import { useRouter } from 'next/router';
 import { apiFetch } from '../lib/api';
-export default function LoginPage() {
+export default function LoginPageWrapper() {
   const router = useRouter();
 
   const handleSubmit = async (data: { username: string; password: string }) => {
@@ -12,11 +12,15 @@ export default function LoginPage() {
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error(await res.text());
+      const result = await res.json();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('token', result.token);
+      }
       router.push('/');
     } catch {
       /* ignore */
     }
   };
 
-  return <LoginForm onSubmit={handleSubmit} />;
+  return <LoginPage onSubmit={handleSubmit} />;
 }
