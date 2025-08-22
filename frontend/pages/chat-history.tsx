@@ -35,42 +35,37 @@ export default function ChatHistory() {
   };
 
   return (
-    <div className="card chat-card">
-      <h1>Chat History</h1>
-      <div className="table-wrapper">
-        <table className="chat-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>First Message</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map(h => (
-              <tr key={h.id}>
-                <td>{new Date(h.created).toLocaleString()}</td>
-                <td className="name">{h.firstMessage}</td>
-                <td className="actions"><button onClick={() => view(h.id)}>View</button></td>
+    <div className="page-container">
+      <div className="card">
+        <h1>Chat History</h1>
+        <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>First Message</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {messages.length > 0 && (
-        <div className="messages">
-          {messages.map((m, idx) => <p key={idx}>{m}</p>)}
+            </thead>
+            <tbody>
+              {history.map(h => (
+                <tr key={h.id}>
+                  <td>{new Date(h.created).toLocaleString()}</td>
+                  <td>{h.firstMessage}</td>
+                  <td style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-secondary" onClick={() => view(h.id)}>View</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
-      <style jsx>{`
-        .chat-card { max-width: none; }
-        .table-wrapper { overflow-x: auto; margin-bottom: 1rem; }
-        .chat-table { width: 100%; border-collapse: collapse; }
-        .chat-table th, .chat-table td { padding: 0.5rem; text-align: left; border-top: 1px solid #ddd; }
-        .chat-table thead { background: #e0e7ff; font-weight: 600; }
-        .chat-table .actions { display: flex; gap: 0.5rem; }
-        .chat-table .name { word-break: break-word; }
-      `}</style>
+        {messages.length > 0 && (
+          <div className="card">
+            {messages.map((m, idx) => <p key={idx}>{m}</p>)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
