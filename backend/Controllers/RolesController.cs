@@ -29,7 +29,8 @@ public class RolesController : ControllerBase
         {
             Name = request.Name,
             AllCategories = request.AllCategories,
-            CategoryIds = request.CategoryIds ?? new List<int>()
+            CategoryIds = request.CategoryIds ?? new List<int>(),
+            UiIds = request.UiIds ?? new List<int>()
         };
         var id = await _store.CreateAsync(role);
         role.Id = id;
@@ -46,7 +47,8 @@ public class RolesController : ControllerBase
             Id = id,
             Name = request.Name,
             AllCategories = request.AllCategories,
-            CategoryIds = request.CategoryIds ?? new List<int>()
+            CategoryIds = request.CategoryIds ?? new List<int>(),
+            UiIds = request.UiIds ?? new List<int>()
         };
         try
         {
@@ -79,4 +81,5 @@ public class RoleRequest
     public string Name { get; set; } = string.Empty;
     public bool AllCategories { get; set; }
     public List<int> CategoryIds { get; set; } = new();
+    public List<int> UiIds { get; set; } = new();
 }

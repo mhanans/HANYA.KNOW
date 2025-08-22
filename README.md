@@ -4,7 +4,7 @@ MVP knowledge base with retrieval augmented generation.
 
 ## Backend
 - ASP.NET Core Web API (requires .NET 9 SDK v9.0.304)
-- PostgreSQL with pgvector for embeddings (see `schema.sql`)
+- PostgreSQL with pgvector for embeddings (see `schema.sql` and `sample-data.sql` for seed data)
 - API endpoints:
   - `POST /api/ingest` – upload text or one/many PDF files; PDF pages are stored individually so citations include page numbers
   - `GET /api/documents` – list ingested documents
@@ -14,10 +14,19 @@ MVP knowledge base with retrieval augmented generation.
   - `POST /api/categories` – create a category
   - `PUT /api/categories/{id}` – rename a category
   - `DELETE /api/categories/{id}` – delete a category (fails if in use)
-  - `GET /api/roles` – list roles and their category access
-  - `POST /api/roles` – create a role
-  - `PUT /api/roles/{id}` – update a role's permissions
-  - `DELETE /api/roles/{id}` – delete a role
+- `GET /api/roles` – list roles and their category access
+- `POST /api/roles` – create a role
+- `PUT /api/roles/{id}` – update a role's permissions
+- `DELETE /api/roles/{id}` – delete a role
+- Roles include UI access permissions
+- `POST /api/login` – authenticate a user
+- `GET /api/users` – list users and their roles
+- `POST /api/users` – create a user
+- `PUT /api/users/{id}` – update a user and role assignments
+- `DELETE /api/users/{id}` – remove a user
+- `GET /api/settings` – fetch general application settings
+- `PUT /api/settings` – update application settings such as name and logo
+- `GET /api/ui` – list available UI pages for role mapping
   - `POST /api/vector/search` – vector similarity search
   - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations; returns a friendly message prompting knowledge upload when no relevant context is found
   - `GET /api/stats` – usage metrics for the dashboard
@@ -31,6 +40,9 @@ All requests to the API must include an `X-API-KEY` header matching the `ApiKey`
 
 ## Frontend
 - Next.js client with pages for managing documents, roles, chatting, and generating CV-based recommendations.
+- User login and user management with role assignments.
+- Role-to-UI mapping controls which pages each role can access.
+- General settings page to update application name and logo.
 - Dashboard shows counts of chats, documents, and categories.
 - Chat answers include numbered citations with relevance scores.
 - Documents can be tagged with categories for targeted queries; manage categories and roles on the frontend and filter questions by category.

@@ -17,7 +17,10 @@ public class RoleStore
 
     public async Task<List<Role>> ListAsync()
     {
-        const string sql = @"SELECT r.id, r.name, r.all_categories, COALESCE(array_agg(rc.category_id) FILTER (WHERE rc.category_id IS NOT NULL), '{}') AS cat_ids FROM roles r LEFT JOIN role_categories rc ON rc.role_id = r.id GROUP BY r.id, r.name, r.all_categories ORDER BY r.name";
+        const string sql = @"SELECT r.id, r.name, r.all_categories,
+            ARRAY(SELECT category_id FROM role_categories WHERE role_id=r.id) AS cat_ids,
+            ARRAY(SELECT ui_id FROM role_ui WHERE role_id=r.id) AS ui_ids
+            FROM roles r ORDER BY r.name";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -26,12 +29,14 @@ public class RoleStore
         while (await reader.ReadAsync())
         {
             var ids = reader.GetFieldValue<int[]>(3).ToList();
+            var uis = reader.GetFieldValue<int[]>(4).ToList();
             list.Add(new Role
             {
                 Id = reader.GetInt32(0),
                 Name = reader.GetString(1),
                 AllCategories = reader.GetBoolean(2),
-                CategoryIds = ids
+                CategoryIds = ids,
+                UiIds = uis
             });
         }
         return list;
@@ -61,6 +66,14 @@ public class RoleStore
             }
         }
 
+        foreach (var ui in role.UiIds.Distinct())
+        {
+            await using var insert = new NpgsqlCommand("INSERT INTO role_ui(role_id, ui_id) VALUES (@rid, @ui)", conn, tx);
+            insert.Parameters.AddWithValue("rid", id);
+            insert.Parameters.AddWithValue("ui", ui);
+            await insert.ExecuteNonQueryAsync();
+        }
+
         await tx.CommitAsync();
         return id;
     }
@@ -87,6 +100,11 @@ public class RoleStore
             del.Parameters.AddWithValue("id", role.Id);
             await del.ExecuteNonQueryAsync();
         }
+        await using (var delUi = new NpgsqlCommand("DELETE FROM role_ui WHERE role_id=@id", conn, tx))
+        {
+            delUi.Parameters.AddWithValue("id", role.Id);
+            await delUi.ExecuteNonQueryAsync();
+        }
 
         if (!role.AllCategories && role.CategoryIds.Count > 0)
         {
@@ -97,6 +115,13 @@ public class RoleStore
                 insert.Parameters.AddWithValue("cid", cid);
                 await insert.ExecuteNonQueryAsync();
             }
+        }
+        foreach (var ui in role.UiIds.Distinct())
+        {
+            await using var insert = new NpgsqlCommand("INSERT INTO role_ui(role_id, ui_id) VALUES (@rid, @ui)", conn, tx);
+            insert.Parameters.AddWithValue("rid", role.Id);
+            insert.Parameters.AddWithValue("ui", ui);
+            await insert.ExecuteNonQueryAsync();
         }
 
         await tx.CommitAsync();
@@ -121,4 +146,5 @@ public class Role
     public string Name { get; set; } = string.Empty;
     public bool AllCategories { get; set; }
     public List<int> CategoryIds { get; set; } = new();
+    public List<int> UiIds { get; set; } = new();
 }
