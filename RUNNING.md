@@ -42,6 +42,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    dotnet restore
    dotnet run
    ```
+
    Include the configured API key in every request using an `X-API-KEY` header. The running server exposes Swagger UI at `/swagger`, where you can authorize with the key and invoke endpoints for testing.
 
 ## Frontend
