@@ -1,0 +1,61 @@
+{
+  "info": {
+    "name": "HANYA.KNOW API",
+    "_postman_id": "b8ce3092-889a-4d61-9e04-97e7bfb1f1e5",
+    "description": "Collection for HANYA.KNOW backend API requiring X-API-KEY header",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:5000" },
+    { "key": "api_key", "value": "dummy-api-key" }
+  ],
+  "item": [
+    {
+      "name": "Get Stats",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-API-KEY", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/stats",
+          "host": [ "{{base_url}}" ],
+          "path": [ "api", "stats" ]
+        }
+      }
+    },
+    {
+      "name": "List Categories",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-API-KEY", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/categories",
+          "host": [ "{{base_url}}" ],
+          "path": [ "api", "categories" ]
+        }
+      }
+    },
+    {
+      "name": "Create Category",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-KEY", "value": "{{api_key}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Sample\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/categories",
+          "host": [ "{{base_url}}" ],
+          "path": [ "api", "categories" ]
+        }
+      }
+    }
+  ]
+}
