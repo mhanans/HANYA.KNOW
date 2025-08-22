@@ -28,12 +28,14 @@ export default function Login() {
   };
 
   return (
-    <div className="card">
-      <h1>Login</h1>
-      <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" />
-      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
-      <button onClick={submit}>Login</button>
-      {error && <p className="error">{error}</p>}
+    <div className="page-container">
+      <div className="card" style={{ maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <h1>Login</h1>
+        <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" className="form-input" />
+        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" className="form-input" />
+        <button onClick={submit} className="btn btn-primary">Login</button>
+        {error && <p className="error">{error}</p>}
+      </div>
     </div>
   );
 }
