@@ -35,12 +35,14 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    - `Llm:ApiKey` – API key for the chosen provider
    - `Llm:Model` – model name such as `gpt-3.5-turbo` or `gemini-pro`
    - `Chat:CooldownSeconds` – minimum seconds between chat requests per client
+   - `ApiKey` – shared secret that clients must send in an `X-API-KEY` header
 
 3. Restore and run the API:
    ```bash
    dotnet restore
    dotnet run
    ```
+   Include the configured API key in every request using an `X-API-KEY` header. The running server exposes Swagger UI at `/swagger`, where you can authorize with the key and invoke endpoints for testing.
 
 ## Frontend
 1. Install dependencies:
