@@ -70,6 +70,7 @@ export default function Login() {
       const data = await res.json();
       if (typeof window !== 'undefined') {
         localStorage.setItem('token', data.token);
+        document.cookie = `token=${data.token}; path=/`;
       }
       router.push('/');
     } catch (err) {
