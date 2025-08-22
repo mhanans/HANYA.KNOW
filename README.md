@@ -27,6 +27,8 @@ MVP knowledge base with retrieval augmented generation.
   - `POST /api/recommendations/{id}/retry-summary` – regenerate JSON candidate summaries
 - Full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
+All requests to the API must include an `X-API-KEY` header matching the `ApiKey` value in the backend configuration. A ready-to-import Postman collection (`HANYA.KNOW.postman_collection.json`) demonstrates sample requests and sets this header automatically via the `api_key` variable.
+
 ## Frontend
 - Next.js client with pages for managing documents, roles, chatting, and generating CV-based recommendations.
 - Dashboard shows counts of chats, documents, and categories.
@@ -40,6 +42,7 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `Embedding: { BaseUrl, Model, Provider, Dimensions }`
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `Chat: { CooldownSeconds }` – minimum seconds a client must wait between chat requests
+- `ApiKey` – shared secret required in `X-API-KEY` header for all API calls
 - `NEXT_PUBLIC_API_BASE_URL` for frontend (defaults to `http://localhost:5000` if unset)
 
 To verify your embedding service responds correctly, send a sample request (adjust the URL and model for your setup):

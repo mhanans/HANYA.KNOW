@@ -1,4 +1,5 @@
 using backend.Services;
+using backend.Middleware;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -56,5 +57,6 @@ app.UseSwagger();
 app.UseSwaggerUI();
 // Use the CORS policy
 app.UseCors("AllowFrontend");
+app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
 app.Run();
