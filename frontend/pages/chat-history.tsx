@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
@@ -36,9 +37,9 @@ export default function ChatHistory() {
 
   return (
     <div className="page-container">
-      <div className="card">
-        <h1>Chat History</h1>
-        <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+      <h1>Chat History</h1>
+      {history.length ? (
+        <div className="card table-wrapper">
           <table className="table">
             <thead>
               <tr>
@@ -60,12 +61,17 @@ export default function ChatHistory() {
             </tbody>
           </table>
         </div>
-        {messages.length > 0 && (
-          <div className="card">
-            {messages.map((m, idx) => <p key={idx}>{m}</p>)}
-          </div>
-        )}
-      </div>
+      ) : (
+        <div className="card empty-state">
+          <p>You have no chat history yet.</p>
+          <Link href="/chat" className="btn btn-primary">Start a New Chat</Link>
+        </div>
+      )}
+      {messages.length > 0 && (
+        <div className="card">
+          {messages.map((m, idx) => <p key={idx}>{m}</p>)}
+        </div>
+      )}
     </div>
   );
 }

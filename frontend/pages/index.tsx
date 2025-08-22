@@ -22,10 +22,10 @@ export default function Home() {
     <div className="page-container">
       <h1>Dashboard</h1>
       <div className="stats-grid">
-        <div className="card"><h3 className="stat-title">Chats</h3><p className="stat-value">{stats?.chats ?? 0}</p></div>
-        <div className="card"><h3 className="stat-title">Documents</h3><p className="stat-value">{stats?.documents ?? 0}</p></div>
-        <div className="card"><h3 className="stat-title">Categories</h3><p className="stat-value">{stats?.categories ?? 0}</p></div>
-        <div className="card"><h3 className="stat-title">Users</h3><p className="stat-value">{stats?.users ?? 0}</p></div>
+        <div className="card stat-card"><span className="stat-icon">💬</span><div><h3 className="stat-title">Chats</h3><p className="stat-value">{stats?.chats ?? 0}</p></div></div>
+        <div className="card stat-card"><span className="stat-icon">📄</span><div><h3 className="stat-title">Documents</h3><p className="stat-value">{stats?.documents ?? 0}</p></div></div>
+        <div className="card stat-card"><span className="stat-icon">🗂</span><div><h3 className="stat-title">Categories</h3><p className="stat-value">{stats?.categories ?? 0}</p></div></div>
+        <div className="card stat-card"><span className="stat-icon">👤</span><div><h3 className="stat-title">Users</h3><p className="stat-value">{stats?.users ?? 0}</p></div></div>
       </div>
       <div className="card">
         <h2>Quick Links</h2>

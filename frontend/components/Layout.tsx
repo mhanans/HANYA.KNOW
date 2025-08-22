@@ -5,19 +5,35 @@ import { apiFetch } from '../lib/api';
 
 interface Settings { applicationName?: string; logoUrl?: string; }
 
-const navLinks = [
-  { href: '/', label: 'Dashboard' },
-  { href: '/documents', label: 'All Documents' },
-  { href: '/categories', label: 'Categories' },
-  { href: '/upload', label: 'Upload Document' },
-  { href: '/document-analytics', label: 'Document Analytics' },
-  { href: '/chat', label: 'New Chat' },
-  { href: '/chat-history', label: 'Chat History' },
-  { href: '/cv', label: 'Job Vacancy Analysis' },
-  { href: '/users', label: 'User Management' },
-  { href: '/roles', label: 'Manage Role to Category' },
-  { href: '/role-ui', label: 'Access Control' },
-  { href: '/settings', label: 'System Settings' },
+interface NavItem { href: string; label: string; icon: string; }
+const navSections: { title: string; links: NavItem[] }[] = [
+  { title: 'General', links: [{ href: '/', label: 'Dashboard', icon: '🏠' }] },
+  {
+    title: 'Content Management',
+    links: [
+      { href: '/documents', label: 'All Documents', icon: '📄' },
+      { href: '/categories', label: 'Categories', icon: '🗂' },
+      { href: '/upload', label: 'Upload Document', icon: '⬆️' },
+      { href: '/document-analytics', label: 'Document Analytics', icon: '📈' },
+    ],
+  },
+  {
+    title: 'Chat',
+    links: [
+      { href: '/chat', label: 'New Chat', icon: '💬' },
+      { href: '/chat-history', label: 'Chat History', icon: '🕓' },
+    ],
+  },
+  { title: 'AI Tools', links: [{ href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠' }] },
+  {
+    title: 'Admin',
+    links: [
+      { href: '/users', label: 'User Management', icon: '👤' },
+      { href: '/roles', label: 'Manage Role to Category', icon: '🔧' },
+      { href: '/role-ui', label: 'Access Control', icon: '🔐' },
+      { href: '/settings', label: 'System Settings', icon: '⚙️' },
+    ],
+  },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -52,15 +68,23 @@ export default function Layout({ children }: { children: ReactNode }) {
       <nav className="sidebar">
         <div>
           <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
-          <ul className="nav-links">
-            {navLinks.map(link => (
-              <li key={link.href}>
-                <Link href={link.href} legacyBehavior>
-                  <a className={router.pathname === link.href ? 'active' : ''}>{link.label}</a>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {navSections.map(section => (
+            <div className="nav-section" key={section.title}>
+              <h3>{section.title}</h3>
+              <ul className="nav-links">
+                {section.links.map(link => (
+                  <li key={link.href}>
+                    <Link href={link.href} legacyBehavior>
+                      <a className={router.pathname === link.href ? 'active' : ''}>
+                        <span className="nav-icon">{link.icon}</span>
+                        {link.label}
+                      </a>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
         {username && (
           <div className="user-profile">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
+import TagInput from '../components/TagInput';
 
 interface Role { id: number; name: string; }
 interface User { id: number; username: string; roleIds: number[]; password?: string; }
@@ -67,55 +68,39 @@ export default function Users() {
 
   return (
     <div className="page-container">
-      <div className="card">
-        <h1>Manage Users</h1>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-          <input value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} placeholder="Username" className="form-input" />
-          <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="Password" className="form-input" />
-          <select multiple value={newUser.roleIds.map(String)} onChange={e => {
-            const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-            setNewUser({ ...newUser, roleIds: opts });
-          }} className="form-select" style={{ minWidth: '10rem' }}>
-            {roles.map(r => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-          <button onClick={create} className="btn btn-primary">Add</button>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Password</th>
-                <th>Roles</th>
-                <th>Actions</th>
+      <h1>Manage Users</h1>
+      <div className="controls">
+        <input value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} placeholder="Username" className="form-input" />
+        <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="Password" className="form-input" />
+        <TagInput options={roles} selected={newUser.roleIds} onChange={ids => setNewUser({ ...newUser, roleIds: ids })} />
+        <button onClick={create} className="btn btn-primary">Add</button>
+      </div>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Password</th>
+              <th>Roles</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id}>
+                <td><input value={u.username} onChange={e => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, username: e.target.value } : p))} className="form-input" /></td>
+                <td><input type="password" value={u.password || ''} onChange={e => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, password: e.target.value } : p))} className="form-input" /></td>
+                <td>
+                  <TagInput options={roles} selected={u.roleIds} onChange={ids => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, roleIds: ids } : p))} />
+                </td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => update(u)} className="btn btn-primary">Save</button>
+                  <button onClick={() => remove(u.id)} className="btn btn-danger">Delete</button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id}>
-                  <td><input value={u.username} onChange={e => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, username: e.target.value } : p))} className="form-input" /></td>
-                  <td><input type="password" value={u.password || ''} onChange={e => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, password: e.target.value } : p))} className="form-input" /></td>
-                  <td>
-                    <select multiple value={u.roleIds.map(String)} onChange={e => {
-                      const opts = Array.from(e.target.selectedOptions).map(o => Number(o.value));
-                      setUsers(prev => prev.map(p => p.id === u.id ? { ...p, roleIds: opts } : p));
-                    }} className="form-select" style={{ minWidth: '10rem' }}>
-                      {roles.map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => update(u)} className="btn btn-primary">Save</button>
-                    <button onClick={() => remove(u.id)} className="btn btn-secondary">Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
         {error && <p className="error">{error}</p>}
       </div>
     </div>

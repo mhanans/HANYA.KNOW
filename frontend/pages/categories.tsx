@@ -70,43 +70,41 @@ export default function Categories() {
 
   return (
     <div className="page-container">
-      <div className="card">
-        <h1>Manage Categories</h1>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" className="form-input" />
-          <button onClick={create} className="btn btn-primary">Add</button>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Actions</th>
+      <h1>Manage Categories</h1>
+      <div className="controls">
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" className="form-input" />
+        <button onClick={create} className="btn btn-primary">Add</button>
+      </div>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map(c => (
+              <tr key={c.id}>
+                <td>
+                  <input
+                    value={c.name}
+                    className="form-input"
+                    onChange={e =>
+                      setCategories(prev =>
+                        prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
+                      )
+                    }
+                  />
+                </td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => update(c.id, c.name)} className="btn btn-primary">Save</button>
+                  <button onClick={() => remove(c.id)} className="btn btn-danger">Delete</button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {categories.map(c => (
-                <tr key={c.id}>
-                  <td>
-                    <input
-                      value={c.name}
-                      className="form-input"
-                      onChange={e =>
-                        setCategories(prev =>
-                          prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
-                        )
-                      }
-                    />
-                  </td>
-                  <td style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => update(c.id, c.name)} className="btn btn-primary">Save</button>
-                    <button onClick={() => remove(c.id)} className="btn btn-secondary">Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
         {error && <p className="error">{error}</p>}
       </div>
     </div>
