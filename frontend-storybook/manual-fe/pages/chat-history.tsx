@@ -26,8 +26,8 @@ export default function ChatHistory() {
     try {
       const res = await apiFetch(`/api/chat/history/${id}`);
       if (res.ok) {
-        const msgs = await res.json();
-        setMessages(msgs.map((m: any) => `${m.role}: ${m.content}`));
+        const msgs: { role: string; content: string }[] = await res.json();
+        setMessages(msgs.map((m) => `${m.role}: ${m.content}`));
       }
     } catch {
       /* ignore */
