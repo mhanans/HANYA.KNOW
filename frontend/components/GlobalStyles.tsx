@@ -113,10 +113,9 @@ const globalCss = `
      * D. CHAT COMPONENT STYLES (chat*.css)
      * =================================================================
      */
-    .chat-interface { display: flex; flex-direction: column; width: 100%; height: 100%; background-color: var(--bg-primary); }
     .messages-container { flex-grow: 1; padding: 24px 24px 0 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; justify-content: flex-end; min-height: 0; }
     .messages-container::-webkit-scrollbar { width: 8px; } .messages-container::-webkit-scrollbar-track { background: transparent; } .messages-container::-webkit-scrollbar-thumb { background-color: #4d4d4d; border-radius: 4px; }
-    .input-area { padding: 16px 24px 24px 24px; background: linear-gradient(to top, var(--bg-primary) 80%, rgba(30, 30, 30, 0)); flex-shrink: 0; }
+    .input-area { padding: 16px 24px 24px 24px; background: linear-gradient(to top, var(--bg-primary) 80%, rgba(30, 30, 30, 0)); flex-shrink: 0;  border-top: 1px solid var(--border-color); }
     .welcome-screen { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text-secondary); }
     .typing-indicator { display: flex; align-items: center; gap: 5px; padding: 12px 0; }
     .typing-indicator span { height: 8px; width: 8px; background-color: #8d8d8d; border-radius: 50%; display: inline-block; animation: bounce 1.4s infinite ease-in-out both; }
