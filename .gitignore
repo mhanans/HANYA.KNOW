@@ -9,3 +9,6 @@ obj/
 # Misc
 .env
 backend/appsettings.json
+
+*storybook.log
+storybook-static
