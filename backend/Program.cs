@@ -65,6 +65,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     {
         options.Cookie.Name = "auth";
         options.Cookie.HttpOnly = true;
+        // Configure the cookie so it works when the frontend and backend run
+        // on different ports during local development. The cookie is
+        // available to any path on localhost and can be sent on cross-origin
+        // requests from the SPA.
+        options.Cookie.Domain = "localhost";
+        options.Cookie.Path = "/";
         options.Cookie.SameSite = SameSiteMode.None;
         options.Cookie.SecurePolicy = CookieSecurePolicy.None;
         options.Events.OnRedirectToLogin = ctx =>
@@ -109,7 +115,12 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(options =>
+{
+    // Allow Swagger "try it out" requests to include cookies so
+    // authenticated endpoints can be tested from the UI.
+    options.UseRequestInterceptor("(req) => { req.credentials = 'include'; return req; }");
+});
 // Use the CORS policy
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
