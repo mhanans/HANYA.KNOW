@@ -1,4 +1,3 @@
-
 import styles from './button.module.css';
 
 export interface ButtonProps {
