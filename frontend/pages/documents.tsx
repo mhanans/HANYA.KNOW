@@ -31,7 +31,9 @@ export default function Documents() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const save = async (doc: Doc) => {
     await apiFetch('/api/documents', {
@@ -43,27 +45,42 @@ export default function Documents() {
   };
 
   const remove = async (source: string) => {
-    await apiFetch(`/api/documents?source=${encodeURIComponent(source)}`, { method: 'DELETE' });
+    await apiFetch(`/api/documents?source=${encodeURIComponent(source)}`, {
+      method: 'DELETE'
+    });
     await load();
   };
 
-  const filtered = docs.filter(d =>
-    (!filter || d.source.toLowerCase().includes(filter.toLowerCase())) &&
-    (!catFilter || String(d.categoryId ?? '') === catFilter)
+  const filtered = docs.filter(
+    d =>
+      (!filter || d.source.toLowerCase().includes(filter.toLowerCase())) &&
+      (!catFilter || String(d.categoryId ?? '') === catFilter)
   );
 
   return (
     <div className="page-container">
       <h1>All Documents</h1>
       <div className="filters">
-        <input className="form-input" placeholder="Search" value={filter} onChange={e => setFilter(e.target.value)} />
-        <select className="form-select" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+        <input
+          className="form-input"
+          placeholder="Search"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        />
+        <select
+          className="form-select"
+          value={catFilter}
+          onChange={e => setCatFilter(e.target.value)}
+        >
           <option value="">All categories</option>
           {categories.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
       </div>
+
       <div className="card table-wrapper">
         <table className="table">
           <thead>
@@ -83,19 +100,36 @@ export default function Documents() {
                     className="form-select"
                     value={d.categoryId ?? ''}
                     onChange={e =>
-                      setDocs(prev => prev.map(p => p.source === d.source ? { ...p, categoryId: e.target.value ? Number(e.target.value) : null } : p))
+                      setDocs(prev =>
+                        prev.map(p =>
+                          p.source === d.source
+                            ? {
+                                ...p,
+                                categoryId: e.target.value
+                                  ? Number(e.target.value)
+                                  : null
+                              }
+                            : p
+                        )
+                      )
                     }
                   >
                     <option value="">No category</option>
                     {categories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
                     ))}
                   </select>
                 </td>
                 <td>{d.pages}</td>
                 <td style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-primary" onClick={() => save(d)}>Save</button>
-                  <button className="btn btn-danger" onClick={() => remove(d.source)}>Delete</button>
+                  <button className="btn btn-primary" onClick={() => save(d)}>
+                    Save
+                  </button>
+                  <button className="btn btn-danger" onClick={() => remove(d.source)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
@@ -143,3 +177,4 @@ export default function Documents() {
     </div>
   );
 }
+
