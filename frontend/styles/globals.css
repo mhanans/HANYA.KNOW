@@ -110,19 +110,15 @@ select:focus {
 .app-layout {
   display: flex;
   height: 100vh;
-  transition: margin-left 0.3s ease-in-out;
 }
 
 .sidebar {
-  width: 240px;
+  width: 220px;
   background: #d6e8ff;
   padding: 1rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  flex-shrink: 0;
-  transition: width 0.3s ease-in-out;
-  position: relative;
 }
 
 .sidebar-header h2 {
@@ -165,47 +161,10 @@ select:focus {
   margin-right: 0.5rem;
 }
 
-.app-layout.sidebar-collapsed .sidebar {
-  width: 80px;
-}
-
-.app-layout.sidebar-collapsed .sidebar .nav-links a .nav-label,
-.app-layout.sidebar-collapsed .sidebar .nav-group-title,
-.app-layout.sidebar-collapsed .sidebar .user-info {
-  opacity: 0;
-  width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.sidebar-toggle-btn {
-  cursor: pointer;
-  position: absolute;
-}
-
-.sidebar-toggle-btn.desktop-only {
-  bottom: 1rem;
-  right: -15px;
-  z-index: 10;
-}
-
-.mobile-only {
-  display: none;
-}
-
 .main-content {
   flex: 1;
   padding: 1rem 2rem;
-}
-
-.main-content:not(.chat-page) {
   overflow-y: auto;
-}
-
-.main-content.chat-page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
 }
 
 .user-profile {
@@ -228,51 +187,16 @@ select:focus {
   background: #c0392b;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 600px) {
+  .app-layout {
+    flex-direction: column;
+  }
   .sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    height: 100%;
-    z-index: 1000;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease-in-out;
+    width: 100%;
+    padding: 0.5rem;
   }
-
-  .app-layout:not(.sidebar-collapsed) .sidebar {
-    transform: translateX(0);
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
-  }
-
   .main-content {
-    width: 100%;
-  }
-
-  .sidebar-toggle-btn.desktop-only {
-    display: none;
-  }
-
-  .sidebar-toggle-btn.mobile-only {
-    display: block;
-    position: fixed;
-    top: 1rem;
-    left: 1rem;
-    z-index: 999;
-  }
-
-  .sidebar-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 998;
-    display: block;
-  }
-
-  .app-layout.sidebar-collapsed .sidebar-backdrop {
-    display: none;
+    padding: 1rem;
   }
 }
 
@@ -391,14 +315,19 @@ select:focus {
 }
 
 /* Chat styles */
+.chat-interface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .messages-container {
   flex-grow: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem;
-  min-height: 0;
+  padding-right: 0.5rem;
 }
 
 .chat-message {
@@ -455,8 +384,7 @@ select:focus {
 
 .input-area {
   flex-shrink: 0;
-  padding: 1rem;
-  border-top: 1px solid var(--border-color);
+  margin-top: 1rem;
 }
 
 .chat-input-wrapper {

@@ -41,22 +41,6 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>({});
   const [username, setUsername] = useState('');
   const [openSection, setOpenSection] = useState<string>(navSections[0].title);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-
-  const toggleSidebar = () => setIsSidebarCollapsed(!isSidebarCollapsed);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth <= 768) {
-        setIsSidebarCollapsed(true);
-      } else {
-        setIsSidebarCollapsed(false);
-      }
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   useEffect(() => {
     apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => {});
@@ -86,7 +70,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className={`app-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className="app-layout">
       <nav className="sidebar">
         <div>
           <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
@@ -105,7 +89,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                       <Link href={link.href} legacyBehavior>
                         <a className={router.pathname === link.href ? 'active' : ''}>
                           <span className="nav-icon">{link.icon}</span>
-                          <span className="nav-label">{link.label}</span>
+                          {link.label}
                         </a>
                       </Link>
                     </li>
@@ -127,17 +111,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             </button>
           </div>
         )}
-        <button onClick={toggleSidebar} className="sidebar-toggle-btn desktop-only">
-          {isSidebarCollapsed ? '»' : '«'}
-        </button>
       </nav>
-      <main className={`main-content${router.pathname === '/chat' ? ' chat-page' : ''}`}>
-        <button onClick={toggleSidebar} className="sidebar-toggle-btn mobile-only">☰</button>
-        {children}
-      </main>
-      {!isSidebarCollapsed && (
-        <div className="sidebar-backdrop mobile-only" onClick={toggleSidebar}></div>
-      )}
+      <main className={`main-content${router.pathname === '/chat' ? ' chat-page' : ''}`}>{children}</main>
     </div>
   );
 }
