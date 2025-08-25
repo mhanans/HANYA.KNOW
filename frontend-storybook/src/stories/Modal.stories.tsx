@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { useState } from 'react';
 import { Modal } from './Modal';
+import './modal.css';
 
 const meta = {
   title: 'Components/Modal',
