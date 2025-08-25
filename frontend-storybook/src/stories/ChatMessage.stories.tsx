@@ -1,5 +1,5 @@
 // src/stories/ChatMessage.stories.tsx
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { ChatMessage } from './ChatMessage';
 
 // Import the CSS for the typing indicator so the story looks correct

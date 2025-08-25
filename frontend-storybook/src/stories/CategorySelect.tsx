@@ -1,4 +1,5 @@
 import React from 'react';
+import './categorySelect.css';
 
 export interface Category {
   id: number;
@@ -21,16 +22,16 @@ export const CategorySelect: React.FC<CategorySelectProps> = ({ options, selecte
   };
 
   return (
-    <div className="category-select">
+    <div className="category-tags-container">
       {options.map(opt => (
-        <label key={opt.id} className="option">
-          <input
-            type="checkbox"
-            checked={selected.includes(opt.id)}
-            onChange={() => toggle(opt.id)}
-          />
-          <span>{opt.name}</span>
-        </label>
+        <button
+          key={opt.id}
+          className={`category-tag ${selected.includes(opt.id) ? 'selected' : ''}`}
+          onClick={() => toggle(opt.id)}
+          type="button"
+        >
+          {opt.name}
+        </button>
       ))}
     </div>
   );

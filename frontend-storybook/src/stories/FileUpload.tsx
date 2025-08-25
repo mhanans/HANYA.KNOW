@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import './fileUpload.css';
 
 export interface FileUploadProps {
   accept?: string;
