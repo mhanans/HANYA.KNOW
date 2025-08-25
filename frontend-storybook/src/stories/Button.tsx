@@ -1,41 +1,23 @@
-import styles from './button.module.css';
+import { ButtonHTMLAttributes } from 'react';
+import './button.css';
 
-export interface ButtonProps {
-  /** Is this the principal call to action on the page? */
-  primary?: boolean;
-  /** What background color to use */
-  backgroundColor?: string;
-  /** How large should the button be? */
-  size?: 'small' | 'medium' | 'large';
-  /** Button contents */
-  label: string;
-  /** Optional click handler */
-  onClick?: () => void;
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'danger';
 }
 
-/** Primary UI component for user interaction */
 export const Button = ({
-  primary = false,
-  size = 'medium',
-  backgroundColor,
-  label,
+  variant = 'primary',
+  className = '',
+  children,
   ...props
 }: ButtonProps) => {
-  const mode = primary
-    ? styles['storybook-button--primary']
-    : styles['storybook-button--secondary'];
+  const classes = ['btn', `btn-${variant}`, className].filter(Boolean).join(' ');
   return (
-    <button
-      type="button"
-      className={[
-        styles['storybook-button'],
-        styles[`storybook-button--${size}`],
-        mode,
-      ].join(' ')}
-      style={{ backgroundColor }}
-      {...props}
-    >
-      {label}
+    <button className={classes} {...props}>
+      {children}
     </button>
   );
 };
+
+export default Button;
+

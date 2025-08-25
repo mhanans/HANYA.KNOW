@@ -1,22 +1,30 @@
 import React from 'react';
+import './modal.css';
 
 export interface ModalProps {
-  open: boolean;
-  title?: string;
+  isOpen: boolean;
   onClose: () => void;
+  title: string;
   children: React.ReactNode;
 }
 
-export const Modal: React.FC<ModalProps> = ({ open, title, onClose, children }) => {
-  if (!open) return null;
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          {title && <h2>{title}</h2>}
-          <button className="close-btn" onClick={onClose} aria-label="Close">×</button>
+          <h2>{title}</h2>
+          <button className="close-button" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
         </div>
         <div className="modal-body">{children}</div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
