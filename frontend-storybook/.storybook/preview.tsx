@@ -1,8 +1,15 @@
 import type { Preview } from '@storybook/nextjs-vite';
-import '../../frontend/styles/globals.css';
-import '../src/stories/storybook-dark.css';
+import GlobalStyles from '../../frontend/components/GlobalStyles';
 
 const preview: Preview = {
+  decorators: [
+    (Story) => (
+      <>
+        <GlobalStyles />
+        <Story />
+      </>
+    ),
+  ],
   parameters: {
     controls: {
       matchers: {

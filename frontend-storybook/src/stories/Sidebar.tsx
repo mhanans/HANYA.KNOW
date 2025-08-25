@@ -1,4 +1,5 @@
 import React from 'react';
+import './sidebar.css';
 
 interface Conversation {
   id: string;

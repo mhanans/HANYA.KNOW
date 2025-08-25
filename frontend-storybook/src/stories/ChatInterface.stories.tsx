@@ -1,10 +1,9 @@
 // src/stories/ChatInterface.stories.tsx
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { ChatInterface } from './ChatInterface';
 
-// Assuming your Message type is defined in ChatMessage.tsx and exported
-// export interface Message { text: string; sender: 'user' | 'bot'; sources?: any[]; }
-import { Message } from './ChatMessage'; 
+// Simple message type for the story data
+type Message = { sender: 'user' | 'bot'; text: string };
 
 const meta = {
   title: 'Pages/FullChat', // Renamed to reflect it's a full page component
