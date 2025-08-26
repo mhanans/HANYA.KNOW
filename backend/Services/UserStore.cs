@@ -47,7 +47,8 @@ public class UserStore
         const string sql = "INSERT INTO users(username, password) VALUES (@u, @p) RETURNING id";
         await using var cmd = new NpgsqlCommand(sql, conn, tx);
         cmd.Parameters.AddWithValue("u", user.Username);
-        cmd.Parameters.AddWithValue("p", user.Password);
+        var hashed = BCrypt.Net.BCrypt.HashPassword(user.Password);
+        cmd.Parameters.AddWithValue("p", hashed);
         var result = await cmd.ExecuteScalarAsync();
         var id = Convert.ToInt32(result);
 
@@ -73,7 +74,8 @@ public class UserStore
         await using var cmd = new NpgsqlCommand(sql, conn, tx);
         cmd.Parameters.AddWithValue("id", user.Id);
         cmd.Parameters.AddWithValue("u", user.Username);
-        cmd.Parameters.AddWithValue("p", user.Password);
+        var hashed = BCrypt.Net.BCrypt.HashPassword(user.Password);
+        cmd.Parameters.AddWithValue("p", hashed);
         var rows = await cmd.ExecuteNonQueryAsync();
         if (rows == 0)
             throw new KeyNotFoundException();
@@ -120,13 +122,13 @@ public class UserStore
         if (await reader.ReadAsync())
         {
             var dbPass = reader.GetString(1);
-            if (dbPass != password) return null;
+            if (!BCrypt.Net.BCrypt.Verify(password, dbPass)) return null;
             var roles = reader.GetFieldValue<int[]>(2).ToList();
             return new User
             {
                 Id = reader.GetInt32(0),
                 Username = username,
-                Password = dbPass,
+                Password = string.Empty,
                 RoleIds = roles
             };
         }
