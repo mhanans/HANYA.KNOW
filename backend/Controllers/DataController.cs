@@ -114,7 +114,12 @@ namespace backend.Controllers;
         }
         catch (Exception ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return StatusCode(500, new
+            {
+                error = true,
+                userMessage = "I'm sorry, I was unable to process the database query. Please check your credentials and try again.",
+                technicalDetails = ex.Message
+            });
         }
     }
 
@@ -155,7 +160,12 @@ namespace backend.Controllers;
         }
         catch (Exception ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return StatusCode(500, new
+            {
+                error = true,
+                userMessage = "I'm sorry, I was unable to process the uploaded Excel file. It might be corrupted or in an unsupported format. Please try uploading a different file.",
+                technicalDetails = ex.Message
+            });
         }
     }
 }
