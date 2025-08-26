@@ -22,7 +22,8 @@ ON CONFLICT DO NOTHING;
 
 -- Roles and users
 INSERT INTO roles (name, all_categories) VALUES ('admin', TRUE) ON CONFLICT DO NOTHING;
-INSERT INTO users (username, password) VALUES ('admin', 'password') ON CONFLICT DO NOTHING;
+-- password: "password"
+INSERT INTO users (username, password) VALUES ('admin', '$2b$10$45c4DJ7lkTkvEVsONn7FHeBreQ6L3LcGsFLnVTZAaBC3ffe7iErsK') ON CONFLICT DO NOTHING;
 
 -- Assign admin role to admin user
 INSERT INTO user_roles (user_id, role_id)
