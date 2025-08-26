@@ -69,7 +69,9 @@ export default function DataSources() {
       setUploading(false);
       setUploadStatus('Upload error.');
     };
-    xhr.open('POST', '/api/data/upload-excel');
+    xhr.open('POST', '/api/proxy/data/upload-excel');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.send(form);
   };
 

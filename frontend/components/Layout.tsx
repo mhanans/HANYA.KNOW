@@ -24,7 +24,13 @@ const navSections: { title: string; links: NavItem[] }[] = [
       { href: '/chat-history', label: 'Chat History', icon: '🕓' },
     ],
   },
-  { title: 'AI Tools', links: [{ href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠' }] },
+  {
+    title: 'AI Tools',
+    links: [
+      { href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠' },
+      { href: '/data-sources', label: 'Chat with Table', icon: '📊' },
+    ],
+  },
   {
     title: 'Admin',
     links: [
