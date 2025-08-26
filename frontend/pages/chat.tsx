@@ -114,7 +114,12 @@ export default function Chat() {
       const token = JSON.parse((e as MessageEvent).data);
       setMessages(prev => {
         const ms = [...prev];
-        ms[assistantIndex].content += token;
+        const msg = ms[assistantIndex];
+        const existing = msg.content;
+        const delta = token.startsWith(existing)
+          ? token.slice(existing.length)
+          : token;
+        msg.content += delta;
         return ms;
       });
     });

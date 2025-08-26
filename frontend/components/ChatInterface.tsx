@@ -33,11 +33,17 @@ const ChatInterface = () => {
       const parsedData = JSON.parse(event.data);
 
       if (parsedData.text) {
-        // Update the last message (the bot's placeholder) by appending the new text
+        // Update the last message (the bot's placeholder) by appending
+        // only the new text in case the stream sends accumulated output.
         setMessages(prevMessages => {
           const updatedMessages = [...prevMessages];
           const lastMessage = updatedMessages[updatedMessages.length - 1];
-          lastMessage.text += parsedData.text;
+          const incoming: string = parsedData.text;
+          const existing = lastMessage.text;
+          const delta = incoming.startsWith(existing)
+            ? incoming.slice(existing.length)
+            : incoming;
+          lastMessage.text += delta;
           return updatedMessages;
         });
       }
