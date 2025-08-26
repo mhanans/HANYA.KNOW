@@ -129,6 +129,41 @@ const GlobalStyles = () => (
     .send-button { background: #3a3a3a; border: none; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s ease-in-out; color: #a0a0a0; margin-left: 8px; flex-shrink: 0; }
     .send-button:hover:not(:disabled) { background: #4a4a4a; color: #fff; } .send-button:disabled { cursor: not-allowed; background-color: transparent; }
     .send-icon { color: var(--primary-accent); transition: color 0.2s ease-in-out; } .send-icon.disabled { color: #6d6d6d; }
+
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .table-wrapper { overflow-x: auto; }
+    .btn-danger { background-color: #b30e0e; color: #fff; }
+    .btn-danger:hover { background-color: #930b0b; }
+    .error { color: var(--error-color); }
+    .success { color: #38a169; }
+    .hint { color: var(--text-secondary); }
+    .form-grid { display: grid; grid-template-columns: 150px 1fr; gap: 12px; }
+    .actions { display: flex; gap: 8px; margin-top: 16px; }
+    .tag-input { display: flex; flex-direction: column; gap: 8px; }
+    .tag-input .tags { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tag-input .tag button { background: none; border: none; color: var(--text-secondary); margin-left: 4px; cursor: pointer; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    .modal-content { background: var(--bg-secondary); border-radius: var(--border-radius-lg); width: 90%; max-width: 600px; box-shadow: var(--shadow-md); display: flex; flex-direction: column; }
+    .modal-header, .modal-footer { padding: 16px; display: flex; align-items: center; justify-content: space-between; }
+    .modal-header { border-bottom: 1px solid var(--border-color); }
+    .modal-footer { border-top: 1px solid var(--border-color); justify-content: flex-end; }
+    .modal-body { padding: 16px; }
+    .close-button { background: none; border: none; color: var(--text-secondary); font-size: 1.5rem; cursor: pointer; }
+    .close-button:hover { color: var(--text-primary); }
+    .empty-state { text-align: center; padding: 32px; }
+    .recommendation-tag { padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
+    .recommendation-top { background-color: #38a169; color: #fff; }
+    .recommendation-high { background-color: #3182ce; color: #fff; }
+    .recommendation-reservations { background-color: #dd6b20; color: #fff; }
+    .candidate-list { display: flex; flex-direction: column; gap: 16px; }
+    .candidate-card { border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 12px; }
+    .candidate-card-header { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .candidate-name { font-weight: 600; color: var(--text-primary); }
+    .candidate-summary { margin-bottom: 8px; color: var(--text-secondary); }
+    .candidate-skills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .skill-tag { background-color: var(--surface); border-radius: var(--border-radius-full); padding: 4px 8px; font-size: 0.75rem; }
+    .summary { white-space: pre-wrap; }
   `}</style>
 );
 
@@ -137,10 +172,28 @@ const GlobalStyles = () => (
 // Centralized types for clarity.
 // ===================================================================================
 
-type Page = 'Dashboard' | 'Chat' | 'Documents' | 'CV Generator' | 'Roles' | 'Settings';
+type Page =
+  | 'Dashboard'
+  | 'Chat'
+  | 'Stream Chat'
+  | 'Chat History'
+  | 'Documents'
+  | 'Document Analytics'
+  | 'Upload'
+  | 'Categories'
+  | 'Roles'
+  | 'Users'
+  | 'CV Generator'
+  | 'Settings';
 interface Source { index: number; file: string; page?: number; relevance: number; }
 interface Message { sender: 'user' | 'bot'; text: string; sources?: Source[]; }
 interface NavLink { label: Page; href: string; }
+interface Category { id: number; name: string; }
+interface Role { id: number; name: string; allCategories: boolean; categoryIds: number[]; }
+interface User { id: number; username: string; roleIds: number[]; password?: string; }
+interface Recommendation { id: number; position: string; details: string; summary: string; summaryJson: string; createdAt: string; }
+interface ConversationInfo { id: string; created: string; firstMessage: string; }
+interface Candidate { name: string; reason: string; }
 
 // ===================================================================================
 // 3. REUSABLE UI COMPONENTS
@@ -194,6 +247,49 @@ const ChatInput: React.FC<{ query: string; setQuery: (q: string) => void; onSend
       <div className="chat-input-container">
         <textarea ref={textareaRef} className="chat-input" placeholder="Send a message..." value={query} onChange={e => setQuery(e.target.value)} onKeyDown={handleKeyDown} rows={1} />
         <button className="send-button" onClick={onSendMessage} disabled={!query.trim()} aria-label="Send message"><SendIcon disabled={!query.trim()} /></button>
+      </div>
+    </div>
+  );
+};
+
+const TagInput: React.FC<{ options: Category[]; selected: number[]; onChange: (ids: number[]) => void; }> = ({ options, selected, onChange }) => {
+  const available = options.filter(o => !selected.includes(o.id));
+  return (
+    <div className="tag-input">
+      <div className="tags">
+        {selected.map(id => {
+          const opt = options.find(o => o.id === id);
+          return (
+            <span className="tag" key={id}>
+              {opt?.name}
+              <button type="button" onClick={() => onChange(selected.filter(x => x !== id))}>×</button>
+            </span>
+          );
+        })}
+      </div>
+      {available.length > 0 && (
+        <select className="form-select" value="" onChange={e => { const val = Number(e.target.value); if (val) onChange([...selected, val]); }}>
+          <option value="">Select...</option>
+          {available.map(o => (<option key={o.id} value={o.id}>{o.name}</option>))}
+        </select>
+      )}
+    </div>
+  );
+};
+
+const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button className="close-button" onClick={onClose} aria-label="Close">&times;</button>
+        </div>
+        <div className="modal-body">{children}</div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        </div>
       </div>
     </div>
   );
@@ -266,6 +362,315 @@ const DocumentsPage = () => (
   </div>
 );
 
+const UploadPage = () => {
+  const [status, setStatus] = useState('');
+  return (
+    <div className="page-container">
+      <h1>Upload Document</h1>
+      <div className="card">
+        <p className="hint">Upload new PDF documents.</p>
+        <div className="form-grid">
+          <label>Files</label>
+          <input className="form-input" type="file" multiple />
+          <label>Title</label>
+          <input className="form-input" placeholder="Document title (optional)" />
+          <label>Text</label>
+          <textarea className="form-textarea" placeholder="Text content (optional)" />
+          <label>Category</label>
+          <select className="form-select"><option>No category</option><option>Finance</option></select>
+        </div>
+        <div className="actions">
+          <button className="btn btn-primary" onClick={() => setStatus('Upload successful')}>Upload</button>
+        </div>
+        {status && <p className="success">{status}</p>}
+      </div>
+    </div>
+  );
+};
+
+const CategoriesPage = () => {
+  const [categories, setCategories] = useState<Category[]>([
+    { id: 1, name: 'Finance' },
+    { id: 2, name: 'CV' },
+  ]);
+  const [name, setName] = useState('');
+  const add = () => {
+    if (!name.trim()) return;
+    setCategories(prev => [...prev, { id: Date.now(), name }]);
+    setName('');
+  };
+  return (
+    <div className="page-container">
+      <h1>Manage Categories</h1>
+      <div className="controls">
+        <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="New category" />
+        <button className="btn btn-primary" onClick={add}>Add</button>
+      </div>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead><tr><th>Name</th><th>Actions</th></tr></thead>
+          <tbody>
+            {categories.map(c => (
+              <tr key={c.id}>
+                <td><input className="form-input" value={c.name} onChange={e => setCategories(prev => prev.map(p => p.id === c.id ? { ...p, name: e.target.value } : p))} /></td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary">Save</button>
+                  <button className="btn btn-danger" onClick={() => setCategories(prev => prev.filter(p => p.id !== c.id))}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const RolesPage = () => {
+  const categoryOptions: Category[] = [
+    { id: 1, name: 'Finance' },
+    { id: 2, name: 'CV' },
+  ];
+  const [roles, setRoles] = useState<Role[]>([
+    { id: 1, name: 'Admin', allCategories: true, categoryIds: [] },
+  ]);
+  const [newRole, setNewRole] = useState<Role>({ id: 0, name: '', allCategories: true, categoryIds: [] });
+  const add = () => {
+    if (!newRole.name.trim()) return;
+    setRoles(prev => [...prev, { ...newRole, id: Date.now() }]);
+    setNewRole({ id: 0, name: '', allCategories: true, categoryIds: [] });
+  };
+  return (
+    <div className="page-container">
+      <h1>Manage Role to Category</h1>
+      <div className="controls">
+        <input className="form-input" value={newRole.name} onChange={e => setNewRole({ ...newRole, name: e.target.value })} placeholder="New role" />
+        <label className="form-input" style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: 'none', padding: 0 }}>
+          <input type="checkbox" checked={newRole.allCategories} onChange={e => setNewRole({ ...newRole, allCategories: e.target.checked })} /> All categories
+        </label>
+        {!newRole.allCategories && (
+          <TagInput options={categoryOptions} selected={newRole.categoryIds} onChange={ids => setNewRole({ ...newRole, categoryIds: ids })} />
+        )}
+        <button className="btn btn-primary" onClick={add}>Add</button>
+      </div>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead><tr><th>Name</th><th>All</th><th>Categories</th><th>Actions</th></tr></thead>
+          <tbody>
+            {roles.map(r => (
+              <tr key={r.id}>
+                <td><input className="form-input" value={r.name} onChange={e => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, name: e.target.value } : p))} /></td>
+                <td><input type="checkbox" checked={r.allCategories} onChange={e => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, allCategories: e.target.checked } : p))} /></td>
+                <td>{!r.allCategories && <TagInput options={categoryOptions} selected={r.categoryIds} onChange={ids => setRoles(prev => prev.map(p => p.id === r.id ? { ...p, categoryIds: ids } : p))} />}</td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary">Save</button>
+                  <button className="btn btn-danger" onClick={() => setRoles(prev => prev.filter(p => p.id !== r.id))}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const UsersPage = () => {
+  const roleOptions: Role[] = [
+    { id: 1, name: 'Admin', allCategories: true, categoryIds: [] },
+    { id: 2, name: 'User', allCategories: true, categoryIds: [] },
+  ];
+  const [users, setUsers] = useState<User[]>([
+    { id: 1, username: 'admin', roleIds: [1], password: '' },
+  ]);
+  const [newUser, setNewUser] = useState<User>({ id: 0, username: '', roleIds: [], password: '' });
+  const add = () => {
+    if (!newUser.username.trim()) return;
+    setUsers(prev => [...prev, { ...newUser, id: Date.now() }]);
+    setNewUser({ id: 0, username: '', roleIds: [], password: '' });
+  };
+  return (
+    <div className="page-container">
+      <h1>Manage Users</h1>
+      <div className="controls">
+        <input className="form-input" value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} placeholder="Username" />
+        <input type="password" className="form-input" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="Password" />
+        <TagInput options={roleOptions} selected={newUser.roleIds} onChange={ids => setNewUser({ ...newUser, roleIds: ids })} />
+        <button className="btn btn-primary" onClick={add}>Add</button>
+      </div>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead><tr><th>Username</th><th>Password</th><th>Roles</th><th>Actions</th></tr></thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id}>
+                <td><input className="form-input" value={u.username} onChange={e => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, username: e.target.value } : p))} /></td>
+                <td><input type="password" className="form-input" value={u.password ?? ''} onChange={e => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, password: e.target.value } : p))} /></td>
+                <td><TagInput options={roleOptions} selected={u.roleIds} onChange={ids => setUsers(prev => prev.map(p => p.id === u.id ? { ...p, roleIds: ids } : p))} /></td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary">Save</button>
+                  <button className="btn btn-danger" onClick={() => setUsers(prev => prev.filter(p => p.id !== u.id))}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const CVPage = () => {
+  const [position, setPosition] = useState('');
+  const [details, setDetails] = useState('');
+  const [recs, setRecs] = useState<Recommendation[]>([
+    { id: 1, position: 'Frontend Developer', details: 'React experience', summary: '', summaryJson: '[{"name":"Alice","reason":"Top Candidate - Strong React skills"}]', createdAt: new Date().toISOString() },
+  ]);
+  const [modalRec, setModalRec] = useState<Recommendation | null>(null);
+  const generate = () => {
+    if (!position || !details) return;
+    setRecs(prev => [...prev, { id: Date.now(), position, details, summary: '', summaryJson: '[]', createdAt: new Date().toISOString() }]);
+    setPosition('');
+    setDetails('');
+  };
+  const parseReason = (reason: string) => {
+    const levelMatch = reason.match(/( Top Candidate| Highly Recommended| Recommended with Reservations)/i);
+    const level = levelMatch ? levelMatch[1] : '';
+    let remaining = levelMatch ? reason.replace(levelMatch[0], '').trim() : reason.trim();
+    const skillsMatch = remaining.match(/(?:Skills?|Tech(?: Stack|nologies)?)[:\-]\s*([A-Za-z0-9+,\s]+)/i);
+    let skills: string[] = [];
+    if (skillsMatch) {
+      skills = skillsMatch[1].split(/,\s*/).filter(Boolean);
+      remaining = remaining.replace(skillsMatch[0], '').trim();
+    }
+    return { level, summary: remaining, skills };
+  };
+  const levelClass = (level: string) => {
+    const l = level.toLowerCase();
+    if (l.includes('top')) return 'recommendation-top';
+    if (l.includes('high')) return 'recommendation-high';
+    if (l.includes('reservation')) return 'recommendation-reservations';
+    return '';
+  };
+  const candidates: Candidate[] = modalRec ? (() => {
+    try { return JSON.parse(modalRec.summaryJson); } catch { return []; }
+  })() : [];
+  return (
+    <div className="page-container">
+      <h1>Job Vacancy Analysis</h1>
+      <div className="card">
+        <p className="hint">Enter position details to get top candidates from uploaded CVs.</p>
+        <div className="form-grid">
+          <label>Position Name</label>
+          <input className="form-input" value={position} onChange={e => setPosition(e.target.value)} />
+          <label>Position Details</label>
+          <textarea className="form-textarea" value={details} onChange={e => setDetails(e.target.value)} />
+        </div>
+        <div className="actions">
+          <button className="btn btn-primary" onClick={generate}>Generate</button>
+        </div>
+      </div>
+      <h2>Assessments</h2>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead><tr><th>Position</th><th>Details</th><th>Generated</th><th>Actions</th></tr></thead>
+          <tbody>{recs.map(r => (
+            <tr key={r.id}>
+              <td>{r.position}</td>
+              <td>{r.details}</td>
+              <td>{new Date(r.createdAt).toLocaleString()}</td>
+              <td style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-secondary" onClick={() => setModalRec(r)}>View Result</button>
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <Modal isOpen={!!modalRec} onClose={() => setModalRec(null)} title="CV Recommendation">
+        {candidates.length ? (
+          <div className="candidate-list">
+            {candidates.map((c, i) => {
+              const { level, summary, skills } = parseReason(c.reason);
+              return (
+                <div key={i} className="candidate-card">
+                  <div className="candidate-card-header">
+                    <span className="candidate-name">{i + 1}. {c.name}</span>
+                    {level && <span className={`recommendation-tag ${levelClass(level)}`}>{level}</span>}
+                  </div>
+                  {summary && <p className="candidate-summary">{summary}</p>}
+                  {skills.length > 0 && (
+                    <div className="candidate-skills">
+                      {skills.map(skill => (<span key={skill} className="skill-tag">{skill}</span>))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p>No structured summary available.</p>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+const ChatHistoryPage = () => {
+  const history: ConversationInfo[] = [
+    { id: '1', created: new Date().toISOString(), firstMessage: 'Hello' },
+  ];
+  const [messages, setMessages] = useState<string[]>([]);
+  const view = () => setMessages(['user: Hello', 'assistant: Hi there!']);
+  return (
+    <div className="page-container">
+      <h1>Chat History</h1>
+      {history.length ? (
+        <div className="card table-wrapper">
+          <table className="table">
+            <thead><tr><th>Date</th><th>First Message</th><th>Actions</th></tr></thead>
+            <tbody>{history.map(h => (
+              <tr key={h.id}>
+                <td>{new Date(h.created).toLocaleString()}</td>
+                <td>{h.firstMessage}</td>
+                <td style={{ display: 'flex', gap: '8px' }}><button className="btn btn-secondary" onClick={view}>View</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="card empty-state"><p>You have no chat history yet.</p></div>
+      )}
+      {messages.length > 0 && (
+        <div className="card">{messages.map((m, i) => <p key={i}>{m}</p>)}</div>
+      )}
+    </div>
+  );
+};
+
+const DocumentAnalyticsPage = () => {
+  const docs = [{ source: 'Annual_Report_2023.pdf' }];
+  const [summary, setSummary] = useState<string | null>(null);
+  return (
+    <div className="page-container">
+      <h1>Document Analytics</h1>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead><tr><th>Document</th><th>Actions</th></tr></thead>
+          <tbody>{docs.map(d => (
+            <tr key={d.source}>
+              <td>{d.source}</td>
+              <td style={{ display: 'flex', gap: '8px' }}><button className="btn btn-secondary" onClick={() => setSummary('This document discusses revenue growth.')}>View Summary</button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <Modal isOpen={summary !== null} onClose={() => setSummary(null)} title="Document Summary">
+        <pre className="summary">{summary}</pre>
+      </Modal>
+    </div>
+  );
+};
+
 const SettingsPage = () => (
     <div className="page-container">
         <h1>General Settings</h1>
@@ -321,20 +726,34 @@ export const FullApplicationPage = () => {
   const [activePage, setActivePage] = useState<Page>('Dashboard');
 
   const adminLinks: NavLink[] = [
-    { href: '#', label: 'Dashboard' }, { href: '#', label: 'Chat' },
-    { href: '#', label: 'Documents' }, { href: '#', label: 'CV Generator' },
-    { href: '#', label: 'Roles' }, { href: '#', label: 'Settings' },
+    { href: '#', label: 'Dashboard' },
+    { href: '#', label: 'Chat' },
+    { href: '#', label: 'Stream Chat' },
+    { href: '#', label: 'Chat History' },
+    { href: '#', label: 'Documents' },
+    { href: '#', label: 'Document Analytics' },
+    { href: '#', label: 'Upload' },
+    { href: '#', label: 'Categories' },
+    { href: '#', label: 'Roles' },
+    { href: '#', label: 'Users' },
+    { href: '#', label: 'CV Generator' },
+    { href: '#', label: 'Settings' },
   ];
   
   const renderPage = () => {
     switch (activePage) {
       case 'Dashboard': return <DashboardPage />;
       case 'Chat': return <ChatInterface />;
+      case 'Stream Chat': return <ChatInterface />;
+      case 'Chat History': return <ChatHistoryPage />;
       case 'Documents': return <DocumentsPage />;
+      case 'Document Analytics': return <DocumentAnalyticsPage />;
+      case 'Upload': return <UploadPage />;
+      case 'Categories': return <CategoriesPage />;
+      case 'Roles': return <RolesPage />;
+      case 'Users': return <UsersPage />;
+      case 'CV Generator': return <CVPage />;
       case 'Settings': return <SettingsPage />;
-      // Add placeholders for other pages
-      case 'CV Generator': return <div className="page-container"><h1>CV Generator</h1><p>This feature is in development.</p></div>;
-      case 'Roles': return <div className="page-container"><h1>Role Management</h1><p>This feature is in development.</p></div>;
       default: return <DashboardPage />;
     }
   };
