@@ -33,6 +33,7 @@ export default function Home() {
           <Link href="/upload" className="btn btn-primary">Upload Document</Link>
           <Link href="/chat" className="btn btn-secondary">New Chat</Link>
           <Link href="/cv" className="btn btn-secondary">Job Vacancy Analysis</Link>
+          <Link href="/data-sources" className="btn btn-secondary">Data Sources</Link>
         </div>
       </div>
     </div>
