@@ -24,18 +24,21 @@ app.post('/api/chat/stream', async (req, res) => {
     // This is the key function for streaming
     const result = await chat.sendMessageStream(prompt);
 
-    // Iterate over the stream of chunks
-    // chunk.text() returns the full accumulated response, so we need
-    // to send only the new portion on each iteration to avoid
-    // duplicating text in the client.
-    let previousText = '';
+    // Iterate over the stream of chunks. The SDK's `chunk.text()`
+    // sometimes returns the full accumulated text, while the
+    // underlying parts contain only the latest delta. To avoid
+    // duplicated output in either case, extract the text from the
+    // parts and append only the new portion each iteration.
+    let assembled = '';
     for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      // Send only the delta since the last chunk
-      const delta = chunkText.slice(previousText.length);
+      const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+      const chunkText = parts.map(p => p.text ?? '').join('');
+      const delta = chunkText.startsWith(assembled)
+        ? chunkText.slice(assembled.length)
+        : chunkText;
       if (delta) {
         res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
-        previousText = chunkText;
+        assembled += delta;
       }
     }
 
