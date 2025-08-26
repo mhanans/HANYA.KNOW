@@ -1,5 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const base = (process.env.API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
   const apiKey =
@@ -19,12 +25,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const headers: Record<string, string> = { 'X-API-KEY': apiKey };
   const auth = req.headers.authorization || (req.cookies.token ? `Bearer ${req.cookies.token}` : undefined);
   if (auth) headers['Authorization'] = auth;
-  let body: any = undefined;
+
+  const init: RequestInit = { method: req.method, headers };
   if (req.method && req.method !== 'GET' && req.method !== 'HEAD') {
-    body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
+    // Forward the raw request stream so multipart forms arrive intact
+    init.body = req as any;
   }
-  const response = await fetch(url.toString(), { method: req.method, headers, body });
+
+  const response = await fetch(url.toString(), init);
   res.status(response.status);
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === 'transfer-encoding') return;
