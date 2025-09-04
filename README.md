@@ -39,6 +39,7 @@ MVP knowledge base with retrieval augmented generation.
 - `GET /api/pics` – list PICs and their category assignments
 - `GET /api/tickets` – list submitted tickets
 - `POST /api/tickets` – create a ticket and automatically assign category and PIC via AI; unassigned tickets include a `reason` field
+- `POST /api/tickets/{id}/retry-summary` – regenerate JSON assignment summary for a ticket
 - `GET /api/recommendations` – list CV recommendations
 - `POST /api/recommendations` – generate a recommendation
 - `POST /api/recommendations/{id}/retry` – regenerate an existing recommendation
