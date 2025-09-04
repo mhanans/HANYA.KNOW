@@ -109,3 +109,11 @@ CREATE TABLE IF NOT EXISTS tickets (
     reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS ticket_ai_assignments (
+    id SERIAL PRIMARY KEY,
+    ticket_id INT REFERENCES tickets(id) ON DELETE CASCADE,
+    response TEXT NOT NULL,
+    response_json TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);

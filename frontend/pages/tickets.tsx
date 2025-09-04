@@ -28,7 +28,8 @@ export default function Tickets() {
   const [ticketNumber, setTicketNumber] = useState('');
   const [complaint, setComplaint] = useState('');
   const [detail, setDetail] = useState('');
-  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const load = async () => {
     try {
@@ -46,21 +47,58 @@ export default function Tickets() {
   useEffect(() => { load(); }, []);
 
   const create = async () => {
-    setError('');
+    setStatus('');
+    if (!ticketNumber.trim() || !complaint.trim() || !detail.trim()) {
+      setStatus('All fields are required.');
+      return;
+    }
+    setLoading(true);
+    setStatus('Submitting...');
     try {
       const res = await apiFetch('/api/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticketNumber, complaint, detail })
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
+        } catch { /* ignore */ }
+        setStatus(`Request failed: ${msg}`);
+        return;
+      }
       const t = await res.json();
       setTickets(prev => [t, ...prev]);
       setTicketNumber('');
       setComplaint('');
       setDetail('');
+      setStatus('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const retrySummary = async (id: number) => {
+    setStatus('Retrying summary...');
+    try {
+      const res = await apiFetch(`/api/tickets/${id}/retry-summary`, { method: 'POST' });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const data = await res.json();
+          if (data?.detail) msg = data.detail;
+        } catch { /* ignore */ }
+        setStatus(`Request failed: ${msg}`);
+        return;
+      }
+      await load();
+      setStatus('');
+    } catch (err) {
+      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -74,7 +112,7 @@ export default function Tickets() {
         <input value={ticketNumber} onChange={e => setTicketNumber(e.target.value)} placeholder="Ticket number" className="form-input" />
         <input value={complaint} onChange={e => setComplaint(e.target.value)} placeholder="Complaint" className="form-input" />
         <textarea value={detail} onChange={e => setDetail(e.target.value)} placeholder="Detail" className="form-input" />
-        <button onClick={create} className="btn btn-primary">Submit</button>
+        <button onClick={create} className="btn btn-primary" disabled={loading}>{loading ? 'Submitting...' : 'Submit'}</button>
       </div>
       <div className="card table-wrapper">
         <table className="table">
@@ -86,6 +124,7 @@ export default function Tickets() {
               <th>Category</th>
               <th>PIC</th>
               <th>Reason</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -97,11 +136,12 @@ export default function Tickets() {
                 <td>{getCategory(t.categoryId)}</td>
                 <td>{getPic(t.picId)}</td>
                 <td>{t.reason ?? '-'}</td>
+                <td><button className="btn btn-secondary" onClick={() => retrySummary(t.id)}>Retry Summary</button></td>
               </tr>
             ))}
           </tbody>
         </table>
-        {error && <p className="error">{error}</p>}
+        {status && <p className="error">{status}</p>}
       </div>
     </div>
   );
