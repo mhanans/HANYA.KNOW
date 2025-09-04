@@ -32,6 +32,12 @@ const navSections: { title: string; links: NavItem[] }[] = [
     ],
   },
   {
+    title: 'Support',
+    links: [
+      { href: '/tickets', label: 'Tickets', icon: '🎫' },
+    ],
+  },
+  {
     title: 'Admin',
     links: [
       { href: '/users', label: 'User Management', icon: '👤' },

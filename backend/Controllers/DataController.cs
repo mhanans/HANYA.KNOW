@@ -28,6 +28,12 @@ namespace backend.Controllers;
         public string? Table { get; set; }
     }
 
+    public class ChatFileRequest
+    {
+        public IFormFile? File { get; set; }
+        public string? Query { get; set; }
+    }
+
     public class ChatDbRequest : DbConnectionRequest
     {
         public string? Query { get; set; }
@@ -125,8 +131,10 @@ namespace backend.Controllers;
 
     [HttpPost("chat-file")]
     [RequestSizeLimit(100_000_000)]
-    public async Task<IActionResult> ChatFile([FromForm] IFormFile file, [FromForm] string query)
+    public async Task<IActionResult> ChatFile([FromForm] ChatFileRequest req)
     {
+        var file = req.File;
+        var query = req.Query;
         if (file == null || file.Length == 0)
             return BadRequest("No file uploaded.");
         if (string.IsNullOrWhiteSpace(query))
