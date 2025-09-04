@@ -35,7 +35,7 @@ public class TicketAssignmentService
         var catLines = string.Join("\n", categories.Select(c => $"{c.Id}: {c.TicketType} - {c.Description} (sample: {c.SampleJson})"));
         var picLines = string.Join("\n", pics.Select(p => $"{p.Id}: {p.Name} handles [{string.Join(",", p.CategoryIds)}] is {(p.Availability ? "available" : "unavailable")} and has {p.TicketCount} tickets"));
 
-        var prompt = $@"You are a support ticket router. Choose the best matching ticket category and an available PIC. Prefer PICs with fewer active tickets unless only one PIC handles the category.
+        var prompt = $@"You are a support ticket router. Choose the best matching ticket category and an available PIC. Prefer PICs with fewer active tickets unless only one PIC handles the category. Explain briefly why the category fits.
 Ticket categories:
 {catLines}
 PICs:
@@ -47,7 +47,7 @@ Detail: {ticket.Detail}";
 
         int? categoryId = null;
         int? picId = null;
-        string? reason = null;
+        var reasons = new List<string>();
 
         string raw;
         string summaryJson = string.Empty;
@@ -65,15 +65,18 @@ Detail: {ticket.Detail}";
             if (doc.RootElement.TryGetProperty("picId", out var picElem) && picElem.ValueKind == JsonValueKind.Number)
                 picId = picElem.GetInt32();
 
+            if (doc.RootElement.TryGetProperty("reason", out var reasonElem) && reasonElem.ValueKind == JsonValueKind.String)
+                reasons.Add(reasonElem.GetString()!);
+
             if (categoryId == null || !categories.Any(c => c.Id == categoryId))
             {
-                reason = "AI returned unknown category";
+                reasons.Add("AI returned unknown category");
                 categoryId = null;
                 picId = null;
             }
             else if (picId == null)
             {
-                reason = "AI did not select a PIC";
+                reasons.Add("AI did not select a PIC");
                 picId = null;
             }
             else
@@ -81,17 +84,17 @@ Detail: {ticket.Detail}";
                 var pic = pics.FirstOrDefault(p => p.Id == picId);
                 if (pic == null)
                 {
-                    reason = "AI returned unknown PIC";
+                    reasons.Add("AI returned unknown PIC");
                     picId = null;
                 }
                 else if (!pic.Availability)
                 {
-                    reason = $"PIC {pic.Name} unavailable";
+                    reasons.Add($"PIC {pic.Name} unavailable");
                     picId = null;
                 }
                 else if (!pic.CategoryIds.Contains(categoryId.Value))
                 {
-                    reason = $"PIC {pic.Name} cannot handle category {categoryId}";
+                    reasons.Add($"PIC {pic.Name} cannot handle category {categoryId}");
                     picId = null;
                 }
                 else
@@ -99,7 +102,7 @@ Detail: {ticket.Detail}";
                     var same = pics.Where(p => p.Availability && p.CategoryIds.Contains(categoryId.Value)).ToList();
                     if (same.Count > 1 && pic.TicketCount > same.Min(p => p.TicketCount))
                     {
-                        reason = $"PIC {pic.Name} already has many tickets";
+                        reasons.Add($"PIC {pic.Name} already has many tickets");
                         picId = null;
                     }
                 }
@@ -107,11 +110,12 @@ Detail: {ticket.Detail}";
         }
         catch
         {
-            reason = "AI assignment failed";
+            reasons.Add("AI assignment failed");
             categoryId = null;
             picId = null;
         }
 
+        var reason = reasons.Count > 0 ? string.Join("; ", reasons) : null;
         await _tickets.AssignAsync(ticket.Id, categoryId, picId, reason);
         return (categoryId, picId, reason);
     }
@@ -129,7 +133,7 @@ Detail: {ticket.Detail}";
 
         int? categoryId = null;
         int? picId = null;
-        string? reason = null;
+        var reasons = new List<string>();
 
         using var doc = JsonDocument.Parse(summaryJson);
 
@@ -139,15 +143,18 @@ Detail: {ticket.Detail}";
         if (doc.RootElement.TryGetProperty("picId", out var picElem) && picElem.ValueKind == JsonValueKind.Number)
             picId = picElem.GetInt32();
 
+        if (doc.RootElement.TryGetProperty("reason", out var reasonElem) && reasonElem.ValueKind == JsonValueKind.String)
+            reasons.Add(reasonElem.GetString()!);
+
         if (categoryId == null || !categories.Any(c => c.Id == categoryId))
         {
-            reason = "AI returned unknown category";
+            reasons.Add("AI returned unknown category");
             categoryId = null;
             picId = null;
         }
         else if (picId == null)
         {
-            reason = "AI did not select a PIC";
+            reasons.Add("AI did not select a PIC");
             picId = null;
         }
         else
@@ -155,17 +162,17 @@ Detail: {ticket.Detail}";
             var pic = pics.FirstOrDefault(p => p.Id == picId);
             if (pic == null)
             {
-                reason = "AI returned unknown PIC";
+                reasons.Add("AI returned unknown PIC");
                 picId = null;
             }
             else if (!pic.Availability)
             {
-                reason = $"PIC {pic.Name} unavailable";
+                reasons.Add($"PIC {pic.Name} unavailable");
                 picId = null;
             }
             else if (!pic.CategoryIds.Contains(categoryId.Value))
             {
-                reason = $"PIC {pic.Name} cannot handle category {categoryId}";
+                reasons.Add($"PIC {pic.Name} cannot handle category {categoryId}");
                 picId = null;
             }
             else
@@ -173,12 +180,13 @@ Detail: {ticket.Detail}";
                 var same = pics.Where(p => p.Availability && p.CategoryIds.Contains(categoryId.Value)).ToList();
                 if (same.Count > 1 && pic.TicketCount > same.Min(p => p.TicketCount))
                 {
-                    reason = $"PIC {pic.Name} already has many tickets";
+                    reasons.Add($"PIC {pic.Name} already has many tickets");
                     picId = null;
                 }
             }
         }
 
+        var reason = reasons.Count > 0 ? string.Join("; ", reasons) : null;
         await _tickets.AssignAsync(ticketId, categoryId, picId, reason);
         return (categoryId, picId, reason);
     }
@@ -186,7 +194,7 @@ Detail: {ticket.Detail}";
     private async Task<string> SummarizeAsync(string raw)
     {
         var prompt = new StringBuilder()
-            .AppendLine("Convert the following ticket assignment into a JSON object with 'categoryId' and 'picId' fields.")
+            .AppendLine("Convert the following ticket assignment into a JSON object with 'categoryId', 'picId', and 'reason' (brief explanation for the category).")
             .AppendLine("If not possible, return an empty object.")
             .AppendLine(raw)
             .ToString();
