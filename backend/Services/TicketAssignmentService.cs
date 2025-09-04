@@ -36,7 +36,7 @@ Ticket categories:
 {catLines}
 PICs:
 {picLines}
-Return your answer in JSON with keys \"categoryId\" and \"picId\".
+Return your answer in JSON with keys ""categoryId"" and ""picId"".
 Ticket:
 Number: {ticket.TicketNumber}
 Complaint: {ticket.Complaint}
