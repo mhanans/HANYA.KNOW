@@ -37,3 +37,26 @@ SELECT r.id, u.id FROM roles r CROSS JOIN ui_pages u
 WHERE r.name = 'admin'
 ON CONFLICT DO NOTHING;
 
+-- Ticket categories
+INSERT INTO ticket_categories (ticket_type, description, sample_json) VALUES
+  ('Technical', 'Technical issues', '{"example": "Cannot log in"}'),
+  ('Billing', 'Billing questions', '{"example": "Invoice missing"}')
+ON CONFLICT DO NOTHING;
+
+-- PICs
+INSERT INTO pics (name, availability) VALUES
+  ('Alice', TRUE),
+  ('Bob', FALSE)
+ON CONFLICT DO NOTHING;
+
+-- PIC category assignments
+INSERT INTO pic_ticket_categories (pic_id, ticket_category_id)
+SELECT p.id, c.id FROM pics p, ticket_categories c
+WHERE p.name = 'Alice' AND c.ticket_type = 'Technical'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO pic_ticket_categories (pic_id, ticket_category_id)
+SELECT p.id, c.id FROM pics p, ticket_categories c
+WHERE p.name = 'Bob' AND c.ticket_type = 'Billing'
+ON CONFLICT DO NOTHING;
+
