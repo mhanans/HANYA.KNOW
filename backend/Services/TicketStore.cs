@@ -64,6 +64,32 @@ public class TicketStore
         return null;
     }
 
+    public async Task<List<Ticket>> ListByPicAsync(int picId)
+    {
+        const string sql = "SELECT id, ticket_number, complaint, detail, category_id, pic_id, reason, created_at FROM tickets WHERE pic_id=@p ORDER BY created_at DESC";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("p", picId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var list = new List<Ticket>();
+        while (await reader.ReadAsync())
+        {
+            list.Add(new Ticket
+            {
+                Id = reader.GetInt32(0),
+                TicketNumber = reader.GetString(1),
+                Complaint = reader.GetString(2),
+                Detail = reader.GetString(3),
+                CategoryId = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                PicId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                Reason = reader.IsDBNull(6) ? null : reader.GetString(6),
+                CreatedAt = reader.GetDateTime(7)
+            });
+        }
+        return list;
+    }
+
     public async Task<int> CreateAsync(string ticketNumber, string complaint, string detail)
     {
         const string sql = "INSERT INTO tickets(ticket_number, complaint, detail) VALUES (@n,@c,@d) RETURNING id";

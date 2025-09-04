@@ -33,9 +33,9 @@ public class TicketAssignmentService
         var pics = await _pics.ListAsync();
 
         var catLines = string.Join("\n", categories.Select(c => $"{c.Id}: {c.TicketType} - {c.Description} (sample: {c.SampleJson})"));
-        var picLines = string.Join("\n", pics.Select(p => $"{p.Id}: {p.Name} handles [{string.Join(",", p.CategoryIds)}] and is {(p.Availability ? "available" : "unavailable")}"));
+        var picLines = string.Join("\n", pics.Select(p => $"{p.Id}: {p.Name} handles [{string.Join(",", p.CategoryIds)}] is {(p.Availability ? "available" : "unavailable")} and has {p.TicketCount} tickets"));
 
-        var prompt = $@"You are a support ticket router. Choose the best matching ticket category and an available PIC.
+        var prompt = $@"You are a support ticket router. Choose the best matching ticket category and an available PIC. Prefer PICs with fewer active tickets unless only one PIC handles the category.
 Ticket categories:
 {catLines}
 PICs:
@@ -93,6 +93,15 @@ Detail: {ticket.Detail}";
                 {
                     reason = $"PIC {pic.Name} cannot handle category {categoryId}";
                     picId = null;
+                }
+                else
+                {
+                    var same = pics.Where(p => p.Availability && p.CategoryIds.Contains(categoryId.Value)).ToList();
+                    if (same.Count > 1 && pic.TicketCount > same.Min(p => p.TicketCount))
+                    {
+                        reason = $"PIC {pic.Name} already has many tickets";
+                        picId = null;
+                    }
                 }
             }
         }
@@ -158,6 +167,15 @@ Detail: {ticket.Detail}";
             {
                 reason = $"PIC {pic.Name} cannot handle category {categoryId}";
                 picId = null;
+            }
+            else
+            {
+                var same = pics.Where(p => p.Availability && p.CategoryIds.Contains(categoryId.Value)).ToList();
+                if (same.Count > 1 && pic.TicketCount > same.Min(p => p.TicketCount))
+                {
+                    reason = $"PIC {pic.Name} already has many tickets";
+                    picId = null;
+                }
             }
         }
 

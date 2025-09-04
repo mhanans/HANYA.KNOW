@@ -16,9 +16,12 @@ public class PicStore
 
     public async Task<List<Pic>> ListAsync()
     {
-        const string sql = @"SELECT p.id, p.name, p.availability, COALESCE(array_agg(ptc.ticket_category_id) FILTER (WHERE ptc.ticket_category_id IS NOT NULL), '{}')
+        const string sql = @"SELECT p.id, p.name, p.availability,
+       COALESCE(array_agg(DISTINCT ptc.ticket_category_id) FILTER (WHERE ptc.ticket_category_id IS NOT NULL), '{}') AS categories,
+       COUNT(t.id) AS ticket_count
 FROM pics p
 LEFT JOIN pic_ticket_categories ptc ON p.id = ptc.pic_id
+LEFT JOIN tickets t ON p.id = t.pic_id
 GROUP BY p.id
 ORDER BY p.name";
         await using var conn = new NpgsqlConnection(_connectionString);
@@ -34,7 +37,8 @@ ORDER BY p.name";
                 Id = reader.GetInt32(0),
                 Name = reader.GetString(1),
                 Availability = reader.GetBoolean(2),
-                CategoryIds = categories
+                CategoryIds = categories,
+                TicketCount = reader.GetInt32(4)
             });
         }
         return list;
@@ -105,4 +109,5 @@ public class Pic
     public string Name { get; set; } = string.Empty;
     public bool Availability { get; set; }
     public List<int> CategoryIds { get; set; } = new();
+    public int TicketCount { get; set; }
 }
