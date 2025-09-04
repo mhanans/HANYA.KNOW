@@ -36,9 +36,11 @@ MVP knowledge base with retrieval augmented generation.
 - `GET /api/chat/history/{id}` – retrieve a conversation's messages
 - `GET /api/stats` – usage metrics for the dashboard
 - `GET /api/ticketcategories` – list ticket categories
-- `GET /api/pics` – list PICs and their category assignments
+- `GET /api/pics` – list PICs with categories, availability, and ticket counts
+- `GET /api/pics/{id}/tickets` – list tickets handled by a PIC
 - `GET /api/tickets` – list submitted tickets
 - `POST /api/tickets` – create a ticket and automatically assign category and PIC via AI; unassigned tickets include a `reason` field
+- `POST /api/tickets/{id}/retry-summary` – regenerate JSON assignment summary for a ticket
 - `GET /api/recommendations` – list CV recommendations
 - `POST /api/recommendations` – generate a recommendation
 - `POST /api/recommendations/{id}/retry` – regenerate an existing recommendation
