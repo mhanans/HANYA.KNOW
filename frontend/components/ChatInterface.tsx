@@ -13,9 +13,9 @@ const ChatInterface = () => {
   const handleSendMessage = async () => {
     if (!query.trim()) return;
 
-    const userMessage = { sender: 'user', text: query };
+    const userMessage: Message = { sender: 'user', text: query };
     // Add user message and an empty bot placeholder
-    const newMessages = [...messages, userMessage, { sender: 'bot', text: '' }];
+    const newMessages: Message[] = [...messages, userMessage, { sender: 'bot', text: '' }];
     setMessages(newMessages);
     setQuery('');
     setIsLoading(true);

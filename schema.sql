@@ -79,3 +79,32 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ticket_categories (
+    id SERIAL PRIMARY KEY,
+    ticket_type TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    sample_json TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS pics (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    availability BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS pic_ticket_categories (
+    pic_id INT REFERENCES pics(id) ON DELETE CASCADE,
+    ticket_category_id INT REFERENCES ticket_categories(id) ON DELETE CASCADE,
+    PRIMARY KEY(pic_id, ticket_category_id)
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+    id SERIAL PRIMARY KEY,
+    ticket_number TEXT NOT NULL UNIQUE,
+    complaint TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    category_id INT REFERENCES ticket_categories(id),
+    pic_id INT REFERENCES pics(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
