@@ -57,6 +57,26 @@ public class TicketsController : ControllerBase
         }
     }
 
+    [HttpPost("{id}/retry-summary")]
+    public async Task<ActionResult<Ticket>> RetrySummary(int id)
+    {
+        try
+        {
+            var result = await _assigner.RetrySummaryAsync(id);
+            if (result == null) return NotFound();
+            var ticket = await _store.GetAsync(id);
+            if (ticket == null) return NotFound();
+            ticket.CategoryId = result.Value.categoryId;
+            ticket.PicId = result.Value.picId;
+            ticket.Reason = result.Value.reason;
+            return ticket;
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Summary failed");
+        }
+    }
+
     [HttpPut("{id}/assign")]
     public async Task<IActionResult> Assign(int id, TicketAssignRequest request)
     {
