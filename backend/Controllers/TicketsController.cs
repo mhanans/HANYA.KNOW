@@ -38,9 +38,10 @@ public class TicketsController : ControllerBase
             Detail = request.Detail,
             CreatedAt = DateTime.UtcNow
         };
-        var (categoryId, picId) = await _assigner.AutoAssignAsync(ticket);
+        var (categoryId, picId, reason) = await _assigner.AutoAssignAsync(ticket);
         ticket.CategoryId = categoryId;
         ticket.PicId = picId;
+        ticket.Reason = reason;
         return CreatedAtAction(nameof(Get), new { id }, ticket);
     }
 
@@ -49,7 +50,7 @@ public class TicketsController : ControllerBase
     {
         try
         {
-            await _store.AssignAsync(id, request.CategoryId, request.PicId);
+            await _store.AssignAsync(id, request.CategoryId, request.PicId, null);
             return NoContent();
         }
         catch (KeyNotFoundException)

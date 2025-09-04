@@ -23,7 +23,7 @@ public class TicketAssignmentService
         _llm = llm;
     }
 
-    public async Task<(int? categoryId, int? picId)> AutoAssignAsync(Ticket ticket)
+    public async Task<(int? categoryId, int? picId, string? reason)> AutoAssignAsync(Ticket ticket)
     {
         var categories = await _categories.ListAsync();
         var pics = await _pics.ListAsync();
@@ -36,24 +36,67 @@ Ticket categories:
 {catLines}
 PICs:
 {picLines}
-Return your answer in JSON with keys ""categoryId"" and ""picId"".
+Return your answer in JSON with keys ""categoryId"" and ""picId"" (use null if unknown).
 Ticket:
 Number: {ticket.TicketNumber}
 Complaint: {ticket.Complaint}
 Detail: {ticket.Detail}";
 
+        int? categoryId = null;
+        int? picId = null;
+        string? reason = null;
+
         try
         {
             var response = await _llm.GenerateAsync(prompt);
             using var doc = JsonDocument.Parse(response);
-            var categoryId = doc.RootElement.GetProperty("categoryId").GetInt32();
-            var picId = doc.RootElement.GetProperty("picId").GetInt32();
-            await _tickets.AssignAsync(ticket.Id, categoryId, picId);
-            return (categoryId, picId);
+
+            if (doc.RootElement.TryGetProperty("categoryId", out var catElem) && catElem.ValueKind == JsonValueKind.Number)
+                categoryId = catElem.GetInt32();
+
+            if (doc.RootElement.TryGetProperty("picId", out var picElem) && picElem.ValueKind == JsonValueKind.Number)
+                picId = picElem.GetInt32();
+
+            if (categoryId == null || !categories.Any(c => c.Id == categoryId))
+            {
+                reason = "AI returned unknown category";
+                categoryId = null;
+                picId = null;
+            }
+            else if (picId == null)
+            {
+                reason = "AI did not select a PIC";
+                picId = null;
+            }
+            else
+            {
+                var pic = pics.FirstOrDefault(p => p.Id == picId);
+                if (pic == null)
+                {
+                    reason = "AI returned unknown PIC";
+                    picId = null;
+                }
+                else if (!pic.Availability)
+                {
+                    reason = $"PIC {pic.Name} unavailable";
+                    picId = null;
+                }
+                else if (!pic.CategoryIds.Contains(categoryId.Value))
+                {
+                    reason = $"PIC {pic.Name} cannot handle category {categoryId}";
+                    picId = null;
+                }
+            }
         }
         catch
         {
-            return (null, null);
+            reason = "AI assignment failed";
+            categoryId = null;
+            picId = null;
         }
+
+        await _tickets.AssignAsync(ticket.Id, categoryId, picId, reason);
+        return (categoryId, picId, reason);
     }
 }
+

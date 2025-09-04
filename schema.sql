@@ -106,5 +106,6 @@ CREATE TABLE IF NOT EXISTS tickets (
     detail TEXT NOT NULL,
     category_id INT REFERENCES ticket_categories(id),
     pic_id INT REFERENCES pics(id),
+    reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

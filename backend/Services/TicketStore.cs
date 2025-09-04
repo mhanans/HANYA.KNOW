@@ -16,7 +16,7 @@ public class TicketStore
 
     public async Task<List<Ticket>> ListAsync()
     {
-        const string sql = "SELECT id, ticket_number, complaint, detail, category_id, pic_id, created_at FROM tickets ORDER BY created_at DESC";
+        const string sql = "SELECT id, ticket_number, complaint, detail, category_id, pic_id, reason, created_at FROM tickets ORDER BY created_at DESC";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -32,7 +32,8 @@ public class TicketStore
                 Detail = reader.GetString(3),
                 CategoryId = reader.IsDBNull(4) ? null : reader.GetInt32(4),
                 PicId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                CreatedAt = reader.GetDateTime(6)
+                Reason = reader.IsDBNull(6) ? null : reader.GetString(6),
+                CreatedAt = reader.GetDateTime(7)
             });
         }
         return list;
@@ -51,15 +52,16 @@ public class TicketStore
         return id;
     }
 
-    public async Task AssignAsync(int id, int categoryId, int picId)
+    public async Task AssignAsync(int id, int? categoryId, int? picId, string? reason)
     {
-        const string sql = "UPDATE tickets SET category_id=@c, pic_id=@p WHERE id=@id";
+        const string sql = "UPDATE tickets SET category_id=@c, pic_id=@p, reason=@r WHERE id=@id";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", id);
-        cmd.Parameters.AddWithValue("c", categoryId);
-        cmd.Parameters.AddWithValue("p", picId);
+        cmd.Parameters.AddWithValue("c", categoryId.HasValue ? (object)categoryId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("p", picId.HasValue ? (object)picId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("r", reason != null ? (object)reason : DBNull.Value);
         var rows = await cmd.ExecuteNonQueryAsync();
         if (rows == 0)
             throw new KeyNotFoundException();
@@ -74,5 +76,6 @@ public class Ticket
     public string Detail { get; set; } = string.Empty;
     public int? CategoryId { get; set; }
     public int? PicId { get; set; }
+    public string? Reason { get; set; }
     public DateTime CreatedAt { get; set; }
 }

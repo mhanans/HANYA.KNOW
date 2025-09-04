@@ -8,6 +8,7 @@ interface Ticket {
   detail: string;
   categoryId?: number;
   picId?: number;
+  reason?: string;
 }
 
 interface Category {
@@ -84,6 +85,7 @@ export default function Tickets() {
               <th>Detail</th>
               <th>Category</th>
               <th>PIC</th>
+              <th>Reason</th>
             </tr>
           </thead>
           <tbody>
@@ -94,6 +96,7 @@ export default function Tickets() {
                 <td>{t.detail}</td>
                 <td>{getCategory(t.categoryId)}</td>
                 <td>{getPic(t.picId)}</td>
+                <td>{t.reason ?? '-'}</td>
               </tr>
             ))}
           </tbody>
