@@ -25,7 +25,6 @@ export default function Tickets() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [pics, setPics] = useState<Pic[]>([]);
-  const [ticketNumber, setTicketNumber] = useState('');
   const [complaint, setComplaint] = useState('');
   const [detail, setDetail] = useState('');
   const [status, setStatus] = useState('');
@@ -48,7 +47,7 @@ export default function Tickets() {
 
   const create = async () => {
     setStatus('');
-    if (!ticketNumber.trim() || !complaint.trim() || !detail.trim()) {
+    if (!complaint.trim() || !detail.trim()) {
       setStatus('All fields are required.');
       return;
     }
@@ -58,7 +57,7 @@ export default function Tickets() {
       const res = await apiFetch('/api/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketNumber, complaint, detail })
+        body: JSON.stringify({ complaint, detail })
       });
       if (!res.ok) {
         let msg = res.statusText;
@@ -71,7 +70,6 @@ export default function Tickets() {
       }
       const t = await res.json();
       setTickets(prev => [t, ...prev]);
-      setTicketNumber('');
       setComplaint('');
       setDetail('');
       setStatus('');
@@ -109,7 +107,6 @@ export default function Tickets() {
     <div className="page-container">
       <h1>Tickets</h1>
       <div className="controls" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
-        <input value={ticketNumber} onChange={e => setTicketNumber(e.target.value)} placeholder="Ticket number" className="form-input" />
         <input value={complaint} onChange={e => setComplaint(e.target.value)} placeholder="Complaint" className="form-input" />
         <textarea value={detail} onChange={e => setDetail(e.target.value)} placeholder="Detail" className="form-input" />
         <button onClick={create} className="btn btn-primary" disabled={loading}>{loading ? 'Submitting...' : 'Submit'}</button>
