@@ -9,10 +9,12 @@ namespace backend.Controllers;
 public class PicsController : ControllerBase
 {
     private readonly PicStore _store;
+    private readonly TicketStore _tickets;
 
-    public PicsController(PicStore store)
+    public PicsController(PicStore store, TicketStore tickets)
     {
         _store = store;
+        _tickets = tickets;
     }
 
     [HttpGet]
@@ -59,6 +61,12 @@ public class PicsController : ControllerBase
         {
             return NotFound();
         }
+    }
+
+    [HttpGet("{id}/tickets")]
+    public async Task<ActionResult<List<Ticket>>> Tickets(int id)
+    {
+        return await _tickets.ListByPicAsync(id);
     }
 }
 

@@ -17,6 +17,8 @@ INSERT INTO ui_pages (key) VALUES
   ('users'),
   ('roles'),
   ('role-ui'),
+  ('tickets'),
+  ('pic-summary'),
   ('settings')
 ON CONFLICT DO NOTHING;
 

@@ -35,6 +35,7 @@ const navSections: { title: string; links: NavItem[] }[] = [
     title: 'Support',
     links: [
       { href: '/tickets', label: 'Tickets', icon: '🎫' },
+      { href: '/pic-summary', label: 'PIC Summary', icon: '👥' },
     ],
   },
   {
