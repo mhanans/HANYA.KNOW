@@ -35,7 +35,11 @@ MVP knowledge base with retrieval augmented generation.
 - `GET /api/chat/history` – list chat conversations
 - `GET /api/chat/history/{id}` – retrieve a conversation's messages
 - `GET /api/stats` – usage metrics for the dashboard
-  - `GET /api/recommendations` – list CV recommendations
+- `GET /api/ticketcategories` – list ticket categories
+- `GET /api/pics` – list PICs and their category assignments
+- `GET /api/tickets` – list submitted tickets
+- `POST /api/tickets` – create a ticket and automatically assign category and PIC via AI
+- `GET /api/recommendations` – list CV recommendations
 - `POST /api/recommendations` – generate a recommendation
 - `POST /api/recommendations/{id}/retry` – regenerate an existing recommendation
 - `POST /api/recommendations/{id}/retry-summary` – regenerate JSON candidate summaries
@@ -51,6 +55,7 @@ All requests to the API must include an `X-API-KEY` header matching the `ApiKey`
 - Dashboard shows counts of chats, documents, categories, and users with quick links to common tasks.
 - Chat answers include numbered citations with relevance scores.
 - Documents can be tagged with categories for targeted queries; manage categories, upload new PDFs, analyze documents, and filter questions by category.
+- Submit and track support tickets with automatic AI-driven categorization and assignment to available PICs.
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.

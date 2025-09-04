@@ -26,10 +26,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const auth = req.headers.authorization || (req.cookies.token ? `Bearer ${req.cookies.token}` : undefined);
   if (auth) headers['Authorization'] = auth;
 
-  const init: RequestInit = { method: req.method, headers };
+  const init: RequestInit & { duplex?: 'half' } = { method: req.method, headers };
   if (req.method && req.method !== 'GET' && req.method !== 'HEAD') {
     if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'] as string;
     // Forward the raw request stream so multipart forms arrive intact
+    init.duplex = 'half';
     init.body = req as any;
   }
 
