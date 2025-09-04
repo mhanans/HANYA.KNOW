@@ -39,18 +39,81 @@ public class TicketStore
         return list;
     }
 
-    public async Task<int> CreateAsync(string ticketNumber, string complaint, string detail)
+    public async Task<Ticket?> GetAsync(int id)
     {
-        const string sql = "INSERT INTO tickets(ticket_number, complaint, detail) VALUES (@n,@c,@d) RETURNING id";
+        const string sql = "SELECT id, ticket_number, complaint, detail, category_id, pic_id, reason, created_at FROM tickets WHERE id=@id";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", id);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new Ticket
+            {
+                Id = reader.GetInt32(0),
+                TicketNumber = reader.GetString(1),
+                Complaint = reader.GetString(2),
+                Detail = reader.GetString(3),
+                CategoryId = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                PicId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                Reason = reader.IsDBNull(6) ? null : reader.GetString(6),
+                CreatedAt = reader.GetDateTime(7)
+            };
+        }
+        return null;
+    }
+
+    public async Task<List<Ticket>> ListByPicAsync(int picId)
+    {
+        const string sql = "SELECT id, ticket_number, complaint, detail, category_id, pic_id, reason, created_at FROM tickets WHERE pic_id=@p ORDER BY created_at DESC";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("p", picId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var list = new List<Ticket>();
+        while (await reader.ReadAsync())
+        {
+            list.Add(new Ticket
+            {
+                Id = reader.GetInt32(0),
+                TicketNumber = reader.GetString(1),
+                Complaint = reader.GetString(2),
+                Detail = reader.GetString(3),
+                CategoryId = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                PicId = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                Reason = reader.IsDBNull(6) ? null : reader.GetString(6),
+                CreatedAt = reader.GetDateTime(7)
+            });
+        }
+        return list;
+    }
+
+    public async Task<Ticket> CreateAsync(string complaint, string detail)
+    {
+        var ticketNumber = GenerateTicketNumber();
+        const string sql = "INSERT INTO tickets(ticket_number, complaint, detail) VALUES (@n,@c,@d) RETURNING id, created_at";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("n", ticketNumber);
         cmd.Parameters.AddWithValue("c", complaint);
         cmd.Parameters.AddWithValue("d", detail);
-        var id = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        return id;
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return new Ticket
+        {
+            Id = reader.GetInt32(0),
+            TicketNumber = ticketNumber,
+            Complaint = complaint,
+            Detail = detail,
+            CreatedAt = reader.GetDateTime(1)
+        };
     }
+
+    private static string GenerateTicketNumber()
+        => $"T{DateTime.UtcNow:yyyyMMddHHmmssfff}{Random.Shared.Next(100, 999)}";
 
     public async Task AssignAsync(int id, int? categoryId, int? picId, string? reason)
     {

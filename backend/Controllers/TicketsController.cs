@@ -27,22 +27,34 @@ public class TicketsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Ticket>> Post(TicketRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.TicketNumber) || string.IsNullOrWhiteSpace(request.Complaint) || string.IsNullOrWhiteSpace(request.Detail))
+        if (string.IsNullOrWhiteSpace(request.Complaint) || string.IsNullOrWhiteSpace(request.Detail))
             return BadRequest("All fields are required.");
-        var id = await _store.CreateAsync(request.TicketNumber, request.Complaint, request.Detail);
-        var ticket = new Ticket
-        {
-            Id = id,
-            TicketNumber = request.TicketNumber,
-            Complaint = request.Complaint,
-            Detail = request.Detail,
-            CreatedAt = DateTime.UtcNow
-        };
+        var ticket = await _store.CreateAsync(request.Complaint, request.Detail);
         var (categoryId, picId, reason) = await _assigner.AutoAssignAsync(ticket);
         ticket.CategoryId = categoryId;
         ticket.PicId = picId;
         ticket.Reason = reason;
-        return CreatedAtAction(nameof(Get), new { id }, ticket);
+        return CreatedAtAction(nameof(Get), new { ticket.Id }, ticket);
+    }
+
+    [HttpPost("{id}/retry-summary")]
+    public async Task<ActionResult<Ticket>> RetrySummaryJson(int id)
+    {
+        try
+        {
+            var result = await _assigner.RetrySummaryAsync(id);
+            if (result == null) return NotFound();
+            var ticket = await _store.GetAsync(id);
+            if (ticket == null) return NotFound();
+            ticket.CategoryId = result.Value.categoryId;
+            ticket.PicId = result.Value.picId;
+            ticket.Reason = result.Value.reason;
+            return ticket;
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Summary failed");
+        }
     }
 
     [HttpPut("{id}/assign")]
@@ -62,7 +74,6 @@ public class TicketsController : ControllerBase
 
 public class TicketRequest
 {
-    public string TicketNumber { get; set; } = string.Empty;
     public string Complaint { get; set; } = string.Empty;
     public string Detail { get; set; } = string.Empty;
 }

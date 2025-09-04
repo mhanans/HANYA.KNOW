@@ -80,6 +80,7 @@ builder.Services.AddSingleton<UiStore>();
 builder.Services.AddSingleton<TicketCategoryStore>();
 builder.Services.AddSingleton<PicStore>();
 builder.Services.AddSingleton<TicketStore>();
+builder.Services.AddSingleton<TicketAssignmentResultStore>();
 builder.Services.AddSingleton<TicketAssignmentService>();
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>();
