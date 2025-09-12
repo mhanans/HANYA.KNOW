@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import Modal from '../components/Modal';
 
-interface Doc { source: string; }
+interface Doc { source: string; hasSummary: boolean; }
 
 export default function DocumentAnalytics() {
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -19,7 +19,7 @@ export default function DocumentAnalytics() {
 
   useEffect(() => { load(); }, []);
 
-  const analyze = async (source: string) => {
+  const viewSummary = async (source: string) => {
     setSummary('Loading...');
     try {
       const res = await apiFetch(`/api/documents/summary?source=${encodeURIComponent(source)}`);
@@ -31,6 +31,49 @@ export default function DocumentAnalytics() {
       }
     } catch {
       setSummary('Failed to load summary');
+    }
+  };
+
+  const generateSummary = async (source: string) => {
+    if (!window.confirm('Generate summary for this document?')) return;
+    setSummary('Loading...');
+    try {
+      const res = await apiFetch(`/api/documents/summary?source=${encodeURIComponent(source)}`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSummary(data.summary || 'No summary available');
+        alert('Summary generated successfully');
+        setDocs(prev => prev.map(p => p.source === source ? { ...p, hasSummary: true } : p));
+      } else {
+        setSummary(null);
+        alert('Failed to generate summary');
+      }
+    } catch {
+      setSummary(null);
+      alert('Failed to generate summary');
+    }
+  };
+
+  const regenerateSummary = async (source: string) => {
+    if (!window.confirm('Regenerate summary for this document?')) return;
+    setSummary('Loading...');
+    try {
+      const res = await apiFetch(`/api/documents/summary?source=${encodeURIComponent(source)}`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSummary(data.summary || 'No summary available');
+        alert('Summary generated successfully');
+      } else {
+        setSummary(null);
+        alert('Failed to generate summary');
+      }
+    } catch {
+      setSummary(null);
+      alert('Failed to generate summary');
     }
   };
 
@@ -50,7 +93,14 @@ export default function DocumentAnalytics() {
               <tr key={d.source}>
                 <td>{d.source}</td>
                 <td style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-secondary" onClick={() => analyze(d.source)}>View Summary</button>
+                  {d.hasSummary ? (
+                    <>
+                      <button className="btn btn-secondary" onClick={() => viewSummary(d.source)}>View Summary</button>
+                      <button className="btn btn-primary" onClick={() => regenerateSummary(d.source)}>Retry Summary</button>
+                    </>
+                  ) : (
+                    <button className="btn btn-primary" onClick={() => generateSummary(d.source)}>Generate Summary</button>
+                  )}
                 </td>
               </tr>
             ))}
