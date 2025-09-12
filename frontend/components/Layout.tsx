@@ -53,15 +53,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>({});
   const [username, setUsername] = useState('');
-  const [openSection, setOpenSection] = useState<string>(navSections[0].title);
+  const [openSection, setOpenSection] = useState<string>('');
   const [allowed, setAllowed] = useState<string[]>([]);
   const [uiLoaded, setUiLoaded] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => {});
     if (router.pathname === '/login') return;
-    const current = navSections.find(s => s.links.some(l => l.href === router.pathname));
-    if (current) setOpenSection(current.title);
     apiFetch('/api/me')
       .then(res => {
         if (res.ok) return res.json();
@@ -70,12 +68,24 @@ export default function Layout({ children }: { children: ReactNode }) {
       .then(u => {
         setUsername(u.username);
         return apiFetch('/api/ui').then(r => r.json()).then((pages: { key: string }[]) => {
-          setAllowed(pages.map(p => p.key));
+          const keys = pages.map(p => p.key);
+          setAllowed(keys);
+          const current = navSections.find(s => s.links.some(l => l.href === router.pathname && keys.includes(l.key)));
+          if (current) {
+            setOpenSection(current.title);
+          } else {
+            const first = navSections.find(s => s.links.some(l => keys.includes(l.key)));
+            if (first) setOpenSection(first.title);
+          }
           setUiLoaded(true);
         });
       })
       .catch(() => router.push('/login'));
   }, [router.pathname]);
+
+  const accessibleSections = navSections
+    .map(section => ({ ...section, links: section.links.filter(link => allowed.includes(link.key)) }))
+    .filter(section => section.links.length > 0);
 
   useEffect(() => {
     if (!uiLoaded || router.pathname === '/login' || router.pathname === '/401') return;
@@ -104,7 +114,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <nav className="sidebar">
         <div>
           <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
-          {navSections.map(section => (
+          {accessibleSections.map(section => (
             <div className="nav-group" key={section.title}>
               <h3
                 className="nav-group-title"
