@@ -124,7 +124,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               </h3>
               {openSection === section.title && (
                 <ul className="nav-links">
-                  {section.links.map(link => (
+                  {section.links.filter(link => allowed.includes(link.key)).map(link => (
                     <li key={link.href}>
                       <Link href={link.href} legacyBehavior>
                         <a className={router.pathname === link.href ? 'active' : ''}>
