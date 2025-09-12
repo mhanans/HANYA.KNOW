@@ -36,18 +36,38 @@ export default function Documents() {
   }, []);
 
   const save = async (doc: Doc) => {
-    await apiFetch('/api/documents', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: doc.source, categoryId: doc.categoryId })
-    });
+    if (!window.confirm('Anda ingin menyimpan data?')) return;
+    try {
+      const res = await apiFetch('/api/documents', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: doc.source, categoryId: doc.categoryId })
+      });
+      if (res.ok) {
+        alert('Data berhasil disimpan');
+      } else {
+        alert('Gagal menyimpan data');
+      }
+    } catch {
+      alert('Error menyimpan data');
+    }
     await load();
   };
 
   const remove = async (source: string) => {
-    await apiFetch(`/api/documents?source=${encodeURIComponent(source)}`, {
-      method: 'DELETE'
-    });
+    if (!window.confirm('Anda ingin menghapus data?')) return;
+    try {
+      const res = await apiFetch(`/api/documents?source=${encodeURIComponent(source)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        alert('Data berhasil dihapus');
+      } else {
+        alert('Gagal menghapus data');
+      }
+    } catch {
+      alert('Error menghapus data');
+    }
     await load();
   };
 

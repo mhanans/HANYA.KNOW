@@ -25,6 +25,12 @@ CREATE INDEX IF NOT EXISTS idx_documents_content_tsv
 CREATE INDEX IF NOT EXISTS idx_documents_category
     ON documents(category_id);
 
+CREATE TABLE IF NOT EXISTS document_summaries (
+    source TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS chats (
     id SERIAL PRIMARY KEY,
     question TEXT NOT NULL,
