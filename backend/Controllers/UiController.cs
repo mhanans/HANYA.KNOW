@@ -1,5 +1,7 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+using System.Linq;
 
 namespace backend.Controllers;
 
@@ -17,7 +19,12 @@ public class UiController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<UiPage>>> Get()
     {
-        return await _store.ListAsync();
+        var roles = User.Claims
+            .Where(c => c.Type == ClaimTypes.Role)
+            .Select(c => int.Parse(c.Value))
+            .ToArray();
+        var pages = await _store.ListForRolesAsync(roles);
+        return pages;
     }
 }
 

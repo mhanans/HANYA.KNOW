@@ -1,6 +1,7 @@
 using backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
@@ -22,10 +23,11 @@ public class SettingsController : ControllerBase
         return await _settings.GetAsync();
     }
 
-    [HttpPut]
-    public async Task<IActionResult> Put(AppSettings settings)
-    {
-        await _settings.UpdateAsync(settings);
-        return NoContent();
-    }
+[HttpPut]
+[UiAuthorize("settings")]
+public async Task<IActionResult> Put(AppSettings settings)
+{    
+    await _settings.UpdateAsync(settings);
+    return NoContent();
+}
 }

@@ -5,11 +5,13 @@ using System.Text;
 using System.Linq;
 using System.Collections.Generic;
 using System.Text.Json;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/recommendations")]
+[UiAuthorize("cv")]
 public class RecommendationController : ControllerBase
 {
     private readonly VectorStore _store;

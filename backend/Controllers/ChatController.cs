@@ -8,11 +8,13 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/chat")]
+[UiAuthorize("chat")]
 public class ChatController : ControllerBase
 {
     private readonly VectorStore _store;
