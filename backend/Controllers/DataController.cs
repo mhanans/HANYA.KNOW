@@ -5,11 +5,13 @@ using System.IO;
 using System.Text;
 using backend.Services;
 using ExcelDataReader;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
  [ApiController]
  [Route("api/data")]
+ [UiAuthorize("data-sources")]
  public class DataController : ControllerBase
  {
      private readonly LlmClient _llm;

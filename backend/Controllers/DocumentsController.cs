@@ -1,11 +1,13 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[UiAuthorize("documents")]
 public class DocumentsController : ControllerBase
 {
     private readonly VectorStore _store;
