@@ -106,15 +106,31 @@ public class VectorStore
 
     public async Task<IReadOnlyList<DocumentInfo>> ListDocumentsAsync()
     {
-        const string sql = @"SELECT d.source,
+        const string sqlWithSummary = @"SELECT d.source,
                 MIN(d.category_id) AS category_id,
                 COUNT(*) AS pages,
                 EXISTS (SELECT 1 FROM document_summaries s WHERE s.source = d.source) AS has_summary
             FROM documents d
             GROUP BY d.source
             ORDER BY d.source";
+        const string sqlWithoutSummary = @"SELECT d.source,
+                MIN(d.category_id) AS category_id,
+                COUNT(*) AS pages,
+                FALSE AS has_summary
+            FROM documents d
+            GROUP BY d.source
+            ORDER BY d.source";
+
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
+
+        bool summariesExists;
+        await using (var check = new NpgsqlCommand("SELECT to_regclass('public.document_summaries')", conn))
+        {
+            summariesExists = await check.ExecuteScalarAsync() != null;
+        }
+
+        var sql = summariesExists ? sqlWithSummary : sqlWithoutSummary;
         await using var cmd = new NpgsqlCommand(sql, conn);
         await using var reader = await cmd.ExecuteReaderAsync();
         var docs = new List<DocumentInfo>();
@@ -145,12 +161,28 @@ public class VectorStore
 
     public async Task DeleteDocumentAsync(string source)
     {
-        const string sql = "DELETE FROM documents WHERE source = @src";
+        const string deleteDocs = "DELETE FROM documents WHERE source = @src";
+        const string deleteSummary = "DELETE FROM document_summaries WHERE source = @src";
+
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("src", source);
-        await cmd.ExecuteNonQueryAsync();
+
+        await using (var cmd = new NpgsqlCommand(deleteDocs, conn))
+        {
+            cmd.Parameters.AddWithValue("src", source);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            await using var cmd = new NpgsqlCommand(deleteSummary, conn);
+            cmd.Parameters.AddWithValue("src", source);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            // document_summaries table does not exist; ignore
+        }
     }
 
     public async Task<string?> GetDocumentPreviewAsync(string source)
