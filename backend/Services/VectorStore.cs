@@ -106,9 +106,31 @@ public class VectorStore
 
     public async Task<IReadOnlyList<DocumentInfo>> ListDocumentsAsync()
     {
-        const string sql = "SELECT source, MIN(category_id) AS category_id, COUNT(*) AS pages FROM documents GROUP BY source ORDER BY source";
+        const string sqlWithSummary = @"SELECT d.source,
+                MIN(d.category_id) AS category_id,
+                COUNT(*) AS pages,
+                EXISTS (SELECT 1 FROM document_summaries s WHERE s.source = d.source) AS has_summary
+            FROM documents d
+            GROUP BY d.source
+            ORDER BY d.source";
+        const string sqlWithoutSummary = @"SELECT d.source,
+                MIN(d.category_id) AS category_id,
+                COUNT(*) AS pages,
+                FALSE AS has_summary
+            FROM documents d
+            GROUP BY d.source
+            ORDER BY d.source";
+
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
+
+        bool summariesExists;
+        await using (var check = new NpgsqlCommand("SELECT to_regclass('public.document_summaries')", conn))
+        {
+            summariesExists = await check.ExecuteScalarAsync() != null;
+        }
+
+        var sql = summariesExists ? sqlWithSummary : sqlWithoutSummary;
         await using var cmd = new NpgsqlCommand(sql, conn);
         await using var reader = await cmd.ExecuteReaderAsync();
         var docs = new List<DocumentInfo>();
@@ -117,7 +139,8 @@ public class VectorStore
             var source = reader.GetString(0);
             int? cat = reader.IsDBNull(1) ? null : reader.GetInt32(1);
             var pages = reader.GetInt32(2);
-            docs.Add(new DocumentInfo(source, cat, pages));
+            var hasSummary = reader.GetBoolean(3);
+            docs.Add(new DocumentInfo(source, cat, pages, hasSummary));
         }
         return docs;
     }
@@ -138,15 +161,31 @@ public class VectorStore
 
     public async Task DeleteDocumentAsync(string source)
     {
-        const string sql = "DELETE FROM documents WHERE source = @src";
+        const string deleteDocs = "DELETE FROM documents WHERE source = @src";
+        const string deleteSummary = "DELETE FROM document_summaries WHERE source = @src";
+
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("src", source);
-        await cmd.ExecuteNonQueryAsync();
+
+        await using (var cmd = new NpgsqlCommand(deleteDocs, conn))
+        {
+            cmd.Parameters.AddWithValue("src", source);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            await using var cmd = new NpgsqlCommand(deleteSummary, conn);
+            cmd.Parameters.AddWithValue("src", source);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            // document_summaries table does not exist; ignore
+        }
     }
 
-    public async Task<string?> GetDocumentSummaryAsync(string source)
+    public async Task<string?> GetDocumentPreviewAsync(string source)
     {
         const string sql = "SELECT content FROM documents WHERE source = @src ORDER BY page LIMIT 5";
         await using var conn = new NpgsqlConnection(_connectionString);
@@ -163,6 +202,29 @@ public class VectorStore
         if (string.IsNullOrEmpty(text)) return null;
         return text.Length > 500 ? text.Substring(0, 500) + "..." : text;
     }
+
+    public async Task<string?> GetDocumentSummaryAsync(string source)
+    {
+        const string sql = "SELECT summary FROM document_summaries WHERE source = @src";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("src", source);
+        var result = await cmd.ExecuteScalarAsync();
+        return result as string;
+    }
+
+    public async Task SaveDocumentSummaryAsync(string source, string summary)
+    {
+        const string sql = @"INSERT INTO document_summaries(source, summary) VALUES(@src, @sum)
+            ON CONFLICT (source) DO UPDATE SET summary = EXCLUDED.summary, updated_at = NOW()";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("src", source);
+        cmd.Parameters.AddWithValue("sum", summary);
+        await cmd.ExecuteNonQueryAsync();
+    }
 }
 
-public record DocumentInfo(string Source, int? CategoryId, int Pages);
+public record DocumentInfo(string Source, int? CategoryId, int Pages, bool HasSummary);

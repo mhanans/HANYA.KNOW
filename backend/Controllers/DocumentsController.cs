@@ -11,10 +11,12 @@ namespace backend.Controllers;
 public class DocumentsController : ControllerBase
 {
     private readonly VectorStore _store;
+    private readonly LlmClient _llm;
 
-    public DocumentsController(VectorStore store)
+    public DocumentsController(VectorStore store, LlmClient llm)
     {
         _store = store;
+        _llm = llm;
     }
 
     [HttpGet]
@@ -45,6 +47,28 @@ public class DocumentsController : ControllerBase
         if (string.IsNullOrWhiteSpace(source))
             return BadRequest("Source is required.");
         var summary = await _store.GetDocumentSummaryAsync(source) ?? string.Empty;
+        return Ok(new DocumentSummary(source, summary));
+    }
+
+    [HttpPost("summary")]
+    public async Task<ActionResult<DocumentSummary>> GenerateSummary([FromQuery] string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return BadRequest("Source is required.");
+        var preview = await _store.GetDocumentPreviewAsync(source);
+        if (string.IsNullOrEmpty(preview))
+            return NotFound($"Document '{source}' not found or empty.");
+        var prompt = $"Summarize the following document in a concise paragraph:\n{preview}";
+        string summary;
+        try
+        {
+            summary = await _llm.GenerateAsync(prompt);
+        }
+        catch (Exception ex)
+        {
+            return Problem(detail: ex.Message, statusCode: 502, title: "LLM generation failed");
+        }
+        await _store.SaveDocumentSummaryAsync(source, summary);
         return Ok(new DocumentSummary(source, summary));
     }
 }
