@@ -1,10 +1,12 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[UiAuthorize("categories")]
 public class CategoriesController : ControllerBase
 {
     private readonly CategoryStore _store;

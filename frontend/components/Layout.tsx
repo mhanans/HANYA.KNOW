@@ -5,46 +5,46 @@ import { apiFetch } from '../lib/api';
 
 interface Settings { applicationName?: string; logoUrl?: string; }
 
-interface NavItem { href: string; label: string; icon: string; }
+interface NavItem { href: string; label: string; icon: string; key: string; }
 const navSections: { title: string; links: NavItem[] }[] = [
-  { title: 'General', links: [{ href: '/', label: 'Dashboard', icon: '🏠' }] },
+  { title: 'General', links: [{ href: '/', label: 'Dashboard', icon: '🏠', key: 'dashboard' }] },
   {
     title: 'Content Management',
     links: [
-      { href: '/documents', label: 'All Documents', icon: '📄' },
-      { href: '/categories', label: 'Categories', icon: '🗂' },
-      { href: '/upload', label: 'Upload Document', icon: '⬆️' },
-      { href: '/document-analytics', label: 'Document Analytics', icon: '📈' },
+      { href: '/documents', label: 'All Documents', icon: '📄', key: 'documents' },
+      { href: '/categories', label: 'Categories', icon: '🗂', key: 'categories' },
+      { href: '/upload', label: 'Upload Document', icon: '⬆️', key: 'upload' },
+      { href: '/document-analytics', label: 'Document Analytics', icon: '📈', key: 'document-analytics' },
     ],
   },
   {
     title: 'Chat',
     links: [
-      { href: '/chat', label: 'New Chat', icon: '💬' },
-      { href: '/chat-history', label: 'Chat History', icon: '🕓' },
+      { href: '/chat', label: 'New Chat', icon: '💬', key: 'chat' },
+      { href: '/chat-history', label: 'Chat History', icon: '🕓', key: 'chat-history' },
     ],
   },
   {
     title: 'AI Tools',
     links: [
-      { href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠' },
-      { href: '/data-sources', label: 'Chat with Table', icon: '📊' },
+      { href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠', key: 'cv' },
+      { href: '/data-sources', label: 'Chat with Table', icon: '📊', key: 'data-sources' },
     ],
   },
   {
     title: 'Support',
     links: [
-      { href: '/tickets', label: 'Tickets', icon: '🎫' },
-      { href: '/pic-summary', label: 'PIC Summary', icon: '👥' },
+      { href: '/tickets', label: 'Tickets', icon: '🎫', key: 'tickets' },
+      { href: '/pic-summary', label: 'PIC Summary', icon: '👥', key: 'pic-summary' },
     ],
   },
   {
     title: 'Admin',
     links: [
-      { href: '/users', label: 'User Management', icon: '👤' },
-      { href: '/roles', label: 'Manage Role', icon: '🔧' },
-      { href: '/role-ui', label: 'Access Control', icon: '🔐' },
-      { href: '/settings', label: 'System Settings', icon: '⚙️' },
+      { href: '/users', label: 'User Management', icon: '👤', key: 'users' },
+      { href: '/roles', label: 'Manage Role', icon: '🔧', key: 'roles' },
+      { href: '/role-ui', label: 'Access Control', icon: '🔐', key: 'role-ui' },
+      { href: '/settings', label: 'System Settings', icon: '⚙️', key: 'settings' },
     ],
   },
 ];
@@ -53,21 +53,48 @@ export default function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [settings, setSettings] = useState<Settings>({});
   const [username, setUsername] = useState('');
-  const [openSection, setOpenSection] = useState<string>(navSections[0].title);
+  const [openSection, setOpenSection] = useState<string>('');
+  const [allowed, setAllowed] = useState<string[]>([]);
+  const [uiLoaded, setUiLoaded] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => {});
     if (router.pathname === '/login') return;
-    const current = navSections.find(s => s.links.some(l => l.href === router.pathname));
-    if (current) setOpenSection(current.title);
     apiFetch('/api/me')
       .then(res => {
         if (res.ok) return res.json();
         throw new Error('unauthenticated');
       })
-      .then(u => setUsername(u.username))
+      .then(u => {
+        setUsername(u.username);
+        return apiFetch('/api/ui').then(r => r.json()).then((pages: { key: string }[]) => {
+          const keys = pages.map(p => p.key);
+          setAllowed(keys);
+          const current = navSections.find(s => s.links.some(l => l.href === router.pathname && keys.includes(l.key)));
+          if (current) {
+            setOpenSection(current.title);
+          } else {
+            const first = navSections.find(s => s.links.some(l => keys.includes(l.key)));
+            if (first) setOpenSection(first.title);
+          }
+          setUiLoaded(true);
+        });
+      })
       .catch(() => router.push('/login'));
   }, [router.pathname]);
+
+  const accessibleSections = navSections
+    .map(section => ({ ...section, links: section.links.filter(link => allowed.includes(link.key)) }))
+    .filter(section => section.links.length > 0);
+
+  useEffect(() => {
+    if (!uiLoaded || router.pathname === '/login' || router.pathname === '/401') return;
+    const allLinks = navSections.flatMap(s => s.links);
+    const current = allLinks.find(l => l.href === router.pathname);
+    if (current && !allowed.includes(current.key)) {
+      router.push('/401');
+    }
+  }, [uiLoaded, allowed, router.pathname]);
 
   const logout = async () => {
     await apiFetch('/api/logout', { method: 'POST' });
@@ -87,7 +114,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <nav className="sidebar">
         <div>
           <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
-          {navSections.map(section => (
+          {accessibleSections.map(section => (
             <div className="nav-group" key={section.title}>
               <h3
                 className="nav-group-title"

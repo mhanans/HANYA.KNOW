@@ -1,11 +1,13 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[UiAuthorize("tickets")]
 public class TicketCategoriesController : ControllerBase
 {
     private readonly TicketCategoryStore _store;

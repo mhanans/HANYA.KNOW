@@ -6,11 +6,13 @@ using System.Collections.Generic;
 using System.IO;
 using UglyToad.PdfPig;
 using Microsoft.Extensions.Logging;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[UiAuthorize("upload")]
 public class IngestController : ControllerBase
 {
     private readonly VectorStore _store;

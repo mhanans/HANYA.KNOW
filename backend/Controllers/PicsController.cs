@@ -1,11 +1,13 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
+using backend.Middleware;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[UiAuthorize("pic-summary")]
 public class PicsController : ControllerBase
 {
     private readonly PicStore _store;
