@@ -272,7 +272,8 @@ public class LlmClient
         var res = await _http.PostAsJsonAsync(url, new
         {
             model = options.Model,
-            messages = messages.Select(m => new { role = m.Role, content = m.Content })
+            messages = messages.Select(m => new { role = m.Role, content = m.Content }),
+            stream = false
         });
 
         var body = await res.Content.ReadAsStringAsync();
