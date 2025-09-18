@@ -45,65 +45,14 @@ public class ChatController : ControllerBase
         if (request.TopK <= 0)
             return BadRequest("TopK must be greater than 0.");
 
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var cooldown = _options.CooldownSeconds;
-        if (cooldown > 0)
-        {
-            var now = DateTime.UtcNow;
-            if (_cache.TryGetValue(ip, out DateTime last))
-            {
-                var diff = now - last;
-                if (diff.TotalSeconds < cooldown)
-                {
-                    var wait = Math.Ceiling(cooldown - diff.TotalSeconds);
-                    return Problem(detail: $"Please wait {wait} seconds before retrying.", statusCode: 429, title: "Cooldown active");
-                }
-            }
-            _cache.Set(ip, now, TimeSpan.FromSeconds(cooldown));
-        }
-
-        _logger.LogInformation("Chat query '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
-        var conversationId = request.ConversationId;
-        if (string.IsNullOrWhiteSpace(conversationId) || !_conversations.Exists(conversationId))
-            conversationId = _conversations.CreateConversation();
-        var history = _conversations.GetOrCreate(conversationId);
-        List<(string Source, int? Page, string Content, double Score)> results;
-        try
-        {
-            results = await _store.SearchAsync(request.Query, request.TopK, request.CategoryIds);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogError(ex, "Search failed for query {Query}", request.Query);
-            return Problem(detail: ex.Message, statusCode: 502, title: "Search failed");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected search failure for query {Query}", request.Query);
-            return Problem(detail: ex.Message, statusCode: 500, title: "Search failed");
-        }
-        var enumerated = results.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
-        // Always let the LLM attempt an answer even when no relevant documents are found.
-        // Provide a placeholder context so the model can still respond instead of returning
-        // the "knowledge belum tersedia" message.
-        var context = enumerated.Count > 0
-            ? string.Join("\n", enumerated.Select(r =>
-                r.Page.HasValue
-                    ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}"
-                    : $"[{r.Index}] {r.Source}\n{r.Content}"))
-            : "No relevant context found in the knowledge base.";
-        var prompt = new StringBuilder()
-            .AppendLine("Use the following context to answer the question. Cite sources using [number] notation.")
-            .AppendLine(context)
-            .AppendLine($"Question: {request.Query}")
-            .ToString();
-
-        history.Add(new ChatMessage("user", prompt));
+        var (errorResult, ragPayload) = await PrepareRagPayloadAsync(request);
+        if (errorResult != null || ragPayload == null)
+            return errorResult ?? Problem("Failed to prepare RAG payload.", statusCode: 500);
 
         string answer;
         try
         {
-            answer = await _llm.GenerateAsync(history);
+            answer = await _llm.GenerateAsync(ragPayload.History);
         }
         catch (Exception ex)
         {
@@ -111,15 +60,8 @@ public class ChatController : ControllerBase
             return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
         }
 
-        history.Add(new ChatMessage("assistant", answer));
-        var sources = enumerated.Select(r => new Source
-        {
-            Index = r.Index,
-            File = r.Source,
-            Page = r.Page,
-            Content = r.Content,
-            Score = r.Score
-        }).ToList();
+        ragPayload.History.Add(new ChatMessage("assistant", answer));
+
         try
         {
             await _stats.LogChatAsync(request.Query);
@@ -128,7 +70,15 @@ public class ChatController : ControllerBase
         {
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
-        return new ChatResponse { Answer = answer, Sources = sources, LowConfidence = false, ConversationId = conversationId };
+
+        var isLowConfidence = !ragPayload.Sources.Any();
+        return new ChatResponse
+        {
+            Answer = answer,
+            Sources = ragPayload.Sources,
+            LowConfidence = isLowConfidence,
+            ConversationId = ragPayload.ConversationId
+        };
     }
 
     [HttpGet("stream")]
@@ -152,80 +102,24 @@ public class ChatController : ControllerBase
         Response.Headers["Content-Type"] = "text/event-stream";
         Response.Headers["X-Accel-Buffering"] = "no";
 
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var cooldown = _options.CooldownSeconds;
-        if (cooldown > 0)
+        var (errorResult, ragPayload) = await PrepareRagPayloadAsync(request);
+        if (errorResult != null || ragPayload == null)
         {
-            var now = DateTime.UtcNow;
-            if (_cache.TryGetValue(ip, out DateTime last))
-            {
-                var diff = now - last;
-                if (diff.TotalSeconds < cooldown)
-                {
-                    Response.StatusCode = 429;
-                    await Response.WriteAsync($"Please wait {Math.Ceiling(cooldown - diff.TotalSeconds)} seconds before retrying.");
-                    return;
-                }
-            }
-            _cache.Set(ip, now, TimeSpan.FromSeconds(cooldown));
-        }
-
-        _logger.LogInformation("Chat stream '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
-        var conversationId = request.ConversationId;
-        if (string.IsNullOrWhiteSpace(conversationId) || !_conversations.Exists(conversationId))
-            conversationId = _conversations.CreateConversation();
-        var history = _conversations.GetOrCreate(conversationId);
-        List<(string Source, int? Page, string Content, double Score)> results;
-        try
-        {
-            results = await _store.SearchAsync(request.Query, request.TopK, request.CategoryIds);
-        }
-        catch (InvalidOperationException ex)
-        {
-            Response.StatusCode = 502;
-            await Response.WriteAsync($"Search failed: {ex.Message}");
-            return;
-        }
-        catch (Exception ex)
-        {
-            Response.StatusCode = 500;
-            await Response.WriteAsync($"Search failed: {ex.Message}");
+            Response.StatusCode = (errorResult as ObjectResult)?.StatusCode ?? 500;
+            var problemDetails = errorResult as ObjectResult;
+            await Response.WriteAsync(JsonSerializer.Serialize(problemDetails?.Value ?? new { message = "An error occurred." }));
             return;
         }
 
-        var enumerated = results.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
-        var context = enumerated.Count > 0
-            ? string.Join("\n", enumerated.Select(r =>
-                r.Page.HasValue
-                    ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}"
-                    : $"[{r.Index}] {r.Source}\n{r.Content}"))
-            : "No relevant context found in the knowledge base.";
-        var prompt = new StringBuilder()
-            .AppendLine("Use the following context to answer the question. Cite sources using [number] notation.")
-            .AppendLine(context)
-            .AppendLine($"Question: {request.Query}")
-            .ToString();
-
-        history.Add(new ChatMessage("user", prompt));
-
-        var sources = enumerated.Select(r => new Source
-        {
-            Index = r.Index,
-            File = r.Source,
-            Page = r.Page,
-            Content = r.Content,
-            Score = r.Score
-        }).ToList();
-
-        await Response.WriteAsync($"event: id\ndata: {conversationId}\n\n");
-        await Response.WriteAsync($"event: sources\ndata: {JsonSerializer.Serialize(sources)}\n\n");
+        await Response.WriteAsync($"event: id\ndata: {ragPayload.ConversationId}\n\n");
+        await Response.WriteAsync($"event: sources\ndata: {JsonSerializer.Serialize(ragPayload.Sources)}\n\n");
         await Response.Body.FlushAsync();
 
         var sb = new StringBuilder();
 
         try
         {
-            await foreach (var token in _llm.GenerateStreamAsync(history))
+            await foreach (var token in _llm.GenerateStreamAsync(ragPayload.History))
             {
                 var payload = JsonSerializer.Serialize(token);
                 sb.Append(token);
@@ -240,7 +134,7 @@ public class ChatController : ControllerBase
             await Response.WriteAsync($"event: error\ndata: {ex.Message}\n\n");
         }
 
-        history.Add(new ChatMessage("assistant", sb.ToString()));
+        ragPayload.History.Add(new ChatMessage("assistant", sb.ToString()));
 
         try
         {
@@ -250,6 +144,78 @@ public class ChatController : ControllerBase
         {
             _logger.LogError(ex, "Failed to log chat query {Query}", request.Query);
         }
+    }
+
+    private async Task<(IActionResult? Error, RagPayload? Payload)> PrepareRagPayloadAsync(ChatQueryRequest request)
+    {
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var cooldown = _options.CooldownSeconds;
+        if (cooldown > 0)
+        {
+            var now = DateTime.UtcNow;
+            if (_cache.TryGetValue(ip, out DateTime last))
+            {
+                var diff = now - last;
+                if (diff.TotalSeconds < cooldown)
+                {
+                    var wait = Math.Ceiling(cooldown - diff.TotalSeconds);
+                    return (Problem(detail: $"Please wait {wait} seconds before retrying.", statusCode: 429, title: "Cooldown active"), null);
+                }
+            }
+            _cache.Set(ip, now, TimeSpan.FromSeconds(cooldown));
+        }
+
+        _logger.LogInformation("Processing chat query '{Query}' with topK {TopK} and categories {Categories}", request.Query, request.TopK, request.CategoryIds);
+
+        var conversationId = request.ConversationId;
+        if (string.IsNullOrWhiteSpace(conversationId) || !_conversations.Exists(conversationId))
+            conversationId = _conversations.CreateConversation();
+        var history = _conversations.GetOrCreate(conversationId);
+
+        List<(string Source, int? Page, string Content, double Score)> results;
+        try
+        {
+            results = await _store.SearchAsync(request.Query, request.TopK, request.CategoryIds);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Search failed for query {Query}", request.Query);
+            return (Problem(detail: ex.Message, statusCode: 502, title: "Search failed"), null);
+        }
+
+        var scoreThreshold = _options.ScoreThreshold;
+        var relevantResults = results.Where(r => r.Score >= scoreThreshold).ToList();
+        var enumerated = relevantResults.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
+
+        var context = enumerated.Any()
+            ? string.Join("\n", enumerated.Select(r =>
+                r.Page.HasValue
+                    ? $"[{r.Index}] {r.Source} (p.{r.Page})\n{r.Content}"
+                    : $"[{r.Index}] {r.Source}\n{r.Content}"))
+            : "No relevant documents were found in the knowledge base that met the confidence threshold.";
+
+        const string fallbackPromptTemplate = "You are a helpful assistant. Answer the user's question based ONLY on the provided context below. Do not use any external knowledge. If the context does not contain the information to answer, you must state 'Berdasarkan informasi yang tersedia, saya tidak dapat menemukan jawaban untuk pertanyaan tersebut.'. Cite sources using [number] notation. Answer in Indonesian.\n\n--- CONTEXT START ---\n{context}\n--- CONTEXT END ---\n\nQuestion: {query}";
+        var promptTemplate = string.IsNullOrWhiteSpace(_options.PromptTemplate)
+            ? fallbackPromptTemplate
+            : _options.PromptTemplate;
+
+        var prompt = promptTemplate
+            .Replace("{context}", context)
+            .Replace("{query}", request.Query);
+
+        history.Add(new ChatMessage("user", prompt));
+
+        var sources = enumerated.Select(r => new Source
+        {
+            Index = r.Index,
+            File = r.Source,
+            Page = r.Page,
+            Content = r.Content,
+            Score = r.Score
+        }).ToList();
+
+        var payload = new RagPayload(conversationId, history, sources);
+        return (null, payload);
     }
 
     [HttpGet("history")]
@@ -268,6 +234,8 @@ public class ChatController : ControllerBase
         if (convo == null) return NotFound();
         return Ok(convo);
     }
+
+    private record RagPayload(string ConversationId, List<ChatMessage> History, List<Source> Sources);
 }
 
 public class ChatQueryRequest
