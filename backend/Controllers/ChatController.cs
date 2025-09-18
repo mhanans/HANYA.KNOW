@@ -47,7 +47,13 @@ public class ChatController : ControllerBase
 
         var (errorResult, ragPayload) = await PrepareRagPayloadAsync(request);
         if (errorResult != null || ragPayload == null)
-            return errorResult ?? Problem("Failed to prepare RAG payload.", statusCode: 500);
+        {
+            if (errorResult != null)
+            {
+                return new ActionResult<ChatResponse>(errorResult);
+            }
+            return Problem("Failed to prepare RAG payload.", statusCode: 500);
+        }
 
         string answer;
         try
