@@ -7,7 +7,7 @@ namespace backend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[UiAuthorize("documents")]
+[UiAuthorize("documents", "document-analytics")]
 public class DocumentsController : ControllerBase
 {
     private readonly VectorStore _store;

@@ -1,6 +1,8 @@
 using Npgsql;
+using NpgsqlTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Linq;
 
 namespace backend.Services;
 
@@ -48,19 +50,22 @@ public class UiStore
         return list;
     }
 
-    public async Task<bool> HasAccessAsync(IEnumerable<int> roleIds, string key)
+    public async Task<bool> HasAccessAsync(IEnumerable<int> roleIds, params string[] keys)
     {
         var ids = roleIds?.ToArray() ?? Array.Empty<int>();
-        if (ids.Length == 0) return false;
+        var keyList = keys?.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct().ToArray() ?? Array.Empty<string>();
+        if (ids.Length == 0 || keyList.Length == 0) return false;
         const string sql = @"SELECT 1 FROM role_ui ru
                              JOIN ui_pages u ON ru.ui_id = u.id
-                             WHERE ru.role_id = ANY(@rids) AND u.key=@key
+                             WHERE ru.role_id = ANY(@rids) AND u.key = ANY(@keys)
                              LIMIT 1";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("rids", ids);
-        cmd.Parameters.AddWithValue("key", key);
+        cmd.Parameters["rids"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
+        cmd.Parameters.AddWithValue("keys", keyList);
+        cmd.Parameters["keys"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text;
         var result = await cmd.ExecuteScalarAsync();
         return result != null;
     }

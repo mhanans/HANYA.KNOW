@@ -1,26 +1,27 @@
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using System.Security.Claims;
+using System;
 using System.Linq;
+using System.Security.Claims;
 
 namespace backend.Middleware;
 
 public class UiAuthorizeAttribute : TypeFilterAttribute
 {
-    public UiAuthorizeAttribute(string uiKey) : base(typeof(UiAuthorizeFilter))
+    public UiAuthorizeAttribute(params string[] uiKeys) : base(typeof(UiAuthorizeFilter))
     {
-        Arguments = new object[] { uiKey };
+        Arguments = new object[] { uiKeys };
     }
 
     private class UiAuthorizeFilter : IAsyncAuthorizationFilter
     {
-        private readonly string _uiKey;
+        private readonly string[] _uiKeys;
         private readonly UiStore _uiStore;
 
-        public UiAuthorizeFilter(string uiKey, UiStore uiStore)
+        public UiAuthorizeFilter(string[] uiKeys, UiStore uiStore)
         {
-            _uiKey = uiKey;
+            _uiKeys = uiKeys ?? Array.Empty<string>();
             _uiStore = uiStore;
         }
 
@@ -28,8 +29,17 @@ public class UiAuthorizeAttribute : TypeFilterAttribute
         {
             var roles = context.HttpContext.User.Claims
                 .Where(c => c.Type == ClaimTypes.Role)
-                .Select(c => int.Parse(c.Value));
-            var allowed = await _uiStore.HasAccessAsync(roles, _uiKey);
+                .Select(c => int.TryParse(c.Value, out var id) ? (int?)id : null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value);
+
+            if (_uiKeys.Length == 0)
+            {
+                context.Result = new UnauthorizedResult();
+                return;
+            }
+
+            var allowed = await _uiStore.HasAccessAsync(roles, _uiKeys);
             if (!allowed)
             {
                 context.Result = new UnauthorizedResult();
