@@ -50,7 +50,7 @@ public class ChatController : ControllerBase
         {
             if (errorResult != null)
             {
-                return new ActionResult<ChatResponse>(errorResult);
+                return errorResult;
             }
             return Problem("Failed to prepare RAG payload.", statusCode: 500);
         }
@@ -152,7 +152,7 @@ public class ChatController : ControllerBase
         }
     }
 
-    private async Task<(IActionResult? Error, RagPayload? Payload)> PrepareRagPayloadAsync(ChatQueryRequest request)
+    private async Task<(ActionResult? Error, RagPayload? Payload)> PrepareRagPayloadAsync(ChatQueryRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var cooldown = _options.CooldownSeconds;
