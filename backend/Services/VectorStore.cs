@@ -125,9 +125,15 @@ public class VectorStore
         await conn.OpenAsync();
 
         bool summariesExists;
-        await using (var check = new NpgsqlCommand("SELECT to_regclass('public.document_summaries')", conn))
+        const string summaryTableCheck = @"SELECT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relname = 'document_summaries' AND n.nspname = 'public'
+            )";
+        await using (var check = new NpgsqlCommand(summaryTableCheck, conn))
         {
-            summariesExists = await check.ExecuteScalarAsync() != null;
+            summariesExists = (bool)(await check.ExecuteScalarAsync() ?? false);
         }
 
         var sql = summariesExists ? sqlWithSummary : sqlWithoutSummary;
