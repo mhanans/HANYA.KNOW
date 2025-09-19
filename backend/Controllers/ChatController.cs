@@ -189,6 +189,19 @@ public class ChatController : ControllerBase
             return (Problem(detail: ex.Message, statusCode: 502, title: "Search failed"), null);
         }
 
+        _logger.LogInformation("Vector search returned {ResultCount} results for query: \"{Query}\".", results.Count, request.Query);
+        if (results.Any())
+        {
+            _logger.LogInformation("Top score: {TopScore}, Lowest score in TopK: {LowestScore}",
+                results.First().Score,
+                results.Last().Score);
+
+            foreach (var res in results)
+            {
+                _logger.LogDebug("Retrieved chunk [Score: {Score:F4}]: \"{ContentSnippet}...\"", res.Score, res.Content.Substring(0, Math.Min(150, res.Content.Length)).Replace("\n", " "));
+            }
+        }
+
         var scoreThreshold = _options.ScoreThreshold;
         var relevantResults = results.Where(r => r.Score >= scoreThreshold).ToList();
         var enumerated = relevantResults.Select((r, idx) => (Index: idx + 1, r.Source, r.Page, r.Content, r.Score)).ToList();
