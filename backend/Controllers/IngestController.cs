@@ -55,8 +55,10 @@ public class IngestController : ControllerBase
                     var aggregatedText = fullText.ToString();
                     if (string.IsNullOrWhiteSpace(aggregatedText)) continue;
 
+                    #pragma warning disable SKEXP0050 // Acknowledge experimental TextChunker API
                     var lines = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextLines(aggregatedText, 40);
                     var chunks = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextParagraphs(lines, 1000, 100);
+                    #pragma warning restore SKEXP0050
 
                     int chunkIdx = 1;
                     foreach (var chunk in chunks)
@@ -87,8 +89,10 @@ public class IngestController : ControllerBase
             var title = string.IsNullOrWhiteSpace(form.Title)
                 ? (form.Text.Length > 30 ? form.Text[..30] + "..." : form.Text)
                 : form.Title;
+            #pragma warning disable SKEXP0050 // Acknowledge experimental TextChunker API
             var lines = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextLines(form.Text, 40);
             var chunks = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextParagraphs(lines, 1000, 100);
+            #pragma warning restore SKEXP0050
 
             int chunkIdx = 1;
             foreach (var chunk in chunks)
