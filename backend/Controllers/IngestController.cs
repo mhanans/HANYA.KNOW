@@ -46,26 +46,32 @@ public class IngestController : ControllerBase
                     await file.CopyToAsync(ms);
                     ms.Position = 0;
                     using var pdf = PdfDocument.Open(ms);
-                    var pageNo = 1;
+                    var fullText = new StringBuilder();
                     foreach (var page in pdf.GetPages())
                     {
-                        var text = page.Text;
-                        if (string.IsNullOrWhiteSpace(text)) { pageNo++; continue; }
+                        fullText.AppendLine(page.Text);
+                    }
+
+                    var aggregatedText = fullText.ToString();
+                    if (string.IsNullOrWhiteSpace(aggregatedText)) continue;
+
+                    var lines = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextLines(aggregatedText, 40);
+                    var chunks = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextParagraphs(lines, 1000, 100);
+
+                    int chunkIdx = 1;
+                    foreach (var chunk in chunks)
+                    {
+                        if (string.IsNullOrWhiteSpace(chunk)) continue;
                         try
                         {
-                            await _store.IngestAsync(file.FileName, pageNo, text, form.CategoryId);
-                        }
-                        catch (InvalidOperationException ex)
-                        {
-                            _logger.LogError(ex, "Failed to store document {File} page {Page}", file.FileName, pageNo);
-                            return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{file.FileName}'");
+                            await _store.IngestAsync(file.FileName, null, chunk, form.CategoryId);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Unexpected failure storing document {File} page {Page}", file.FileName, pageNo);
-                            return Problem(detail: ex.Message, statusCode: 500, title: $"Failed to store document '{file.FileName}'");
+                            _logger.LogError(ex, "Failed to store chunk {ChunkIndex} for document {File}", chunkIdx, file.FileName);
+                            return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store chunk {chunkIdx} of document '{file.FileName}'");
                         }
-                        pageNo++;
+                        chunkIdx++;
                     }
                 }
                 catch (Exception ex)
@@ -81,17 +87,16 @@ public class IngestController : ControllerBase
             var title = string.IsNullOrWhiteSpace(form.Title)
                 ? (form.Text.Length > 30 ? form.Text[..30] + "..." : form.Text)
                 : form.Title;
+            var lines = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextLines(form.Text, 40);
+            var chunks = Microsoft.SemanticKernel.Text.TextChunker.SplitPlainTextParagraphs(lines, 1000, 100);
+
             int chunkIdx = 1;
-            foreach (var chunk in Chunk(form.Text, 500))
+            foreach (var chunk in chunks)
             {
+                if (string.IsNullOrWhiteSpace(chunk)) continue;
                 try
                 {
                     await _store.IngestAsync(title, null, chunk, form.CategoryId);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    _logger.LogError(ex, "Failed to store text chunk {Index} for {Title}", chunkIdx, title);
-                    return Problem(detail: ex.Message, statusCode: 502, title: $"Failed to store document '{title}'");
                 }
                 catch (Exception ex)
                 {
@@ -103,12 +108,6 @@ public class IngestController : ControllerBase
         }
 
         return Ok();
-    }
-
-    private static IEnumerable<string> Chunk(string text, int size)
-    {
-        for (int i = 0; i < text.Length; i += size)
-            yield return text.Substring(i, Math.Min(size, text.Length - i));
     }
 }
 
