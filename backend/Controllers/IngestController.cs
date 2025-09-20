@@ -64,7 +64,7 @@ public class IngestController : ControllerBase
                             StartIndex: aggregatedTextBuilder.Length,
                             Text: pageText
                         ));
-                        aggregatedTextBuilder.AppendLine(pageText);
+                        aggregatedTextBuilder.Append(pageText).Append("\n\n");
                     }
 
                     var aggregatedText = aggregatedTextBuilder.ToString();
@@ -104,7 +104,7 @@ public class IngestController : ControllerBase
                         }
 
                         // Advance search position to handle potential duplicate chunks
-                        currentSearchIndex = chunkStartIndex + 1;
+                        currentSearchIndex = chunkStartIndex + chunk.Length;
                     }
                 }
                 catch (Exception ex)
