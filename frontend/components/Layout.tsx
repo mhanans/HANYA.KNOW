@@ -110,6 +110,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     return <main className="main-content">{children}</main>;
   }
 
+  if (router.pathname === '/vendor-invoice-edit') {
+    return <>{children}</>;
+  }
+
   return (
     <div className="app-layout">
       <nav className="sidebar">
