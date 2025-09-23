@@ -29,6 +29,7 @@ const navSections: { title: string; links: NavItem[] }[] = [
     links: [
       { href: '/cv', label: 'Job Vacancy Analysis', icon: '🧠', key: 'cv' },
       { href: '/data-sources', label: 'Chat with Table', icon: '📊', key: 'data-sources' },
+      { href: '/invoice-verification', label: 'Invoice Verification', icon: '🧾', key: 'invoice-verification' },
     ],
   },
   {

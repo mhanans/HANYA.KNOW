@@ -14,6 +14,7 @@ INSERT INTO ui_pages (key) VALUES
   ('chat-history'),
   ('cv'),
   ('data-sources'),
+  ('invoice-verification'),
   ('users'),
   ('roles'),
   ('role-ui'),

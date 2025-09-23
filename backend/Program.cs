@@ -82,6 +82,7 @@ builder.Services.AddSingleton<PicStore>();
 builder.Services.AddSingleton<TicketStore>();
 builder.Services.AddSingleton<TicketAssignmentResultStore>();
 builder.Services.AddSingleton<TicketAssignmentService>();
+builder.Services.AddSingleton<InvoiceVerificationService>();
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>();
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));

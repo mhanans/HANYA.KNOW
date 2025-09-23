@@ -100,6 +100,34 @@ const globalCss = `
     .form-grid { display: grid; grid-template-columns: 150px 1fr; gap: 12px 16px; align-items: center; }
     .form-grid label { text-align: right; }
     @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .form-grid label { text-align: left; } }
+    .invoice-page .invoice-card { display: flex; flex-direction: column; gap: 16px; }
+    .invoice-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: end; }
+    .invoice-form label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary); }
+    .invoice-form button { height: 48px; }
+    .invoice-table tbody tr { cursor: pointer; transition: background-color 0.2s ease-in-out; }
+    .invoice-table tbody tr.selected { background-color: rgba(0, 123, 255, 0.15); }
+    .invoice-table .empty-cell { text-align: center; color: var(--text-secondary); padding: 24px 0; }
+    .upload-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .file-input-wrapper { display: flex; align-items: center; gap: 12px; }
+    .file-label { font-weight: 600; }
+    .file-name { color: var(--text-secondary); font-size: 0.9rem; }
+    .verification-summary { display: flex; align-items: center; gap: 12px; }
+    .status-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--border-radius-full); padding: 6px 12px; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+    .status-badge.pass { background-color: rgba(46, 204, 113, 0.15); color: #2ecc71; }
+    .status-badge.fail { background-color: rgba(229, 62, 62, 0.15); color: var(--error-color); }
+    .verification-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .verification-field { border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 16px; background-color: var(--bg-secondary); display: flex; flex-direction: column; gap: 12px; }
+    .verification-field.matched { border-color: rgba(46, 204, 113, 0.4); }
+    .verification-field.mismatch { border-color: rgba(229, 62, 62, 0.4); }
+    .verification-title { display: flex; align-items: center; gap: 8px; }
+    .indicator { display: inline-flex; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; font-weight: 700; }
+    .indicator.ok { background-color: rgba(46, 204, 113, 0.2); color: #2ecc71; }
+    .indicator.fail { background-color: rgba(229, 62, 62, 0.2); color: var(--error-color); }
+    .verification-field dl { display: grid; gap: 10px; }
+    .verification-field dt { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+    .verification-field dd { margin: 0; color: var(--text-primary); font-size: 1rem; }
+    .extracted-preview { margin-top: 16px; max-height: 240px; overflow-y: auto; background-color: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 16px; white-space: pre-wrap; }
+    .invoice-helper { color: var(--text-secondary); }
     .stat-card { display: flex; align-items: center; gap: 16px; }
     .stat-icon { font-size: 2rem; }
     .summary { background-color: var(--surface); padding: 16px; white-space: pre-wrap; }
