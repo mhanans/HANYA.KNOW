@@ -644,20 +644,23 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
 
     private async Task<T?> SendGeminiRequestAsync<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        var uriBuilder = new StringBuilder(path);
-        if (!path.Contains('?', StringComparison.Ordinal))
+        var baseUri = _httpClient.BaseAddress ?? throw new InvalidOperationException("Gemini base address is not configured.");
+        var separator = path.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+
+        var requestUriBuilder = new StringBuilder(baseUri.ToString().TrimEnd('/'));
+        if (!path.StartsWith('/', StringComparison.Ordinal))
         {
-            uriBuilder.Append('?');
-        }
-        else
-        {
-            uriBuilder.Append('&');
+            requestUriBuilder.Append('/');
         }
 
-        uriBuilder.Append("key=");
-        uriBuilder.Append(Uri.EscapeDataString(_apiKey));
+        requestUriBuilder.Append(path);
+        requestUriBuilder.Append(separator);
+        requestUriBuilder.Append("key=");
+        requestUriBuilder.Append(Uri.EscapeDataString(_apiKey));
 
-        using var request = new HttpRequestMessage(method, uriBuilder.ToString());
+        var requestUri = new Uri(requestUriBuilder.ToString(), UriKind.Absolute);
+
+        using var request = new HttpRequestMessage(method, requestUri);
 
         if (body != null)
         {
