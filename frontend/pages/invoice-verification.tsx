@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
 interface InvoiceRow {
+  vendorName: string;
   invoiceNumber: string;
   purchaseOrderNumber: string;
   totalAmount: string;
@@ -25,7 +26,7 @@ interface VerificationResponse {
 }
 
 export default function InvoiceVerification() {
-  const [form, setForm] = useState<InvoiceRow>({ invoiceNumber: '', purchaseOrderNumber: '', totalAmount: '' });
+  const [form, setForm] = useState<InvoiceRow>({ vendorName: '', invoiceNumber: '', purchaseOrderNumber: '', totalAmount: '' });
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -46,14 +47,14 @@ export default function InvoiceVerification() {
     event.preventDefault();
     setError('');
     setVerification(null);
-    if (!form.invoiceNumber.trim() || !form.purchaseOrderNumber.trim() || !form.totalAmount.trim()) {
-      setError('Please complete invoice number, PO number, and total amount before adding to the table.');
+    if (!form.vendorName.trim() || !form.invoiceNumber.trim() || !form.purchaseOrderNumber.trim() || !form.totalAmount.trim()) {
+      setError('Please complete vendor name, invoice number, PO number, and total amount before adding to the table.');
       return;
     }
 
     setRows(prev => [...prev, { ...form }]);
     setSelectedIndex(rows.length);
-    setForm({ invoiceNumber: '', purchaseOrderNumber: '', totalAmount: '' });
+    setForm({ vendorName: '', invoiceNumber: '', purchaseOrderNumber: '', totalAmount: '' });
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -91,6 +92,7 @@ export default function InvoiceVerification() {
 
     const payload = new FormData();
     payload.append('file', pdfFile);
+    payload.append('vendorName', selectedRow.vendorName);
     payload.append('invoiceNumber', selectedRow.invoiceNumber);
     payload.append('purchaseOrderNumber', selectedRow.purchaseOrderNumber);
     payload.append('totalAmount', selectedRow.totalAmount);
@@ -125,6 +127,16 @@ export default function InvoiceVerification() {
         <h2>Invoice Metadata</h2>
         <p className="invoice-helper">Fill in the invoice information and add it to the table before running the AI check.</p>
         <form className="invoice-form" onSubmit={addRow}>
+          <div>
+            <label htmlFor="vendorName">Vendor Name</label>
+            <input
+              id="vendorName"
+              className="form-input"
+              value={form.vendorName}
+              onChange={e => updateForm('vendorName', e.target.value)}
+              placeholder="e.g. PT Nusantara Logistics"
+            />
+          </div>
           <div>
             <label htmlFor="invoiceNumber">Invoice Number</label>
             <input
@@ -162,6 +174,7 @@ export default function InvoiceVerification() {
           <table className="table invoice-table">
             <thead>
               <tr>
+                <th>Vendor</th>
                 <th>Invoice Number</th>
                 <th>PO Number</th>
                 <th>Total Amount</th>
@@ -170,7 +183,7 @@ export default function InvoiceVerification() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="empty-cell">No invoice data yet. Add a row to begin.</td>
+                  <td colSpan={4} className="empty-cell">No invoice data yet. Add a row to begin.</td>
                 </tr>
               )}
               {rows.map((row, index) => (
@@ -182,6 +195,7 @@ export default function InvoiceVerification() {
                     setVerification(null);
                   }}
                 >
+                  <td>{row.vendorName || '—'}</td>
                   <td>{row.invoiceNumber || '—'}</td>
                   <td>{row.purchaseOrderNumber || '—'}</td>
                   <td>{row.totalAmount || '—'}</td>
