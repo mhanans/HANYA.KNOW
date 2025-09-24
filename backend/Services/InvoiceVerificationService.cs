@@ -45,10 +45,48 @@ public class InvoiceVerificationService
         result.Fields["purchaseOrderNumber"] = EvaluateToken("PO Number", purchaseOrderNumber, extracted, comparisonText);
         result.Fields["totalAmount"] = EvaluateAmount("Total Amount", totalAmount, extracted, comparisonText);
 
+        foreach (var field in result.Fields.Values)
+        {
+            var explanation = BuildFieldExplanation(field);
+            field.Explanation = explanation;
+            if (!field.Matched && !string.IsNullOrWhiteSpace(explanation))
+            {
+                result.Explanations.Add(explanation);
+            }
+        }
+
         result.Success = result.Fields.Values.All(f => f.Matched);
-        result.Message = result.Success
-            ? "Invoice details match the uploaded PDF."
-            : "One or more invoice fields did not match the PDF content.";
+        if (result.Success)
+        {
+            result.Message = "Invoice details match the uploaded PDF.";
+        }
+        else
+        {
+            var mismatchedLabels = result.Fields.Values
+                .Where(f => !f.Matched)
+                .Select(f => f.Label)
+                .ToList();
+
+            if (mismatchedLabels.Count == 1)
+            {
+                result.Message = $"AI found a mismatch in {mismatchedLabels[0]}.";
+            }
+            else if (mismatchedLabels.Count > 1)
+            {
+                var labelSummary = string.Join(", ", mismatchedLabels);
+                result.Message = $"AI found mismatches in {labelSummary}.";
+            }
+            else
+            {
+                result.Message = "AI could not confirm all invoice details against the PDF.";
+            }
+
+            if (result.Explanations.Count == 0)
+            {
+                result.Explanations.Add("AI could not extract enough text from the PDF to explain the discrepancies.");
+            }
+        }
+
         return result;
     }
 
@@ -134,6 +172,26 @@ public class InvoiceVerificationService
         }
 
         return sb.ToString();
+    }
+
+    private static string? BuildFieldExplanation(InvoiceFieldResult field)
+    {
+        if (field.Matched)
+        {
+            return $"AI confirmed {field.Label} matches the document.";
+        }
+
+        if (string.IsNullOrWhiteSpace(field.Provided))
+        {
+            return $"No {field.Label} was provided, so AI could not compare this field.";
+        }
+
+        if (string.IsNullOrWhiteSpace(field.Found))
+        {
+            return $"AI could not find the value '{field.Provided}' for {field.Label} anywhere in the PDF.";
+        }
+
+        return $"You entered '{field.Provided}', but AI detected '{field.Found}' for {field.Label}.";
     }
 
     private bool TryCreateEngine(out TesseractEngine? engine)
@@ -355,6 +413,9 @@ public class InvoiceVerificationResult
     [JsonPropertyName("message")]
     public string Message { get; set; } = string.Empty;
 
+    [JsonPropertyName("explanations")]
+    public List<string> Explanations { get; } = new();
+
     [JsonPropertyName("fields")]
     public Dictionary<string, InvoiceFieldResult> Fields { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -375,4 +436,7 @@ public class InvoiceFieldResult
 
     [JsonPropertyName("found")]
     public string? Found { get; set; }
+
+    [JsonPropertyName("explanation")]
+    public string? Explanation { get; set; }
 }

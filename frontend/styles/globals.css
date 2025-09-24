@@ -446,3 +446,24 @@ select:focus {
   40% { transform: scale(1); }
 }
 
+.verification-explanations {
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid #d6e8ff;
+  background: #f5f8ff;
+  list-style: disc;
+  color: #1f2a44;
+}
+
+.verification-explanations li + li {
+  margin-top: 0.5rem;
+}
+
+.verification-explanation {
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: #1f2a44;
+}
+
