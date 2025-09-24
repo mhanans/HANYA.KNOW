@@ -20,7 +20,6 @@ namespace backend.Services;
 
 public class InvoiceVerificationService
 {
-    private const string DefaultModel = "models/gemini-1.5-flash";
     private const string PdfMimeType = "application/pdf";
     private const string ExtractionPrompt = """
 You are an AI expert tasked with extracting structured data from the attached invoice.
@@ -79,9 +78,21 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         _apiKey = configuration["Gemini:ApiKey"]
                   ?? configuration["GoogleAI:ApiKey"]
                   ?? configuration["Google:ApiKey"]
-                  ?? throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' in configuration.");
+                  ?? configuration["Llm:ApiKey"]
+                  ?? configuration["ApiKey"]
+                  ?? throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' or reuse 'Llm:ApiKey' in configuration.");
 
-        var configuredModel = configuration["Gemini:Model"];
+        var configuredModel = configuration["Gemini:Model"]
+                             ?? configuration["GoogleAI:Model"]
+                             ?? configuration["Google:Model"]
+                             ?? configuration["Llm:Model"]
+                             ?? configuration["Model"];
+
+        if (string.IsNullOrWhiteSpace(configuredModel))
+        {
+            throw new InvalidOperationException("Gemini model is not configured. Set 'Gemini:Model' or reuse 'Llm:Model' in configuration.");
+        }
+
         _model = NormalizeModelName(configuredModel);
         var pollSeconds = Math.Max(1, configuration.GetValue<int?>("Gemini:FileStatusPollSeconds") ?? 2);
         var timeoutSeconds = Math.Max(pollSeconds, configuration.GetValue<int?>("Gemini:FileProcessingTimeoutSeconds") ?? 300);
@@ -604,21 +615,12 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         return $"You entered '{field.Provided}', but AI detected '{field.Found}' for {field.Label}.";
     }
 
-    private static string NormalizeModelName(string? model)
+    private static string NormalizeModelName(string model)
     {
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            return TrimModelPrefix(DefaultModel);
-        }
-
-        return TrimModelPrefix(model);
-
-        static string TrimModelPrefix(string value)
-        {
-            return value.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
-                ? value[7..]
-                : value;
-        }
+        var trimmed = model.Trim();
+        return trimmed.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[7..]
+            : trimmed;
     }
 
     private async Task<GeminiFileMetadata> FetchFileMetadataAsync(string fileName, CancellationToken cancellationToken)
