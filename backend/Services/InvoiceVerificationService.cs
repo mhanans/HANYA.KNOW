@@ -1,50 +1,353 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using Docnet.Core;
-using Docnet.Core.Models;
-using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
-using Tesseract;
-using UglyToad.PdfPig;
 
 namespace backend.Services;
 
 public class InvoiceVerificationService
 {
-    private readonly ILogger<InvoiceVerificationService> _logger;
-    private readonly string _tessDataPath;
+    private const string DefaultModel = "models/gemini-1.5-flash";
+    private const string PdfMimeType = "application/pdf";
+    private const string ExtractionPrompt = """
+You are an AI expert tasked with extracting structured data from the attached invoice.
 
-    public InvoiceVerificationService(ILogger<InvoiceVerificationService> logger, IWebHostEnvironment environment)
+RULES:
+- Analyze the provided invoice file.
+- Respond ONLY with valid JSON. Do not include any additional commentary.
+- For each field, return the most precise value found in the document.
+- If a field is missing, return null.
+- For totalAmount, return the grand total as a number without currency symbols or thousand separators. Use a dot as the decimal separator.
+
+EXPECTED JSON STRUCTURE:
+{
+  "invoiceNumber": "value",
+  "purchaseOrderNumber": "value",
+  "totalAmount": number
+}
+""";
+
+    private static readonly Uri GeminiBaseUri = new("https://generativelanguage.googleapis.com/v1beta/");
+
+    private readonly ILogger<InvoiceVerificationService> _logger;
+    private readonly HttpClient _httpClient;
+    private readonly string _apiKey;
+    private readonly string _model;
+    private readonly JsonSerializerOptions _deserializationOptions;
+    private readonly JsonSerializerOptions _serializationOptions;
+    private readonly TimeSpan _fileStatusPollInterval;
+    private readonly TimeSpan _fileProcessingTimeout;
+
+    public InvoiceVerificationService(ILogger<InvoiceVerificationService> logger, IConfiguration configuration)
     {
         _logger = logger;
-        _tessDataPath = Path.Combine(environment.ContentRootPath, "tessdata");
-    }
 
-    public async Task<InvoiceVerificationResult> VerifyAsync(Stream pdfStream, string invoiceNumber, string purchaseOrderNumber, string totalAmount, CancellationToken cancellationToken = default)
-    {
-        var extracted = await ExtractTextAsync(pdfStream, cancellationToken);
-        var normalized = NormalizeWhitespace(extracted);
-        var comparisonText = NormalizeForComparison(extracted);
+        _apiKey = configuration["Gemini:ApiKey"]
+                  ?? configuration["GoogleAI:ApiKey"]
+                  ?? configuration["Google:ApiKey"]
+                  ?? throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' in configuration.");
 
-        var result = new InvoiceVerificationResult
+        var configuredModel = configuration["Gemini:Model"];
+        _model = NormalizeModelName(configuredModel);
+        var pollSeconds = Math.Max(1, configuration.GetValue<int?>("Gemini:FileStatusPollSeconds") ?? 2);
+        var timeoutSeconds = Math.Max(pollSeconds, configuration.GetValue<int?>("Gemini:FileProcessingTimeoutSeconds") ?? 300);
+
+        _httpClient = new HttpClient
         {
-            ExtractedText = normalized
+            BaseAddress = GeminiBaseUri,
+            Timeout = TimeSpan.FromSeconds(Math.Max(timeoutSeconds + 30, 330))
+        };
+        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        _deserializationOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            NumberHandling = JsonNumberHandling.AllowReadingFromString,
+            PropertyNameCaseInsensitive = true
         };
 
-        result.Fields["invoiceNumber"] = EvaluateToken("Invoice Number", invoiceNumber, extracted, comparisonText);
-        result.Fields["purchaseOrderNumber"] = EvaluateToken("PO Number", purchaseOrderNumber, extracted, comparisonText);
-        result.Fields["totalAmount"] = EvaluateAmount("Total Amount", totalAmount, extracted, comparisonText);
+        _serializationOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true
+        };
 
+        _fileStatusPollInterval = TimeSpan.FromSeconds(pollSeconds);
+        _fileProcessingTimeout = TimeSpan.FromSeconds(timeoutSeconds);
+    }
+
+    public async Task<InvoiceVerificationResult> VerifyAsync(Stream pdfStream, string invoiceNumber, string purchaseOrderNumber,
+        string totalAmount, CancellationToken cancellationToken = default)
+    {
+        var result = new InvoiceVerificationResult();
+
+        try
+        {
+            var activeFile = await UploadAndActivateAsync(pdfStream, cancellationToken).ConfigureAwait(false);
+            var extraction = await ExtractInvoiceDataAsync(activeFile, cancellationToken).ConfigureAwait(false);
+
+            result.ExtractedText = extraction.Data != null
+                ? JsonSerializer.Serialize(extraction.Data, _serializationOptions)
+                : extraction.RawResponse;
+
+            result.Fields["invoiceNumber"] = CreateStringField("Invoice Number", invoiceNumber, extraction.Data?.InvoiceNumber);
+            result.Fields["purchaseOrderNumber"] = CreateStringField("PO Number", purchaseOrderNumber, extraction.Data?.PurchaseOrderNumber);
+            result.Fields["totalAmount"] = CreateAmountField("Total Amount", totalAmount, extraction.Data?.TotalAmount);
+
+            FinalizeResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to verify invoice with Gemini.");
+            result.Success = false;
+            result.Message = "AI could not process the uploaded invoice.";
+            result.Explanations.Add("AI encountered an unexpected error while analyzing the invoice. Please try again or verify the document manually.");
+        }
+
+        return result;
+    }
+
+    private async Task<GeminiFileMetadata> UploadAndActivateAsync(Stream pdfStream, CancellationToken cancellationToken)
+    {
+        await using var buffer = new MemoryStream();
+        await pdfStream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+        buffer.Position = 0;
+
+        var initRequest = new UploadFileRequest
+        {
+            File = new UploadFileSpecification
+            {
+                DisplayName = $"invoice-{Guid.NewGuid():N}.pdf",
+                MimeType = PdfMimeType
+            }
+        };
+
+        var initResponse = await SendGeminiRequestAsync<UploadFileResponse>(HttpMethod.Post, "files:upload", initRequest, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (initResponse?.File == null || string.IsNullOrWhiteSpace(initResponse.UploadUri))
+        {
+            throw new InvalidOperationException("Gemini did not return an upload URI for the provided invoice.");
+        }
+
+        buffer.Position = 0;
+        using var uploadContent = new StreamContent(buffer, 81920);
+        uploadContent.Headers.ContentType = new MediaTypeHeaderValue(PdfMimeType);
+
+        using (var uploadRequest = new HttpRequestMessage(HttpMethod.Put, initResponse.UploadUri)
+        {
+            Content = uploadContent
+        })
+        {
+            using var uploadResponse = await _httpClient.SendAsync(uploadRequest, cancellationToken).ConfigureAwait(false);
+            var uploadBody = await uploadResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!uploadResponse.IsSuccessStatusCode)
+            {
+                var error = TryExtractErrorMessage(uploadBody) ?? uploadResponse.ReasonPhrase ?? "Unknown upload failure";
+                throw new InvalidOperationException($"Gemini failed to accept the uploaded invoice: {error}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(uploadBody))
+            {
+                try
+                {
+                    var parsed = JsonSerializer.Deserialize<GeminiFileMetadata>(uploadBody, _deserializationOptions);
+                    if (parsed != null)
+                    {
+                        initResponse.File = parsed;
+                    }
+                }
+                catch (JsonException jsonEx)
+                {
+                    _logger.LogDebug(jsonEx, "Gemini upload response was not standard JSON: {Body}", uploadBody);
+                }
+            }
+        }
+
+        var fileName = EnsureFileName(initResponse.File.Name);
+        var deadline = DateTime.UtcNow + _fileProcessingTimeout;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var metadata = await FetchFileMetadataAsync(fileName, cancellationToken).ConfigureAwait(false);
+            switch (metadata.State?.ToUpperInvariant())
+            {
+                case "ACTIVE":
+                    return metadata;
+                case "FAILED":
+                    throw new InvalidOperationException($"Gemini failed to process the uploaded invoice: {metadata.Error?.Message ?? "Unknown error"}.");
+                case "PROCESSING":
+                case null:
+                    break;
+                default:
+                    _logger.LogDebug("Gemini returned intermediate file state {State} for {File}", metadata.State, metadata.Name);
+                    break;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException("Timed out while waiting for Gemini to process the uploaded invoice.");
+            }
+
+            await Task.Delay(_fileStatusPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<GeminiExtractionResult> ExtractInvoiceDataAsync(GeminiFileMetadata file, CancellationToken cancellationToken)
+    {
+        var fileUri = !string.IsNullOrWhiteSpace(file.Uri)
+            ? file.Uri!
+            : new Uri(_httpClient.BaseAddress!, EnsureFileName(file.Name)).ToString();
+
+        var request = new GenerateContentPayload
+        {
+            Contents =
+            {
+                new GeminiContent
+                {
+                    Role = "user",
+                    Parts =
+                    {
+                        new GeminiPart { Text = ExtractionPrompt },
+                        new GeminiPart
+                        {
+                            FileData = new GeminiFileData
+                            {
+                                MimeType = PdfMimeType,
+                                FileUri = fileUri
+                            }
+                        }
+                    }
+                }
+            },
+            GenerationConfig = new GeminiGenerationConfig
+            {
+                ResponseMimeType = "application/json"
+            }
+        };
+
+        var response = await SendGeminiRequestAsync<GenerateContentResponse>(HttpMethod.Post, $"models/{_model}:generateContent", request, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response == null)
+        {
+            return new GeminiExtractionResult(null, string.Empty);
+        }
+
+        var raw = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+        GeminiInvoiceExtraction? extraction = null;
+
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            try
+            {
+                extraction = JsonSerializer.Deserialize<GeminiInvoiceExtraction>(raw, _deserializationOptions);
+            }
+            catch (JsonException jsonEx)
+            {
+                _logger.LogWarning(jsonEx, "Failed to parse Gemini response as JSON: {Response}", raw);
+            }
+        }
+
+        return new GeminiExtractionResult(extraction, raw);
+    }
+
+    private static InvoiceFieldResult CreateStringField(string label, string provided, string? extracted)
+    {
+        var result = new InvoiceFieldResult
+        {
+            Label = label,
+            Provided = string.IsNullOrWhiteSpace(provided) ? null : provided.Trim(),
+            Found = string.IsNullOrWhiteSpace(extracted) ? null : extracted?.Trim()
+        };
+
+        if (result.Provided == null || result.Found == null)
+        {
+            return result;
+        }
+
+        result.Matched = string.Equals(NormalizeForComparison(result.Provided), NormalizeForComparison(result.Found), StringComparison.Ordinal);
+        return result;
+    }
+
+    private static InvoiceFieldResult CreateAmountField(string label, string provided, decimal? extracted)
+    {
+        var result = new InvoiceFieldResult
+        {
+            Label = label,
+            Provided = string.IsNullOrWhiteSpace(provided) ? null : provided.Trim(),
+            Found = extracted.HasValue ? extracted.Value.ToString("F2", CultureInfo.InvariantCulture) : null
+        };
+
+        if (result.Provided == null || !extracted.HasValue)
+        {
+            return result;
+        }
+
+        var providedAmount = ParseAmount(result.Provided);
+        if (!providedAmount.HasValue)
+        {
+            return result;
+        }
+
+        result.Matched = Math.Abs(providedAmount.Value - extracted.Value) <= 0.01m;
+        return result;
+    }
+
+    private static string NormalizeForComparison(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                builder.Append(char.ToLowerInvariant(ch));
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static decimal? ParseAmount(string value)
+    {
+        var filtered = new string(value.Where(ch => char.IsDigit(ch) || ch is '.' or ',' or '-' or '+').ToArray());
+        if (string.IsNullOrWhiteSpace(filtered))
+        {
+            return null;
+        }
+
+        if (decimal.TryParse(filtered, NumberStyles.Number | NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var amount))
+        {
+            return amount;
+        }
+
+        var swapped = filtered.Replace(".", string.Empty).Replace(",", ".");
+        if (decimal.TryParse(swapped, NumberStyles.Number | NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out amount))
+        {
+            return amount;
+        }
+
+        var stripped = filtered.Replace(",", string.Empty);
+        if (decimal.TryParse(stripped, NumberStyles.Number | NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out amount))
+        {
+            return amount;
+        }
+
+        return null;
+    }
+
+    private void FinalizeResult(InvoiceVerificationResult result)
+    {
         foreach (var field in result.Fields.Values)
         {
             var explanation = BuildFieldExplanation(field);
@@ -59,119 +362,32 @@ public class InvoiceVerificationService
         if (result.Success)
         {
             result.Message = "Invoice details match the uploaded PDF.";
+            return;
+        }
+
+        var mismatchedLabels = result.Fields.Values
+            .Where(f => !f.Matched)
+            .Select(f => f.Label)
+            .ToList();
+
+        if (mismatchedLabels.Count == 1)
+        {
+            result.Message = $"AI found a mismatch in {mismatchedLabels[0]}.";
+        }
+        else if (mismatchedLabels.Count > 1)
+        {
+            var labelSummary = string.Join(", ", mismatchedLabels);
+            result.Message = $"AI found mismatches in {labelSummary}.";
         }
         else
         {
-            var mismatchedLabels = result.Fields.Values
-                .Where(f => !f.Matched)
-                .Select(f => f.Label)
-                .ToList();
-
-            if (mismatchedLabels.Count == 1)
-            {
-                result.Message = $"AI found a mismatch in {mismatchedLabels[0]}.";
-            }
-            else if (mismatchedLabels.Count > 1)
-            {
-                var labelSummary = string.Join(", ", mismatchedLabels);
-                result.Message = $"AI found mismatches in {labelSummary}.";
-            }
-            else
-            {
-                result.Message = "AI could not confirm all invoice details against the PDF.";
-            }
-
-            if (result.Explanations.Count == 0)
-            {
-                result.Explanations.Add("AI could not extract enough text from the PDF to explain the discrepancies.");
-            }
+            result.Message = "AI could not confirm all invoice details against the PDF.";
         }
 
-        return result;
-    }
-
-    private async Task<string> ExtractTextAsync(Stream pdfStream, CancellationToken cancellationToken)
-    {
-        await using var buffer = new MemoryStream();
-        await pdfStream.CopyToAsync(buffer, cancellationToken);
-        var bytes = buffer.ToArray();
-        var sb = new StringBuilder();
-        var pagesNeedingOcr = new List<int>();
-
-        try
+        if (result.Explanations.Count == 0)
         {
-            using var document = PdfDocument.Open(new MemoryStream(bytes));
-            var pageIndex = 0;
-            foreach (var page in document.GetPages())
-            {
-                var text = page.Text;
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    sb.AppendLine(text.Trim());
-                }
-                else
-                {
-                    pagesNeedingOcr.Add(pageIndex);
-                }
-                pageIndex++;
-            }
+            result.Explanations.Add("AI could not extract enough details from the invoice to explain the discrepancies.");
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to extract embedded text from PDF.");
-        }
-
-        if (pagesNeedingOcr.Count == 0)
-        {
-            return sb.ToString();
-        }
-
-        try
-        {
-            if (!TryCreateEngine(out var engine))
-            {
-                return sb.ToString();
-            }
-
-            using (engine)
-            {
-                using var docReader = DocLib.Instance.GetDocReader(bytes, new PageDimensions(2480, 3508));
-                foreach (var pageIndex in pagesNeedingOcr)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    using var pageReader = docReader.GetPageReader(pageIndex);
-                    var width = pageReader.GetPageWidth();
-                    var height = pageReader.GetPageHeight();
-                    if (width <= 0 || height <= 0)
-                    {
-                        continue;
-                    }
-
-                    var rawBytes = pageReader.GetImage();
-                    if (rawBytes.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    using var image = Image.LoadPixelData<Bgra32>(rawBytes, width, height);
-                    using var imageStream = new MemoryStream();
-                    image.Save(imageStream, new PngEncoder());
-                    using var pix = Pix.LoadFromMemory(imageStream.ToArray());
-                    using var ocrPage = engine.Process(pix);
-                    var text = ocrPage.GetText();
-                    if (!string.IsNullOrWhiteSpace(text))
-                    {
-                        sb.AppendLine(text.Trim());
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to run OCR on PDF pages.");
-        }
-
-        return sb.ToString();
     }
 
     private static string? BuildFieldExplanation(InvoiceFieldResult field)
@@ -194,211 +410,334 @@ public class InvoiceVerificationService
         return $"You entered '{field.Provided}', but AI detected '{field.Found}' for {field.Label}.";
     }
 
-    private bool TryCreateEngine(out TesseractEngine? engine)
+    private static string NormalizeModelName(string? model)
     {
-        engine = null;
-
-        if (!Directory.Exists(_tessDataPath))
+        if (string.IsNullOrWhiteSpace(model))
         {
-            _logger.LogWarning("tessdata folder not found at '{TessDataPath}'. OCR will be skipped.", _tessDataPath);
-            return false;
+            return TrimModelPrefix(DefaultModel);
         }
 
-        var engFile = Path.Combine(_tessDataPath, "eng.traineddata");
-        if (!File.Exists(engFile))
+        return TrimModelPrefix(model);
+
+        static string TrimModelPrefix(string value)
         {
-            _logger.LogWarning("Tesseract language data not found at '{EngFile}'. OCR will be skipped.", engFile);
-            return false;
+            return value.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
+                ? value[7..]
+                : value;
+        }
+    }
+
+    private async Task<GeminiFileMetadata> FetchFileMetadataAsync(string fileName, CancellationToken cancellationToken)
+    {
+        var path = EnsureFileName(fileName);
+        var response = await SendGeminiRequestAsync<GeminiFileMetadata>(HttpMethod.Get, path, body: null, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response == null)
+        {
+            throw new InvalidOperationException($"Gemini did not return metadata for file '{fileName}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(response.Uri))
+        {
+            response.Uri = new Uri(_httpClient.BaseAddress!, EnsureFileName(response.Name)).ToString();
+        }
+
+        return response;
+    }
+
+    private async Task<T?> SendGeminiRequestAsync<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
+    {
+        var uriBuilder = new StringBuilder(path);
+        if (!path.Contains('?', StringComparison.Ordinal))
+        {
+            uriBuilder.Append('?');
+        }
+        else
+        {
+            uriBuilder.Append('&');
+        }
+
+        uriBuilder.Append("key=");
+        uriBuilder.Append(Uri.EscapeDataString(_apiKey));
+
+        using var request = new HttpRequestMessage(method, uriBuilder.ToString());
+
+        if (body != null)
+        {
+            var payload = JsonSerializer.Serialize(body, _serializationOptions);
+            request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        }
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorMessage = TryExtractErrorMessage(content) ?? response.ReasonPhrase ?? "Unknown Gemini API error";
+            throw new InvalidOperationException($"Gemini API request to '{path}' failed with status {(int)response.StatusCode}: {errorMessage}");
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return default;
         }
 
         try
         {
-            engine = new TesseractEngine(_tessDataPath, "eng", EngineMode.LstmOnly);
-            return true;
+            return JsonSerializer.Deserialize<T>(content, _deserializationOptions);
         }
-        catch (Exception ex)
+        catch (JsonException jsonEx)
         {
-            _logger.LogError(ex, "Failed to initialize Tesseract OCR engine. OCR will be skipped.");
-            engine = null;
-            return false;
+            throw new InvalidOperationException($"Gemini API returned unexpected payload for '{path}': {content}", jsonEx);
         }
     }
 
-    private static InvoiceFieldResult EvaluateToken(string label, string provided, string originalText, string normalizedText)
+    private static string EnsureFileName(string name)
     {
-        var result = new InvoiceFieldResult
+        if (string.IsNullOrWhiteSpace(name))
         {
-            Label = label,
-            Provided = string.IsNullOrWhiteSpace(provided) ? null : provided.Trim()
-        };
-
-        if (string.IsNullOrWhiteSpace(provided))
-        {
-            return result;
+            throw new InvalidOperationException("Gemini did not return a file name for the uploaded invoice.");
         }
 
-        var normalizedProvided = NormalizeForComparison(provided);
-        if (string.IsNullOrEmpty(normalizedProvided))
-        {
-            return result;
-        }
-
-        result.Matched = normalizedText.Contains(normalizedProvided, StringComparison.OrdinalIgnoreCase);
-        result.Found = FindLineContaining(originalText, provided, normalizedProvided);
-        if (result.Matched && string.IsNullOrWhiteSpace(result.Found))
-        {
-            result.Found = provided.Trim();
-        }
-
-        return result;
+        return name.StartsWith("files/", StringComparison.OrdinalIgnoreCase) ? name : $"files/{name}";
     }
 
-    private static InvoiceFieldResult EvaluateAmount(string label, string provided, string originalText, string normalizedText)
+    private static string? ExtractTextResponse(GenerateContentResponse response)
     {
-        var result = new InvoiceFieldResult
+        if (response.Candidates == null || response.Candidates.Count == 0)
         {
-            Label = label,
-            Provided = string.IsNullOrWhiteSpace(provided) ? null : provided.Trim()
-        };
-
-        if (string.IsNullOrWhiteSpace(provided))
-        {
-            return result;
+            return response.PromptFeedback?.BlockReason;
         }
 
-        var providedAmount = ParseAmount(provided);
-        if (providedAmount == null)
+        foreach (var candidate in response.Candidates)
         {
-            return result;
-        }
-
-        var foundToken = FindAmountToken(originalText, providedAmount.Value);
-        if (foundToken != null)
-        {
-            result.Matched = true;
-            result.Found = foundToken;
-            return result;
-        }
-
-        // fallback to simple token search when parsing fails on OCR noise
-        var normalizedProvided = NormalizeForComparison(providedAmount.Value.ToString(CultureInfo.InvariantCulture));
-        result.Matched = normalizedText.Contains(normalizedProvided, StringComparison.OrdinalIgnoreCase);
-        if (result.Matched)
-        {
-            result.Found = providedAmount.Value.ToString("F2", CultureInfo.InvariantCulture);
-        }
-
-        return result;
-    }
-
-    private static decimal? ParseAmount(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        var sanitized = Regex.Replace(value, "[^0-9,.-]", string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            return null;
-        }
-
-        if (decimal.TryParse(sanitized, NumberStyles.Number | NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var amount))
-        {
-            return amount;
-        }
-
-        var swapped = sanitized.Replace(".", string.Empty).Replace(",", ".");
-        if (decimal.TryParse(swapped, NumberStyles.Number | NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out amount))
-        {
-            return amount;
-        }
-
-        var removed = sanitized.Replace(",", string.Empty);
-        if (decimal.TryParse(removed, NumberStyles.Number | NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out amount))
-        {
-            return amount;
-        }
-
-        return null;
-    }
-
-    private static string? FindAmountToken(string text, decimal target)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
-
-        const decimal tolerance = 0.01m;
-        foreach (Match match in Regex.Matches(text, @"[-+]?[0-9][0-9.,]*"))
-        {
-            var candidate = ParseAmount(match.Value);
-            if (candidate == null)
+            if (candidate?.Content?.Parts == null)
             {
                 continue;
             }
 
-            if (Math.Abs(candidate.Value - target) <= tolerance)
+            foreach (var part in candidate.Content.Parts)
             {
-                return match.Value.Trim();
+                if (!string.IsNullOrWhiteSpace(part?.Text))
+                {
+                    return part.Text;
+                }
+
+                if (!string.IsNullOrWhiteSpace(part?.InlineData?.Data))
+                {
+                    try
+                    {
+                        var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(part.InlineData.Data));
+                        if (!string.IsNullOrWhiteSpace(decoded))
+                        {
+                            return decoded;
+                        }
+                    }
+                    catch (FormatException)
+                    {
+                        // Ignore invalid base64 payloads and continue searching for usable content.
+                    }
+                }
             }
         }
 
         return null;
     }
 
-    private static string? FindLineContaining(string text, string provided, string normalizedProvided)
+    private static string? TryExtractErrorMessage(string? responseContent)
     {
-        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(normalizedProvided))
+        if (string.IsNullOrWhiteSpace(responseContent))
         {
             return null;
         }
 
-        var lines = text.Split('\n', '\r');
-        foreach (var raw in lines)
+        try
         {
-            var line = raw.Trim();
-            if (string.IsNullOrEmpty(line))
+            using var document = JsonDocument.Parse(responseContent);
+            if (document.RootElement.TryGetProperty("error", out var errorElement))
             {
-                continue;
-            }
+                if (errorElement.TryGetProperty("message", out var messageElement))
+                {
+                    return messageElement.GetString();
+                }
 
-            var normalizedLine = NormalizeForComparison(line);
-            if (normalizedLine.Contains(normalizedProvided, StringComparison.OrdinalIgnoreCase))
-            {
-                return line;
+                if (errorElement.TryGetProperty("status", out var statusElement))
+                {
+                    return statusElement.GetString();
+                }
             }
+        }
+        catch (JsonException)
+        {
+            return null;
         }
 
         return null;
     }
 
-    private static string NormalizeWhitespace(string value)
+    private sealed class UploadFileRequest
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var normalizedLineEndings = Regex.Replace(value, "\r\n?", "\n");
-        var lines = normalizedLineEndings
-            .Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => !string.IsNullOrWhiteSpace(line));
-        return string.Join('\n', lines);
+        [JsonPropertyName("file")]
+        public UploadFileSpecification File { get; set; } = new();
     }
 
-    private static string NormalizeForComparison(string value)
+    private sealed class UploadFileSpecification
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
+        [JsonPropertyName("display_name")]
+        public string DisplayName { get; set; } = string.Empty;
 
-        var alphanumeric = Regex.Replace(value, "[^A-Za-z0-9]", string.Empty);
-        return alphanumeric.ToLowerInvariant();
+        [JsonPropertyName("mime_type")]
+        public string MimeType { get; set; } = PdfMimeType;
+    }
+
+    private sealed class UploadFileResponse
+    {
+        [JsonPropertyName("file")]
+        public GeminiFileMetadata File { get; set; } = new();
+
+        [JsonPropertyName("upload_uri")]
+        public string? UploadUri { get; set; }
+    }
+
+    private sealed class GeminiFileMetadata
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("display_name")]
+        public string? DisplayName { get; set; }
+
+        [JsonPropertyName("mime_type")]
+        public string? MimeType { get; set; }
+
+        [JsonPropertyName("uri")]
+        public string? Uri { get; set; }
+
+        [JsonPropertyName("state")]
+        public string? State { get; set; }
+
+        [JsonPropertyName("error")]
+        public GeminiError? Error { get; set; }
+    }
+
+    private sealed class GeminiError
+    {
+        [JsonPropertyName("code")]
+        public int? Code { get; set; }
+
+        [JsonPropertyName("message")]
+        public string? Message { get; set; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
+    }
+
+    private sealed class GenerateContentPayload
+    {
+        [JsonPropertyName("contents")]
+        public List<GeminiContent> Contents { get; } = new();
+
+        [JsonPropertyName("generation_config")]
+        public GeminiGenerationConfig? GenerationConfig { get; set; }
+    }
+
+    private sealed class GeminiGenerationConfig
+    {
+        [JsonPropertyName("response_mime_type")]
+        public string? ResponseMimeType { get; set; }
+    }
+
+    private sealed class GeminiContent
+    {
+        [JsonPropertyName("role")]
+        public string? Role { get; set; }
+
+        [JsonPropertyName("parts")]
+        public List<GeminiPart> Parts { get; } = new();
+    }
+
+    private sealed class GeminiPart
+    {
+        [JsonPropertyName("text")]
+        public string? Text { get; set; }
+
+        [JsonPropertyName("file_data")]
+        public GeminiFileData? FileData { get; set; }
+
+        [JsonPropertyName("inline_data")]
+        public GeminiInlineData? InlineData { get; set; }
+    }
+
+    private sealed class GeminiFileData
+    {
+        [JsonPropertyName("mime_type")]
+        public string? MimeType { get; set; }
+
+        [JsonPropertyName("file_uri")]
+        public string? FileUri { get; set; }
+    }
+
+    private sealed class GeminiInlineData
+    {
+        [JsonPropertyName("mime_type")]
+        public string? MimeType { get; set; }
+
+        [JsonPropertyName("data")]
+        public string? Data { get; set; }
+    }
+
+    private sealed class GenerateContentResponse
+    {
+        [JsonPropertyName("candidates")]
+        public List<GeminiCandidate>? Candidates { get; set; }
+
+        [JsonPropertyName("prompt_feedback")]
+        public GeminiPromptFeedback? PromptFeedback { get; set; }
+    }
+
+    private sealed class GeminiCandidate
+    {
+        [JsonPropertyName("content")]
+        public GeminiContent? Content { get; set; }
+
+        [JsonPropertyName("finish_reason")]
+        public string? FinishReason { get; set; }
+    }
+
+    private sealed class GeminiPromptFeedback
+    {
+        [JsonPropertyName("block_reason")]
+        public string? BlockReason { get; set; }
+
+        [JsonPropertyName("safety_ratings")]
+        public List<GeminiSafetyRating>? SafetyRatings { get; set; }
+    }
+
+    private sealed class GeminiSafetyRating
+    {
+        [JsonPropertyName("category")]
+        public string? Category { get; set; }
+
+        [JsonPropertyName("probability")]
+        public string? Probability { get; set; }
+
+        [JsonPropertyName("blocked")]
+        public bool? Blocked { get; set; }
+    }
+
+    private sealed record GeminiExtractionResult(GeminiInvoiceExtraction? Data, string RawResponse);
+
+    private sealed class GeminiInvoiceExtraction
+    {
+        [JsonPropertyName("invoiceNumber")]
+        public string? InvoiceNumber { get; set; }
+
+        [JsonPropertyName("purchaseOrderNumber")]
+        public string? PurchaseOrderNumber { get; set; }
+
+        [JsonPropertyName("totalAmount")]
+        public decimal? TotalAmount { get; set; }
     }
 }
 
