@@ -13,5 +13,6 @@
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.65.0" />
     <PackageReference Include="UglyToad.PdfPig" Version="0.1.9" />
+    <PackageReference Include="Google_GenerativeAI" Version="3.2.0" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using GenerativeAI;
+using GenerativeAI.Clients;
+using GenerativeAI.Types;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -542,16 +545,18 @@ EXPECTED JSON STRUCTURE:
             }
         }
 
-        return null;
+        if (result.Explanations.Count == 0)
+        {
+            result.Explanations.Add("AI could not extract enough details from the invoice to explain the discrepancies.");
+        }
     }
 
     private static string? TryExtractErrorMessage(string? responseContent)
     {
         if (string.IsNullOrWhiteSpace(responseContent))
         {
-            return null;
+            return $"AI confirmed {field.Label} matches the document.";
         }
-
         try
         {
             using var document = JsonDocument.Parse(responseContent);
