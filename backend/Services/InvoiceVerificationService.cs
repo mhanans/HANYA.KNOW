@@ -648,7 +648,7 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         var separator = path.Contains('?', StringComparison.Ordinal) ? '&' : '?';
 
         var requestUriBuilder = new StringBuilder(baseUri.ToString().TrimEnd('/'));
-        if (!path.StartsWith('/', StringComparison.Ordinal))
+        if (!path.StartsWith("/", StringComparison.Ordinal))
         {
             requestUriBuilder.Append('/');
         }
