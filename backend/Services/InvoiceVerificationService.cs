@@ -163,19 +163,20 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         await pdfStream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
         buffer.Position = 0;
 
-        var initRequest = new UploadFileRequest
+        // FIX: Directly create GeminiFileMetadata for the initial request body,
+        // as the API expects the file properties at the root, not nested under "file".
+        var fileToCreate = new GeminiFileMetadata
         {
-            File = new UploadFileSpecification
-            {
-                DisplayName = $"invoice-{Guid.NewGuid():N}.pdf",
-                MimeType = PdfMimeType
-            }
+            DisplayName = $"invoice-{Guid.NewGuid():N}.pdf",
+            MimeType = PdfMimeType
         };
 
-        var initResponse = await SendGeminiRequestAsync<UploadFileResponse>(HttpMethod.Post, "files:upload", initRequest, cancellationToken)
+        // FIX: Send the GeminiFileMetadata object directly as the body.
+        // The API returns the created file metadata, including the uploadUri.
+        var initMetadata = await SendGeminiRequestAsync<GeminiFileMetadata>(HttpMethod.Post, "files", fileToCreate, cancellationToken)
             .ConfigureAwait(false);
 
-        if (initResponse?.File == null || string.IsNullOrWhiteSpace(initResponse.UploadUri))
+        if (initMetadata == null || string.IsNullOrWhiteSpace(initMetadata.UploadUri))
         {
             throw new InvalidOperationException("Gemini did not return an upload URI for the provided invoice.");
         }
@@ -184,7 +185,7 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         using var uploadContent = new StreamContent(buffer, 81920);
         uploadContent.Headers.ContentType = new MediaTypeHeaderValue(PdfMimeType);
 
-        using (var uploadRequest = new HttpRequestMessage(HttpMethod.Put, initResponse.UploadUri)
+        using (var uploadRequest = new HttpRequestMessage(HttpMethod.Put, initMetadata.UploadUri)
         {
             Content = uploadContent
         })
@@ -197,6 +198,8 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
                 throw new InvalidOperationException($"Gemini failed to accept the uploaded invoice: {error}");
             }
 
+            // The PUT response after uploading file content typically returns the updated file metadata.
+            // Update initMetadata with this new data.
             if (!string.IsNullOrWhiteSpace(uploadBody))
             {
                 try
@@ -204,7 +207,7 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
                     var parsed = JsonSerializer.Deserialize<GeminiFileMetadata>(uploadBody, _deserializationOptions);
                     if (parsed != null)
                     {
-                        initResponse.File = parsed;
+                        initMetadata = parsed; // Update the metadata with the response from the PUT request
                     }
                 }
                 catch (JsonException jsonEx)
@@ -214,7 +217,7 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
             }
         }
 
-        var fileName = EnsureFileName(initResponse.File.Name);
+        var fileName = EnsureFileName(initMetadata.Name);
         var deadline = DateTime.UtcNow + _fileProcessingTimeout;
 
         while (true)
@@ -774,39 +777,20 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         return null;
     }
 
-    private sealed class UploadFileRequest
-    {
-        [JsonPropertyName("file")]
-        public UploadFileSpecification File { get; set; } = new();
-    }
-
-    private sealed class UploadFileSpecification
-    {
-        [JsonPropertyName("display_name")]
-        public string DisplayName { get; set; } = string.Empty;
-
-        [JsonPropertyName("mime_type")]
-        public string MimeType { get; set; } = PdfMimeType;
-    }
-
-    private sealed class UploadFileResponse
-    {
-        [JsonPropertyName("file")]
-        public GeminiFileMetadata File { get; set; } = new();
-
-        [JsonPropertyName("upload_uri")]
-        public string? UploadUri { get; set; }
-    }
+    // FIX: Removed UploadFileRequest and UploadFileSpecification classes
+    // private sealed class UploadFileRequest { ... }
+    // private sealed class UploadFileSpecification { ... }
 
     private sealed class GeminiFileMetadata
     {
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
 
-        [JsonPropertyName("display_name")]
+        // FIX: Changed JsonPropertyName to camelCase for DisplayName and MimeType
+        [JsonPropertyName("displayName")]
         public string? DisplayName { get; set; }
 
-        [JsonPropertyName("mime_type")]
+        [JsonPropertyName("mimeType")]
         public string? MimeType { get; set; }
 
         [JsonPropertyName("uri")]
@@ -817,6 +801,9 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
 
         [JsonPropertyName("error")]
         public GeminiError? Error { get; set; }
+
+        [JsonPropertyName("uploadUri")]
+        public string? UploadUri { get; set; }
     }
 
     private sealed class GeminiError

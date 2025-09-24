@@ -35,7 +35,7 @@ public class TicketAssignmentService
         var catLines = string.Join("\n", categories.Select(c => $"{c.Id}: {c.TicketType} - {c.Description} (sample: {c.SampleJson})"));
         var picLines = string.Join("\n", pics.Select(p => $"{p.Id}: {p.Name} handles [{string.Join(",", p.CategoryIds)}] is {(p.Availability ? "available" : "unavailable")} and has {p.TicketCount} tickets"));
 
-        var prompt = $@"You are a support ticket router. Choose the best matching ticket category and an available PIC. Prefer PICs with fewer active tickets unless only one PIC handles the category. Explain briefly why the category fits.
+        var prompt = $@"You are a support ticket router. Answer only in Indonesian language. Choose the best matching ticket category and an available PIC. Prefer PICs with fewer active tickets unless only one PIC handles the category. Explain briefly why the category fits.
 Ticket categories:
 {catLines}
 PICs:
@@ -194,7 +194,7 @@ Detail: {ticket.Detail}";
     private async Task<string> SummarizeAsync(string raw)
     {
         var prompt = new StringBuilder()
-            .AppendLine("Convert the following ticket assignment into a JSON object with 'categoryId', 'picId', and 'reason' (brief explanation for the category).")
+            .AppendLine("Convert the following ticket assignment into a JSON object with 'categoryId', 'picId', and 'reason' (Answer only in Indonesian language. brief explanation for the category).")
             .AppendLine("If not possible, return an empty object.")
             .AppendLine(raw)
             .ToString();
