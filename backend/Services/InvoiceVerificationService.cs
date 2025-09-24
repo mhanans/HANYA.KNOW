@@ -96,33 +96,35 @@ public class InvoiceVerificationService
             }
 
             using (engine)
-            using var docReader = DocLib.Instance.GetDocReader(bytes, new PageDimensions(2480, 3508));
-            foreach (var pageIndex in pagesNeedingOcr)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                using var pageReader = docReader.GetPageReader(pageIndex);
-                var width = pageReader.GetPageWidth();
-                var height = pageReader.GetPageHeight();
-                if (width <= 0 || height <= 0)
+                using var docReader = DocLib.Instance.GetDocReader(bytes, new PageDimensions(2480, 3508));
+                foreach (var pageIndex in pagesNeedingOcr)
                 {
-                    continue;
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var pageReader = docReader.GetPageReader(pageIndex);
+                    var width = pageReader.GetPageWidth();
+                    var height = pageReader.GetPageHeight();
+                    if (width <= 0 || height <= 0)
+                    {
+                        continue;
+                    }
 
-                var rawBytes = pageReader.GetImage();
-                if (rawBytes.Length == 0)
-                {
-                    continue;
-                }
+                    var rawBytes = pageReader.GetImage();
+                    if (rawBytes.Length == 0)
+                    {
+                        continue;
+                    }
 
-                using var image = Image.LoadPixelData<Bgra32>(rawBytes, width, height);
-                using var imageStream = new MemoryStream();
-                image.Save(imageStream, new PngEncoder());
-                using var pix = Pix.LoadFromMemory(imageStream.ToArray());
-                using var ocrPage = engine.Process(pix);
-                var text = ocrPage.GetText();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    sb.AppendLine(text.Trim());
+                    using var image = Image.LoadPixelData<Bgra32>(rawBytes, width, height);
+                    using var imageStream = new MemoryStream();
+                    image.Save(imageStream, new PngEncoder());
+                    using var pix = Pix.LoadFromMemory(imageStream.ToArray());
+                    using var ocrPage = engine.Process(pix);
+                    var text = ocrPage.GetText();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        sb.AppendLine(text.Trim());
+                    }
                 }
             }
         }
