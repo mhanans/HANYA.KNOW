@@ -126,7 +126,8 @@ var app = builder.Build();
 // Test embedding service connectivity at startup
 using (var scope = app.Services.CreateScope())
 {
-    var embeddings = scope.ServiceProvider.GetRequiredService<EmbeddingClient>();
+    var provider = scope.ServiceProvider;
+    var embeddings = provider.GetRequiredService<EmbeddingClient>();
     try
     {
         await embeddings.TestConnectionAsync();
@@ -134,6 +135,16 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         app.Logger.LogError(ex, "Failed to connect to embedding service on startup");
+    }
+
+    var uiStore = provider.GetRequiredService<UiStore>();
+    try
+    {
+        await uiStore.EnsureDefaultPagesAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Failed to initialize default UI access mappings");
     }
 }
 

@@ -8,6 +8,26 @@ namespace backend.Services;
 
 public class UiStore
 {
+    private static readonly string[] DefaultUiKeys =
+    {
+        "dashboard",
+        "documents",
+        "categories",
+        "upload",
+        "document-analytics",
+        "chat",
+        "chat-history",
+        "cv",
+        "data-sources",
+        "invoice-verification",
+        "users",
+        "roles",
+        "role-ui",
+        "tickets",
+        "pic-summary",
+        "settings"
+    };
+
     private readonly string _connectionString;
     private readonly ILogger<UiStore> _logger;
 
@@ -28,6 +48,39 @@ public class UiStore
         while (await reader.ReadAsync())
             list.Add(new UiPage { Id = reader.GetInt32(0), Key = reader.GetString(1) });
         return list;
+    }
+
+    public async Task EnsureDefaultPagesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_connectionString))
+        {
+            _logger.LogWarning("Postgres connection string is not configured; skipping UI page initialization.");
+            return;
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+
+        foreach (var key in DefaultUiKeys)
+        {
+            await using var insert = new NpgsqlCommand("INSERT INTO ui_pages (key) VALUES (@key) ON CONFLICT DO NOTHING;", conn, tx);
+            insert.Parameters.AddWithValue("key", key);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        const string assignSql = @"INSERT INTO role_ui (role_id, ui_id)
+                                   SELECT r.id, u.id
+                                   FROM roles r
+                                   JOIN ui_pages u ON u.key = ANY(@keys)
+                                   WHERE r.name = 'admin'
+                                   ON CONFLICT DO NOTHING;";
+        await using var assign = new NpgsqlCommand(assignSql, conn, tx);
+        assign.Parameters.AddWithValue("keys", DefaultUiKeys);
+        assign.Parameters["keys"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text;
+        await assign.ExecuteNonQueryAsync();
+
+        await tx.CommitAsync();
     }
 
     public async Task<List<UiPage>> ListForRolesAsync(IEnumerable<int> roleIds)

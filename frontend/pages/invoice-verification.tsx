@@ -12,6 +12,7 @@ interface FieldResult {
   matched: boolean;
   provided: string | null;
   found: string | null;
+  explanation?: string | null;
 }
 
 interface VerificationResponse {
@@ -20,6 +21,7 @@ interface VerificationResponse {
   message: string;
   fields: Record<string, FieldResult>;
   extractedText: string;
+  explanations?: string[];
 }
 
 export default function InvoiceVerification() {
@@ -211,6 +213,13 @@ export default function InvoiceVerification() {
             <span className={`status-badge ${verification.status}`}>{verification.status === 'pass' ? 'Match' : 'Mismatch'}</span>
             <p>{verification.message}</p>
           </div>
+          {verification.explanations && verification.explanations.length > 0 && (
+            <ul className="verification-explanations">
+              {verification.explanations.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          )}
           <div className="verification-grid">
             {fieldEntries.map(([key, field]) => (
               <div key={key} className={`verification-field ${field.matched ? 'matched' : 'mismatch'}`}>
@@ -228,6 +237,7 @@ export default function InvoiceVerification() {
                     <dd>{field.found ?? 'Not found in PDF'}</dd>
                   </div>
                 </dl>
+                {field.explanation && <p className="verification-explanation">{field.explanation}</p>}
               </div>
             ))}
           </div>
