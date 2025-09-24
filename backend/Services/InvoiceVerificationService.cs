@@ -20,7 +20,6 @@ namespace backend.Services;
 
 public class InvoiceVerificationService
 {
-    private const string DefaultModel = "models/gemini-1.5-flash";
     private const string PdfMimeType = "application/pdf";
     private const string ExtractionPrompt = """
 You are an AI expert tasked with extracting structured data from the attached invoice.
@@ -34,13 +33,34 @@ RULES:
 
 EXPECTED JSON STRUCTURE:
 {
+  "vendorName": "value",
   "invoiceNumber": "value",
   "purchaseOrderNumber": "value",
   "totalAmount": number
 }
 """;
 
+    private const string ExplanationPromptHeader = """
+You are an AI assistant helping a finance team confirm whether details in an invoice PDF match user-provided data.
+Review the attached PDF and the comparison table. For each field key in the table, return a short, user-friendly explanation describing whether the data matches and why.
+Respond ONLY with JSON using the following structure:
+{
+  "vendorName": "explanation",
+  "invoiceNumber": "explanation",
+  "purchaseOrderNumber": "explanation",
+  "totalAmount": "explanation"
+}
+If you cannot find evidence in the PDF for a field, clearly state that in the explanation.
+""";
+
     private static readonly Uri GeminiBaseUri = new("https://generativelanguage.googleapis.com/v1beta/");
+    private static readonly string[] ExplanationFieldOrder =
+    {
+        "vendorName",
+        "invoiceNumber",
+        "purchaseOrderNumber",
+        "totalAmount"
+    };
 
     private readonly ILogger<InvoiceVerificationService> _logger;
     private readonly HttpClient _httpClient;
@@ -58,9 +78,21 @@ EXPECTED JSON STRUCTURE:
         _apiKey = configuration["Gemini:ApiKey"]
                   ?? configuration["GoogleAI:ApiKey"]
                   ?? configuration["Google:ApiKey"]
-                  ?? throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' in configuration.");
+                  ?? configuration["Llm:ApiKey"]
+                  ?? configuration["ApiKey"]
+                  ?? throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' or reuse 'Llm:ApiKey' in configuration.");
 
-        var configuredModel = configuration["Gemini:Model"];
+        var configuredModel = configuration["Gemini:Model"]
+                             ?? configuration["GoogleAI:Model"]
+                             ?? configuration["Google:Model"]
+                             ?? configuration["Llm:Model"]
+                             ?? configuration["Model"];
+
+        if (string.IsNullOrWhiteSpace(configuredModel))
+        {
+            throw new InvalidOperationException("Gemini model is not configured. Set 'Gemini:Model' or reuse 'Llm:Model' in configuration.");
+        }
+
         _model = NormalizeModelName(configuredModel);
         var pollSeconds = Math.Max(1, configuration.GetValue<int?>("Gemini:FileStatusPollSeconds") ?? 2);
         var timeoutSeconds = Math.Max(pollSeconds, configuration.GetValue<int?>("Gemini:FileProcessingTimeoutSeconds") ?? 300);
@@ -87,8 +119,8 @@ EXPECTED JSON STRUCTURE:
         _fileProcessingTimeout = TimeSpan.FromSeconds(timeoutSeconds);
     }
 
-    public async Task<InvoiceVerificationResult> VerifyAsync(Stream pdfStream, string invoiceNumber, string purchaseOrderNumber,
-        string totalAmount, CancellationToken cancellationToken = default)
+    public async Task<InvoiceVerificationResult> VerifyAsync(Stream pdfStream, string vendorName, string invoiceNumber,
+        string purchaseOrderNumber, string totalAmount, CancellationToken cancellationToken = default)
     {
         var result = new InvoiceVerificationResult();
 
@@ -101,11 +133,18 @@ EXPECTED JSON STRUCTURE:
                 ? JsonSerializer.Serialize(extraction.Data, _serializationOptions)
                 : extraction.RawResponse;
 
+            result.Fields["vendorName"] = CreateStringField("Vendor Name", vendorName, extraction.Data?.VendorName);
             result.Fields["invoiceNumber"] = CreateStringField("Invoice Number", invoiceNumber, extraction.Data?.InvoiceNumber);
             result.Fields["purchaseOrderNumber"] = CreateStringField("PO Number", purchaseOrderNumber, extraction.Data?.PurchaseOrderNumber);
             result.Fields["totalAmount"] = CreateAmountField("Total Amount", totalAmount, extraction.Data?.TotalAmount);
 
+            await PopulateExplanationsFromAiAsync(activeFile, result, cancellationToken).ConfigureAwait(false);
+
             FinalizeResult(result);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -265,6 +304,163 @@ EXPECTED JSON STRUCTURE:
         return new GeminiExtractionResult(extraction, raw);
     }
 
+    private async Task PopulateExplanationsFromAiAsync(GeminiFileMetadata file, InvoiceVerificationResult result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var explanations = await RequestFieldExplanationsAsync(file, result.Fields, cancellationToken).ConfigureAwait(false);
+            foreach (var (key, explanation) in explanations)
+            {
+                if (!result.Fields.TryGetValue(key, out var field))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(explanation))
+                {
+                    field.Explanation = explanation.Trim();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Gemini could not generate detailed invoice field explanations.");
+        }
+    }
+
+    private async Task<Dictionary<string, string>> RequestFieldExplanationsAsync(GeminiFileMetadata file,
+        IReadOnlyDictionary<string, InvoiceFieldResult> fields, CancellationToken cancellationToken)
+    {
+        var prompt = BuildComparisonPrompt(fields);
+        var fileUri = !string.IsNullOrWhiteSpace(file.Uri)
+            ? file.Uri!
+            : new Uri(_httpClient.BaseAddress!, EnsureFileName(file.Name)).ToString();
+
+        var request = new GenerateContentPayload
+        {
+            Contents =
+            {
+                new GeminiContent
+                {
+                    Role = "user",
+                    Parts =
+                    {
+                        new GeminiPart { Text = prompt },
+                        new GeminiPart
+                        {
+                            FileData = new GeminiFileData
+                            {
+                                MimeType = PdfMimeType,
+                                FileUri = fileUri
+                            }
+                        }
+                    }
+                }
+            },
+            GenerationConfig = new GeminiGenerationConfig
+            {
+                ResponseMimeType = "application/json"
+            }
+        };
+
+        var response = await SendGeminiRequestAsync<GenerateContentResponse>(HttpMethod.Post, $"models/{_model}:generateContent",
+            request, cancellationToken).ConfigureAwait(false);
+
+        if (response == null)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var raw = ExtractTextResponse(response)?.Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(raw, _deserializationOptions);
+            return parsed != null
+                ? new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException jsonEx)
+        {
+            _logger.LogWarning(jsonEx, "Failed to parse Gemini explanation response as JSON: {Response}", raw);
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string BuildComparisonPrompt(IReadOnlyDictionary<string, InvoiceFieldResult> fields)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine(ExplanationPromptHeader);
+        builder.AppendLine();
+        builder.AppendLine("Comparison Table:");
+        builder.AppendLine("| key | label | provided | extracted | status |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+
+        foreach (var key in ExplanationFieldOrder)
+        {
+            if (!fields.TryGetValue(key, out var field))
+            {
+                continue;
+            }
+
+            builder.Append("| ");
+            builder.Append(key);
+            builder.Append(" | ");
+            builder.Append(EscapeForTable(field.Label));
+            builder.Append(" | ");
+            builder.Append(EscapeForTable(field.Provided));
+            builder.Append(" | ");
+            builder.Append(EscapeForTable(field.Found));
+            builder.Append(" | ");
+            builder.Append(EscapeForTable(DescribeMatchStatus(field)));
+            builder.AppendLine(" |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string EscapeForTable(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "(not available)";
+        }
+
+        var sanitized = value.Trim();
+        sanitized = sanitized.Replace('\r', ' ').Replace('\n', ' ');
+        sanitized = sanitized.Replace("|", "\\|");
+        return sanitized.Length <= 160 ? sanitized : sanitized[..157] + "...";
+    }
+
+    private static string DescribeMatchStatus(InvoiceFieldResult field)
+    {
+        if (field.Provided == null && field.Found == null)
+        {
+            return "no data to compare";
+        }
+
+        if (field.Provided == null)
+        {
+            return "user did not provide a value";
+        }
+
+        if (field.Found == null)
+        {
+            return "value not found in PDF";
+        }
+
+        return field.Matched ? "values match" : "values differ";
+    }
+
     private static InvoiceFieldResult CreateStringField(string label, string provided, string? extracted)
     {
         var result = new InvoiceFieldResult
@@ -353,11 +549,17 @@ EXPECTED JSON STRUCTURE:
     {
         foreach (var field in result.Fields.Values)
         {
-            var explanation = BuildFieldExplanation(field);
-            field.Explanation = explanation;
-            if (!field.Matched && !string.IsNullOrWhiteSpace(explanation))
+            if (string.IsNullOrWhiteSpace(field.Explanation))
             {
-                result.Explanations.Add(explanation);
+                field.Explanation = BuildFieldExplanation(field);
+            }
+
+            if (!field.Matched && !string.IsNullOrWhiteSpace(field.Explanation))
+            {
+                if (!result.Explanations.Contains(field.Explanation))
+                {
+                    result.Explanations.Add(field.Explanation);
+                }
             }
         }
 
@@ -413,21 +615,12 @@ EXPECTED JSON STRUCTURE:
         return $"You entered '{field.Provided}', but AI detected '{field.Found}' for {field.Label}.";
     }
 
-    private static string NormalizeModelName(string? model)
+    private static string NormalizeModelName(string model)
     {
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            return TrimModelPrefix(DefaultModel);
-        }
-
-        return TrimModelPrefix(model);
-
-        static string TrimModelPrefix(string value)
-        {
-            return value.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
-                ? value[7..]
-                : value;
-        }
+        var trimmed = model.Trim();
+        return trimmed.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[7..]
+            : trimmed;
     }
 
     private async Task<GeminiFileMetadata> FetchFileMetadataAsync(string fileName, CancellationToken cancellationToken)
@@ -451,20 +644,23 @@ EXPECTED JSON STRUCTURE:
 
     private async Task<T?> SendGeminiRequestAsync<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        var uriBuilder = new StringBuilder(path);
-        if (!path.Contains('?', StringComparison.Ordinal))
+        var baseUri = _httpClient.BaseAddress ?? throw new InvalidOperationException("Gemini base address is not configured.");
+        var separator = path.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+
+        var requestUriBuilder = new StringBuilder(baseUri.ToString().TrimEnd('/'));
+        if (!path.StartsWith("/", StringComparison.Ordinal))
         {
-            uriBuilder.Append('?');
-        }
-        else
-        {
-            uriBuilder.Append('&');
+            requestUriBuilder.Append('/');
         }
 
-        uriBuilder.Append("key=");
-        uriBuilder.Append(Uri.EscapeDataString(_apiKey));
+        requestUriBuilder.Append(path);
+        requestUriBuilder.Append(separator);
+        requestUriBuilder.Append("key=");
+        requestUriBuilder.Append(Uri.EscapeDataString(_apiKey));
 
-        using var request = new HttpRequestMessage(method, uriBuilder.ToString());
+        var requestUri = new Uri(requestUriBuilder.ToString(), UriKind.Absolute);
+
+        using var request = new HttpRequestMessage(method, requestUri);
 
         if (body != null)
         {
@@ -545,17 +741,14 @@ EXPECTED JSON STRUCTURE:
             }
         }
 
-        if (result.Explanations.Count == 0)
-        {
-            result.Explanations.Add("AI could not extract enough details from the invoice to explain the discrepancies.");
-        }
+        return response.PromptFeedback?.BlockReason;
     }
 
     private static string? TryExtractErrorMessage(string? responseContent)
     {
         if (string.IsNullOrWhiteSpace(responseContent))
         {
-            return $"AI confirmed {field.Label} matches the document.";
+            return null;
         }
         try
         {
@@ -735,6 +928,9 @@ EXPECTED JSON STRUCTURE:
 
     private sealed class GeminiInvoiceExtraction
     {
+        [JsonPropertyName("vendorName")]
+        public string? VendorName { get; set; }
+
         [JsonPropertyName("invoiceNumber")]
         public string? InvoiceNumber { get; set; }
 
