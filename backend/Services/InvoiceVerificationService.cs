@@ -173,21 +173,27 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
             }
         };
 
-        // The response body is a flat File object (GeminiFileMetadata)
-        var initMetadata = await SendGeminiRequestAsync<GeminiFileMetadata>(HttpMethod.Post, "files", initRequest, cancellationToken)
+        // The response includes both the upload URI and the initial file resource metadata.
+        var initResponse = await SendGeminiRequestAsync<GenerateUploadUrlResponse>(HttpMethod.Post, "files:generateUploadUrl", initRequest, cancellationToken)
             .ConfigureAwait(false);
 
-        if (initMetadata == null || string.IsNullOrWhiteSpace(initMetadata.UploadUri))
+        if (initResponse?.File == null)
         {
-            // The exception now includes more context for debugging.
+            throw new InvalidOperationException("Gemini did not return file metadata for the provided invoice. The response from the server may be missing required fields.");
+        }
+
+        if (string.IsNullOrWhiteSpace(initResponse.UploadUri))
+        {
             throw new InvalidOperationException("Gemini did not return an upload URI for the provided invoice. The response from the server may be missing required fields.");
         }
+
+        var initMetadata = initResponse.File;
 
         buffer.Position = 0;
         using var uploadContent = new StreamContent(buffer, 81920);
         uploadContent.Headers.ContentType = new MediaTypeHeaderValue(PdfMimeType);
 
-        using (var uploadRequest = new HttpRequestMessage(HttpMethod.Put, initMetadata.UploadUri)
+        using (var uploadRequest = new HttpRequestMessage(HttpMethod.Put, initResponse.UploadUri)
         {
             Content = uploadContent
         })
@@ -787,8 +793,14 @@ If you cannot find evidence in the PDF for a field, clearly state that in the ex
         public string MimeType { get; set; } = PdfMimeType;
     }
 
-    // Class for the initial POST response body - this was removed as the response is flat.
-    // private sealed class UploadFileResponse { ... }
+    private sealed class GenerateUploadUrlResponse
+    {
+        [JsonPropertyName("uploadUri")]
+        public string? UploadUri { get; set; }
+
+        [JsonPropertyName("file")]
+        public GeminiFileMetadata? File { get; set; }
+    }
 
     // Class representing the File resource itself. This is used for the response.
     private sealed class GeminiFileMetadata
