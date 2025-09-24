@@ -24,6 +24,7 @@ public class InvoiceController : ControllerBase
     public class InvoiceVerificationRequest
     {
         public IFormFile? File { get; set; }
+        public string? VendorName { get; set; }
         public string? InvoiceNumber { get; set; }
         public string? PurchaseOrderNumber { get; set; }
         public string? TotalAmount { get; set; }
@@ -48,6 +49,7 @@ public class InvoiceController : ControllerBase
             await using var stream = request.File.OpenReadStream();
             var result = await _verificationService.VerifyAsync(
                 stream,
+                request.VendorName ?? string.Empty,
                 request.InvoiceNumber ?? string.Empty,
                 request.PurchaseOrderNumber ?? string.Empty,
                 request.TotalAmount ?? string.Empty,
