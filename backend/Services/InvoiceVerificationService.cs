@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -38,9 +40,12 @@ EXPECTED JSON STRUCTURE:
 }
 """;
 
+    private static readonly Uri GeminiBaseUri = new("https://generativelanguage.googleapis.com/v1beta/");
+
     private readonly ILogger<InvoiceVerificationService> _logger;
-    private readonly GeminiModel _geminiModel;
-    private readonly FileClient _fileClient;
+    private readonly HttpClient _httpClient;
+    private readonly string _apiKey;
+    private readonly string _model;
     private readonly JsonSerializerOptions _deserializationOptions;
     private readonly JsonSerializerOptions _serializationOptions;
     private readonly TimeSpan _fileStatusPollInterval;
@@ -50,23 +55,22 @@ EXPECTED JSON STRUCTURE:
     {
         _logger = logger;
 
-        var apiKey = configuration["Gemini:ApiKey"]
-                     ?? configuration["GoogleAI:ApiKey"]
-                     ?? configuration["Google:ApiKey"];
+        _apiKey = configuration["Gemini:ApiKey"]
+                  ?? configuration["GoogleAI:ApiKey"]
+                  ?? configuration["Google:ApiKey"]
+                  ?? throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' in configuration.");
 
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new InvalidOperationException("Gemini API key is not configured. Set 'Gemini:ApiKey' in configuration.");
-        }
-
-        var modelName = configuration["Gemini:Model"] ?? DefaultModel;
+        var configuredModel = configuration["Gemini:Model"];
+        _model = NormalizeModelName(configuredModel);
         var pollSeconds = Math.Max(1, configuration.GetValue<int?>("Gemini:FileStatusPollSeconds") ?? 2);
         var timeoutSeconds = Math.Max(pollSeconds, configuration.GetValue<int?>("Gemini:FileProcessingTimeoutSeconds") ?? 300);
 
-        _geminiModel = new GeminiModel(apiKey, modelName);
-        _geminiModel.TimeoutForFileStateCheck = timeoutSeconds;
-
-        _fileClient = _geminiModel.Files ?? throw new InvalidOperationException("Gemini file client could not be initialized.");
+        _httpClient = new HttpClient
+        {
+            BaseAddress = GeminiBaseUri,
+            Timeout = TimeSpan.FromSeconds(Math.Max(timeoutSeconds + 30, 330))
+        };
+        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         _deserializationOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
@@ -114,35 +118,82 @@ EXPECTED JSON STRUCTURE:
         return result;
     }
 
-    private async Task<RemoteFile> UploadAndActivateAsync(Stream pdfStream, CancellationToken cancellationToken)
+    private async Task<GeminiFileMetadata> UploadAndActivateAsync(Stream pdfStream, CancellationToken cancellationToken)
     {
         await using var buffer = new MemoryStream();
         await pdfStream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
         buffer.Position = 0;
 
-        var displayName = $"invoice-{Guid.NewGuid():N}";
-        var uploaded = await _fileClient.UploadStreamAsync(buffer, displayName, PdfMimeType, cancellationToken: cancellationToken)
+        var initRequest = new UploadFileRequest
+        {
+            File = new UploadFileSpecification
+            {
+                DisplayName = $"invoice-{Guid.NewGuid():N}.pdf",
+                MimeType = PdfMimeType
+            }
+        };
+
+        var initResponse = await SendGeminiRequestAsync<UploadFileResponse>(HttpMethod.Post, "files:upload", initRequest, cancellationToken)
             .ConfigureAwait(false);
 
-        if (string.IsNullOrWhiteSpace(uploaded.Name))
+        if (initResponse?.File == null || string.IsNullOrWhiteSpace(initResponse.UploadUri))
         {
-            throw new InvalidOperationException("Gemini did not return a file identifier after upload.");
+            throw new InvalidOperationException("Gemini did not return an upload URI for the provided invoice.");
         }
 
+        buffer.Position = 0;
+        using var uploadContent = new StreamContent(buffer, 81920);
+        uploadContent.Headers.ContentType = new MediaTypeHeaderValue(PdfMimeType);
+
+        using (var uploadRequest = new HttpRequestMessage(HttpMethod.Put, initResponse.UploadUri)
+        {
+            Content = uploadContent
+        })
+        {
+            using var uploadResponse = await _httpClient.SendAsync(uploadRequest, cancellationToken).ConfigureAwait(false);
+            var uploadBody = await uploadResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!uploadResponse.IsSuccessStatusCode)
+            {
+                var error = TryExtractErrorMessage(uploadBody) ?? uploadResponse.ReasonPhrase ?? "Unknown upload failure";
+                throw new InvalidOperationException($"Gemini failed to accept the uploaded invoice: {error}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(uploadBody))
+            {
+                try
+                {
+                    var parsed = JsonSerializer.Deserialize<GeminiFileMetadata>(uploadBody, _deserializationOptions);
+                    if (parsed != null)
+                    {
+                        initResponse.File = parsed;
+                    }
+                }
+                catch (JsonException jsonEx)
+                {
+                    _logger.LogDebug(jsonEx, "Gemini upload response was not standard JSON: {Body}", uploadBody);
+                }
+            }
+        }
+
+        var fileName = EnsureFileName(initResponse.File.Name);
         var deadline = DateTime.UtcNow + _fileProcessingTimeout;
+
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var current = await _fileClient.GetFileAsync(uploaded.Name, cancellationToken).ConfigureAwait(false);
-            switch (current.State)
+            var metadata = await FetchFileMetadataAsync(fileName, cancellationToken).ConfigureAwait(false);
+            switch (metadata.State?.ToUpperInvariant())
             {
-                case FileState.ACTIVE:
-                    return current;
-                case FileState.FAILED:
-                    throw new InvalidOperationException($"Gemini failed to process the uploaded invoice: {current.Error?.Message ?? "Unknown error"}.");
-                case FileState.PROCESSING:
-                case FileState.STATE_UNSPECIFIED:
+                case "ACTIVE":
+                    return metadata;
+                case "FAILED":
+                    throw new InvalidOperationException($"Gemini failed to process the uploaded invoice: {metadata.Error?.Message ?? "Unknown error"}.");
+                case "PROCESSING":
+                case null:
+                    break;
+                default:
+                    _logger.LogDebug("Gemini returned intermediate file state {State} for {File}", metadata.State, metadata.Name);
                     break;
             }
 
@@ -155,23 +206,51 @@ EXPECTED JSON STRUCTURE:
         }
     }
 
-    private async Task<GeminiExtractionResult> ExtractInvoiceDataAsync(RemoteFile file, CancellationToken cancellationToken)
+    private async Task<GeminiExtractionResult> ExtractInvoiceDataAsync(GeminiFileMetadata file, CancellationToken cancellationToken)
     {
-        var request = new GenerateContentRequest();
-        request.UseJsonMode<GeminiInvoiceExtraction>(_deserializationOptions);
-        request.AddRemoteFile(file);
-        request.AddText(ExtractionPrompt);
+        var fileUri = !string.IsNullOrWhiteSpace(file.Uri)
+            ? file.Uri!
+            : new Uri(_httpClient.BaseAddress!, EnsureFileName(file.Name)).ToString();
 
-        var response = await _geminiModel.GenerateContentAsync(request, cancellationToken).ConfigureAwait(false);
+        var request = new GenerateContentPayload
+        {
+            Contents =
+            {
+                new GeminiContent
+                {
+                    Role = "user",
+                    Parts =
+                    {
+                        new GeminiPart { Text = ExtractionPrompt },
+                        new GeminiPart
+                        {
+                            FileData = new GeminiFileData
+                            {
+                                MimeType = PdfMimeType,
+                                FileUri = fileUri
+                            }
+                        }
+                    }
+                }
+            },
+            GenerationConfig = new GeminiGenerationConfig
+            {
+                ResponseMimeType = "application/json"
+            }
+        };
+
+        var response = await SendGeminiRequestAsync<GenerateContentResponse>(HttpMethod.Post, $"models/{_model}:generateContent", request, cancellationToken)
+            .ConfigureAwait(false);
+
         if (response == null)
         {
             return new GeminiExtractionResult(null, string.Empty);
         }
 
-        var extraction = response.ToObject<GeminiInvoiceExtraction>(_deserializationOptions);
-        var raw = response.Text()?.Trim() ?? string.Empty;
+        var raw = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+        GeminiInvoiceExtraction? extraction = null;
 
-        if (extraction == null && !string.IsNullOrEmpty(raw))
+        if (!string.IsNullOrWhiteSpace(raw))
         {
             try
             {
@@ -332,6 +411,324 @@ EXPECTED JSON STRUCTURE:
         }
 
         return $"You entered '{field.Provided}', but AI detected '{field.Found}' for {field.Label}.";
+    }
+
+    private static string NormalizeModelName(string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return TrimModelPrefix(DefaultModel);
+        }
+
+        return TrimModelPrefix(model);
+
+        static string TrimModelPrefix(string value)
+        {
+            return value.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
+                ? value[7..]
+                : value;
+        }
+    }
+
+    private async Task<GeminiFileMetadata> FetchFileMetadataAsync(string fileName, CancellationToken cancellationToken)
+    {
+        var path = EnsureFileName(fileName);
+        var response = await SendGeminiRequestAsync<GeminiFileMetadata>(HttpMethod.Get, path, body: null, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response == null)
+        {
+            throw new InvalidOperationException($"Gemini did not return metadata for file '{fileName}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(response.Uri))
+        {
+            response.Uri = new Uri(_httpClient.BaseAddress!, EnsureFileName(response.Name)).ToString();
+        }
+
+        return response;
+    }
+
+    private async Task<T?> SendGeminiRequestAsync<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
+    {
+        var uriBuilder = new StringBuilder(path);
+        if (!path.Contains('?', StringComparison.Ordinal))
+        {
+            uriBuilder.Append('?');
+        }
+        else
+        {
+            uriBuilder.Append('&');
+        }
+
+        uriBuilder.Append("key=");
+        uriBuilder.Append(Uri.EscapeDataString(_apiKey));
+
+        using var request = new HttpRequestMessage(method, uriBuilder.ToString());
+
+        if (body != null)
+        {
+            var payload = JsonSerializer.Serialize(body, _serializationOptions);
+            request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        }
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorMessage = TryExtractErrorMessage(content) ?? response.ReasonPhrase ?? "Unknown Gemini API error";
+            throw new InvalidOperationException($"Gemini API request to '{path}' failed with status {(int)response.StatusCode}: {errorMessage}");
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return default;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(content, _deserializationOptions);
+        }
+        catch (JsonException jsonEx)
+        {
+            throw new InvalidOperationException($"Gemini API returned unexpected payload for '{path}': {content}", jsonEx);
+        }
+    }
+
+    private static string EnsureFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new InvalidOperationException("Gemini did not return a file name for the uploaded invoice.");
+        }
+
+        return name.StartsWith("files/", StringComparison.OrdinalIgnoreCase) ? name : $"files/{name}";
+    }
+
+    private static string? ExtractTextResponse(GenerateContentResponse response)
+    {
+        if (response.Candidates == null || response.Candidates.Count == 0)
+        {
+            return response.PromptFeedback?.BlockReason;
+        }
+
+        foreach (var candidate in response.Candidates)
+        {
+            if (candidate?.Content?.Parts == null)
+            {
+                continue;
+            }
+
+            foreach (var part in candidate.Content.Parts)
+            {
+                if (!string.IsNullOrWhiteSpace(part?.Text))
+                {
+                    return part.Text;
+                }
+
+                if (!string.IsNullOrWhiteSpace(part?.InlineData?.Data))
+                {
+                    try
+                    {
+                        var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(part.InlineData.Data));
+                        if (!string.IsNullOrWhiteSpace(decoded))
+                        {
+                            return decoded;
+                        }
+                    }
+                    catch (FormatException)
+                    {
+                        // Ignore invalid base64 payloads and continue searching for usable content.
+                    }
+                }
+            }
+        }
+
+        if (result.Explanations.Count == 0)
+        {
+            result.Explanations.Add("AI could not extract enough details from the invoice to explain the discrepancies.");
+        }
+    }
+
+    private static string? TryExtractErrorMessage(string? responseContent)
+    {
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            return $"AI confirmed {field.Label} matches the document.";
+        }
+        try
+        {
+            using var document = JsonDocument.Parse(responseContent);
+            if (document.RootElement.TryGetProperty("error", out var errorElement))
+            {
+                if (errorElement.TryGetProperty("message", out var messageElement))
+                {
+                    return messageElement.GetString();
+                }
+
+                if (errorElement.TryGetProperty("status", out var statusElement))
+                {
+                    return statusElement.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private sealed class UploadFileRequest
+    {
+        [JsonPropertyName("file")]
+        public UploadFileSpecification File { get; set; } = new();
+    }
+
+    private sealed class UploadFileSpecification
+    {
+        [JsonPropertyName("display_name")]
+        public string DisplayName { get; set; } = string.Empty;
+
+        [JsonPropertyName("mime_type")]
+        public string MimeType { get; set; } = PdfMimeType;
+    }
+
+    private sealed class UploadFileResponse
+    {
+        [JsonPropertyName("file")]
+        public GeminiFileMetadata File { get; set; } = new();
+
+        [JsonPropertyName("upload_uri")]
+        public string? UploadUri { get; set; }
+    }
+
+    private sealed class GeminiFileMetadata
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("display_name")]
+        public string? DisplayName { get; set; }
+
+        [JsonPropertyName("mime_type")]
+        public string? MimeType { get; set; }
+
+        [JsonPropertyName("uri")]
+        public string? Uri { get; set; }
+
+        [JsonPropertyName("state")]
+        public string? State { get; set; }
+
+        [JsonPropertyName("error")]
+        public GeminiError? Error { get; set; }
+    }
+
+    private sealed class GeminiError
+    {
+        [JsonPropertyName("code")]
+        public int? Code { get; set; }
+
+        [JsonPropertyName("message")]
+        public string? Message { get; set; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
+    }
+
+    private sealed class GenerateContentPayload
+    {
+        [JsonPropertyName("contents")]
+        public List<GeminiContent> Contents { get; } = new();
+
+        [JsonPropertyName("generation_config")]
+        public GeminiGenerationConfig? GenerationConfig { get; set; }
+    }
+
+    private sealed class GeminiGenerationConfig
+    {
+        [JsonPropertyName("response_mime_type")]
+        public string? ResponseMimeType { get; set; }
+    }
+
+    private sealed class GeminiContent
+    {
+        [JsonPropertyName("role")]
+        public string? Role { get; set; }
+
+        [JsonPropertyName("parts")]
+        public List<GeminiPart> Parts { get; } = new();
+    }
+
+    private sealed class GeminiPart
+    {
+        [JsonPropertyName("text")]
+        public string? Text { get; set; }
+
+        [JsonPropertyName("file_data")]
+        public GeminiFileData? FileData { get; set; }
+
+        [JsonPropertyName("inline_data")]
+        public GeminiInlineData? InlineData { get; set; }
+    }
+
+    private sealed class GeminiFileData
+    {
+        [JsonPropertyName("mime_type")]
+        public string? MimeType { get; set; }
+
+        [JsonPropertyName("file_uri")]
+        public string? FileUri { get; set; }
+    }
+
+    private sealed class GeminiInlineData
+    {
+        [JsonPropertyName("mime_type")]
+        public string? MimeType { get; set; }
+
+        [JsonPropertyName("data")]
+        public string? Data { get; set; }
+    }
+
+    private sealed class GenerateContentResponse
+    {
+        [JsonPropertyName("candidates")]
+        public List<GeminiCandidate>? Candidates { get; set; }
+
+        [JsonPropertyName("prompt_feedback")]
+        public GeminiPromptFeedback? PromptFeedback { get; set; }
+    }
+
+    private sealed class GeminiCandidate
+    {
+        [JsonPropertyName("content")]
+        public GeminiContent? Content { get; set; }
+
+        [JsonPropertyName("finish_reason")]
+        public string? FinishReason { get; set; }
+    }
+
+    private sealed class GeminiPromptFeedback
+    {
+        [JsonPropertyName("block_reason")]
+        public string? BlockReason { get; set; }
+
+        [JsonPropertyName("safety_ratings")]
+        public List<GeminiSafetyRating>? SafetyRatings { get; set; }
+    }
+
+    private sealed class GeminiSafetyRating
+    {
+        [JsonPropertyName("category")]
+        public string? Category { get; set; }
+
+        [JsonPropertyName("probability")]
+        public string? Probability { get; set; }
+
+        [JsonPropertyName("blocked")]
+        public bool? Blocked { get; set; }
     }
 
     private sealed record GeminiExtractionResult(GeminiInvoiceExtraction? Data, string RawResponse);
