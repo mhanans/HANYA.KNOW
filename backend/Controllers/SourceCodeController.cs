@@ -33,8 +33,8 @@ public class SourceCodeController : ControllerBase
     {
         try
         {
-            var status = await _syncService.SyncAsync(cancellationToken);
-            return Ok(status);
+            var status = await _syncService.StartSyncInBackgroundAsync(cancellationToken);
+            return Accepted(status);
         }
         catch (InvalidOperationException ex)
         {

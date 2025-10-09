@@ -83,7 +83,13 @@ public class SourceCodeSyncService
         return status;
     }
 
-    public async Task<SourceCodeSyncStatus> SyncAsync(CancellationToken cancellationToken = default)
+    public Task<SourceCodeSyncStatus> SyncAsync(CancellationToken cancellationToken = default)
+        => RunSyncAsync(waitForCompletion: true, cancellationToken);
+
+    public Task<SourceCodeSyncStatus> StartSyncInBackgroundAsync(CancellationToken cancellationToken = default)
+        => RunSyncAsync(waitForCompletion: false, cancellationToken);
+
+    private async Task<SourceCodeSyncStatus> RunSyncAsync(bool waitForCompletion, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_connectionString))
             throw new InvalidOperationException("Postgres connection string is not configured.");
@@ -96,83 +102,121 @@ public class SourceCodeSyncService
         _currentJobId = jobId;
         _currentStartedAt = startedAt;
 
+        if (!waitForCompletion)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await RunSyncJobAsync(jobId, startedAt, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Source code sync failed");
+                    await PersistFailureAsync(ex);
+                }
+                finally
+                {
+                    CompleteJob();
+                }
+            });
+
+            return await GetStatusAsync(CancellationToken.None);
+        }
+
         try
         {
-            var root = ResolveSourceRoot();
-            if (!Directory.Exists(root))
-            {
-                Directory.CreateDirectory(root);
-                _logger.LogWarning("Source code directory {Root} did not exist. Created the directory but there are no files to ingest.", root);
-            }
-
-            var includeExtensions = (_options.IncludeExtensions?.Length ?? 0) > 0
-                ? new HashSet<string>(_options.IncludeExtensions.Select(e => e.StartsWith('.') ? e : "." + e), StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(new[] { ".cs", ".cshtml", ".ts", ".tsx", ".js", ".jsx", ".py", ".java" }, StringComparer.OrdinalIgnoreCase);
-            var excludeDirectories = (_options.ExcludeDirectories?.Length ?? 0) > 0
-                ? new HashSet<string>(_options.ExcludeDirectories, StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(new[] { ".git", "node_modules", "bin", "obj", "dist", "build" }, StringComparer.OrdinalIgnoreCase);
-
-            var files = EnumerateFiles(root, includeExtensions, excludeDirectories).ToList();
-            _logger.LogInformation("Discovered {Count} source files for ingestion under {Root}", files.Count, root);
-
-            await using var conn = new NpgsqlConnection(_connectionString);
-            await conn.OpenAsync(cancellationToken);
-            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
-
-            await InsertJobAsync(conn, tx, jobId, startedAt);
-
-            var totalFiles = 0;
-            var totalChunks = 0;
-
-            foreach (var file in files)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var relativePath = NormalizePath(Path.GetRelativePath(root, file));
-                var content = await File.ReadAllTextAsync(file, cancellationToken);
-                var chunks = ChunkFile(content, relativePath);
-
-                await DeleteExistingEmbeddingsAsync(conn, tx, relativePath, cancellationToken);
-
-                foreach (var chunk in chunks)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var embedding = await _embeddingClient.EmbedAsync(chunk.Content);
-                    if (embedding == null || embedding.Length == 0)
-                        throw new InvalidOperationException($"Embedding service returned an empty vector for {relativePath}.");
-                    if (embedding.Length != _expectedDimensions)
-                        throw new InvalidOperationException($"Embedding dimension mismatch. Expected {_expectedDimensions} but got {embedding.Length}.");
-
-                    await InsertEmbeddingAsync(conn, tx, relativePath, chunk, embedding, cancellationToken);
-                    totalChunks++;
-                }
-
-                totalFiles++;
-            }
-
-            var completedAt = DateTimeOffset.UtcNow;
-            var duration = (completedAt - startedAt).TotalSeconds;
-
-            await UpdateJobAsync(conn, tx, jobId, completedAt, "completed", null, totalFiles, totalChunks, duration, cancellationToken);
-            await tx.CommitAsync(cancellationToken);
-
-            _logger.LogInformation("Source code sync completed successfully in {Seconds:F1}s ({Files} files, {Chunks} chunks)", duration, totalFiles, totalChunks);
-            return await GetStatusAsync(cancellationToken);
+            await RunSyncJobAsync(jobId, startedAt, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Source code sync failed");
-            await PersistFailureAsync(ex, cancellationToken);
+            await PersistFailureAsync(ex);
             throw;
         }
         finally
         {
-            _currentJobId = null;
-            _currentStartedAt = null;
-            _gate.Release();
+            CompleteJob();
         }
+
+        return await GetStatusAsync(CancellationToken.None);
     }
 
-    private async Task PersistFailureAsync(Exception ex, CancellationToken cancellationToken)
+    private async Task RunSyncJobAsync(Guid jobId, DateTimeOffset startedAt, CancellationToken cancellationToken)
+    {
+        var root = ResolveSourceRoot();
+        if (!Directory.Exists(root))
+        {
+            Directory.CreateDirectory(root);
+            _logger.LogWarning("Source code directory {Root} did not exist. Created the directory but there are no files to ingest.", root);
+        }
+
+        var includeExtensions = (_options.IncludeExtensions?.Length ?? 0) > 0
+            ? new HashSet<string>(_options.IncludeExtensions.Select(e => e.StartsWith('.') ? e : "." + e), StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(new[] { ".cs", ".cshtml", ".ts", ".tsx", ".js", ".jsx", ".py", ".java" }, StringComparer.OrdinalIgnoreCase);
+        var excludeDirectories = (_options.ExcludeDirectories?.Length ?? 0) > 0
+            ? new HashSet<string>(_options.ExcludeDirectories, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(new[] { ".git", "node_modules", "bin", "obj", "dist", "build" }, StringComparer.OrdinalIgnoreCase);
+
+        var files = EnumerateFiles(root, includeExtensions, excludeDirectories).ToList();
+        _logger.LogInformation("Discovered {Count} source files for ingestion under {Root}", files.Count, root);
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+
+        await InsertJobAsync(conn, tx, jobId, startedAt);
+
+        var totalFiles = 0;
+        var totalChunks = 0;
+
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relativePath = NormalizePath(Path.GetRelativePath(root, file));
+            var content = await File.ReadAllTextAsync(file, cancellationToken);
+            var chunks = ChunkFile(content, relativePath);
+
+            await DeleteExistingEmbeddingsAsync(conn, tx, relativePath, cancellationToken);
+
+            foreach (var chunk in chunks)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var embedding = await _embeddingClient.EmbedAsync(chunk.Content);
+                if (embedding == null || embedding.Length == 0)
+                    throw new InvalidOperationException($"Embedding service returned an empty vector for {relativePath}.");
+                if (embedding.Length != _expectedDimensions)
+                    throw new InvalidOperationException($"Embedding dimension mismatch. Expected {_expectedDimensions} but got {embedding.Length}.");
+
+                await InsertEmbeddingAsync(conn, tx, relativePath, chunk, embedding, cancellationToken);
+                totalChunks++;
+            }
+
+            totalFiles++;
+        }
+
+        var completedAt = DateTimeOffset.UtcNow;
+        var duration = (completedAt - startedAt).TotalSeconds;
+
+        await UpdateJobAsync(conn, tx, jobId, completedAt, "completed", null, totalFiles, totalChunks, duration, cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+
+        _logger.LogInformation("Source code sync completed successfully in {Seconds:F1}s ({Files} files, {Chunks} chunks)", duration, totalFiles, totalChunks);
+    }
+
+    private void CompleteJob()
+    {
+        _currentJobId = null;
+        _currentStartedAt = null;
+        if (_gate.CurrentCount == 0)
+            _gate.Release();
+    }
+
+    private async Task PersistFailureAsync(Exception ex)
     {
         if (!_currentJobId.HasValue || string.IsNullOrWhiteSpace(_connectionString))
             return;
@@ -180,7 +224,7 @@ public class SourceCodeSyncService
         try
         {
             await using var conn = new NpgsqlConnection(_connectionString);
-            await conn.OpenAsync(cancellationToken);
+            await conn.OpenAsync();
             const string sql = @"UPDATE code_sync_jobs
                                    SET completed_at = @completed,
                                        status = 'failed',
@@ -190,7 +234,7 @@ public class SourceCodeSyncService
             cmd.Parameters.AddWithValue("completed", ToUtcDateTime(DateTimeOffset.UtcNow));
             cmd.Parameters.AddWithValue("details", ex.Message);
             cmd.Parameters.AddWithValue("id", _currentJobId.Value);
-            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            await cmd.ExecuteNonQueryAsync();
         }
         catch (Exception persistEx)
         {
