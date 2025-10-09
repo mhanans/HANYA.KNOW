@@ -24,8 +24,41 @@ public class ChatController : ControllerBase
     private readonly ChatOptions _options;
     private readonly StatsStore _stats;
     private readonly ConversationStore _conversations;
+    private readonly CodeEmbeddingStore _codeStore;
+    private readonly SourceCodeOptions _codeOptions;
 
-    public ChatController(VectorStore store, LlmClient llm, ILogger<ChatController> logger, IMemoryCache cache, IOptions<ChatOptions> options, StatsStore stats, ConversationStore conversations)
+    private const string DefaultSourceCodePrompt = """
+# ROLE AND GOAL
+You are an expert Principal Software Engineer and a world-class code analyst. Your sole purpose is to answer questions about a software project based *exclusively* on the provided source code context. You must be precise, factual, and helpful.
+
+# DIRECTIVES
+1.  **STRICTLY CONTEXT-BASED:** Base 100% of your answer on the `--- CODE CONTEXT ---` provided below. Do not invent, assume, or use any external knowledge.
+2.  **NO INFORMATION BEYOND CONTEXT:** If the answer cannot be found in the provided context, you MUST respond with: "I'm sorry, but the provided code context does not contain enough information to answer that question."
+3.  **CITE YOUR SOURCES:** When explaining a piece of logic, explicitly mention the file and function/class name from which you are drawing the information. For example: "The request validation is handled in the `validateLogin` function within `src/middleware/validators.js`."
+4.  **BE STRUCTURED:** Use markdown, bullet points, and numbered lists to explain complex flows or concepts clearly.
+5.  **ASSUME A TECHNICAL AUDIENCE:** Explain concepts clearly, but you can assume the user is a software developer.
+
+--- CODE CONTEXT ---
+{retrieved_code_chunks}
+--- END CODE CONTEXT ---
+
+# USER'S QUESTION
+The user has asked the following question: "{user_question}"
+
+# YOUR ANALYSIS AND RESPONSE
+(Provide your detailed, structured, and well-cited answer here based on the directives above.)
+""";
+
+    public ChatController(
+        VectorStore store,
+        LlmClient llm,
+        ILogger<ChatController> logger,
+        IMemoryCache cache,
+        IOptions<ChatOptions> options,
+        StatsStore stats,
+        ConversationStore conversations,
+        CodeEmbeddingStore codeStore,
+        IOptions<SourceCodeOptions> codeOptions)
     {
         _store = store;
         _llm = llm;
@@ -34,6 +67,8 @@ public class ChatController : ControllerBase
         _options = options.Value;
         _stats = stats;
         _conversations = conversations;
+        _codeStore = codeStore;
+        _codeOptions = codeOptions.Value;
     }
 
     [HttpPost("query")]
@@ -85,6 +120,110 @@ public class ChatController : ControllerBase
             LowConfidence = isLowConfidence,
             ConversationId = ragPayload.ConversationId
         };
+    }
+
+    [HttpPost("source-code")]
+    public async Task<ActionResult<SourceCodeChatResponse>> SourceCode(SourceCodeChatRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Question))
+            return BadRequest("Question is required.");
+
+        var topK = request.TopK ?? _codeOptions.DefaultTopK;
+        if (topK <= 0)
+            return BadRequest("TopK must be greater than 0.");
+
+        var sessionId = request.SessionId;
+        if (string.IsNullOrWhiteSpace(sessionId) || !_conversations.Exists(sessionId))
+            sessionId = _conversations.CreateConversation();
+        var history = _conversations.GetOrCreate(sessionId);
+
+        IReadOnlyList<CodeEmbeddingMatch> matches;
+        try
+        {
+            matches = await _codeStore.SearchAsync(request.Question, topK);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Source code search failed for question {Question}", request.Question);
+            return Problem(detail: ex.Message, statusCode: 502, title: "Source code search failed");
+        }
+
+        var relevant = matches
+            .Where(m => m.Score >= _codeOptions.SimilarityThreshold)
+            .ToList();
+
+        var contextBuilder = new StringBuilder();
+        foreach (var match in relevant)
+        {
+            contextBuilder.AppendLine($"// File: {match.FilePath}");
+            if (!string.IsNullOrWhiteSpace(match.SymbolName))
+                contextBuilder.AppendLine($"// Symbol: {match.SymbolName}");
+            if (match.StartLine.HasValue || match.EndLine.HasValue)
+            {
+                var start = match.StartLine ?? match.EndLine ?? 0;
+                var end = match.EndLine ?? match.StartLine ?? 0;
+                contextBuilder.AppendLine($"// Lines: {start}-{end}");
+            }
+            contextBuilder.AppendLine(match.Content.TrimEnd());
+            contextBuilder.AppendLine();
+        }
+
+        if (contextBuilder.Length == 0)
+        {
+            contextBuilder.AppendLine("No relevant source code snippets met the similarity threshold.");
+        }
+
+        var template = string.IsNullOrWhiteSpace(_codeOptions.PromptTemplate)
+            ? DefaultSourceCodePrompt
+            : _codeOptions.PromptTemplate;
+
+        var prompt = template
+            .Replace("{retrieved_code_chunks}", contextBuilder.ToString().Trim())
+            .Replace("{user_question}", request.Question);
+
+        history.Add(new ChatMessage("user", prompt));
+
+        string answer;
+        try
+        {
+            answer = await _llm.GenerateAsync(history);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LLM generation failed for source code question {Question}", request.Question);
+            return Problem(detail: $"LLM call failed: {ex.Message}", statusCode: 502, title: "Generation failed");
+        }
+
+        history.Add(new ChatMessage("assistant", answer));
+
+        var response = new SourceCodeChatResponse
+        {
+            Answer = answer,
+            SessionId = sessionId,
+            Sources = relevant.Select((match, index) => new CodeAnswerSource
+            {
+                Id = match.Id,
+                Order = index + 1,
+                FilePath = match.FilePath,
+                SymbolName = match.SymbolName,
+                StartLine = match.StartLine,
+                EndLine = match.EndLine,
+                Score = match.Score,
+                Content = match.Content
+            }).ToList(),
+            LowConfidence = !relevant.Any()
+        };
+
+        try
+        {
+            await _stats.LogChatAsync(request.Question);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to log source code chat question {Question}", request.Question);
+        }
+
+        return Ok(response);
     }
 
     [HttpGet("stream")]
@@ -283,3 +422,30 @@ public class Source
 }
 
 public record ConversationInfo(string Id, DateTime Created, string FirstMessage);
+
+public class SourceCodeChatRequest
+{
+    public string Question { get; set; } = string.Empty;
+    public string? SessionId { get; set; }
+    public int? TopK { get; set; }
+}
+
+public class SourceCodeChatResponse
+{
+    public string Answer { get; set; } = string.Empty;
+    public List<CodeAnswerSource> Sources { get; set; } = new();
+    public string SessionId { get; set; } = string.Empty;
+    public bool LowConfidence { get; set; }
+}
+
+public class CodeAnswerSource
+{
+    public Guid Id { get; set; }
+    public int Order { get; set; }
+    public string FilePath { get; set; } = string.Empty;
+    public string? SymbolName { get; set; }
+    public int? StartLine { get; set; }
+    public int? EndLine { get; set; }
+    public double Score { get; set; }
+    public string Content { get; set; } = string.Empty;
+}

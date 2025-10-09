@@ -46,6 +46,14 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
 
    Include the configured API key in every request using an `X-API-KEY` header. The running server exposes Swagger UI at `/swagger`, where you can authorize with the key and invoke endpoints for testing.
 
+### Source Code Embeddings
+
+1. Place the repository you want to index under `backend/source-code/` (create the folder if it does not exist).
+2. Trigger a sync from the admin UI (**Source Code Q&A** page) or by calling `POST /api/source-code/sync`.
+3. Monitor progress and review the latest run via `GET /api/source-code/status`. The service reports whether a job is running, the timestamps of the last execution, duration in seconds, and how many files/chunks were processed.
+
+The backend skips common build directories (`node_modules`, `.git`, `dist`, `bin`, `obj`, etc.), chunks files by line ranges, and updates the `code_embeddings` table in a single transaction. Adjust the behaviour via the `SourceCode` section in configuration (extensions, ignored folders, chunk size/overlap).
+
 ## Frontend
 1. Install dependencies:
    ```bash

@@ -32,6 +32,9 @@ MVP knowledge base with retrieval augmented generation.
 - `GET /api/ui` – list available UI pages for role mapping
   - `POST /api/vector/search` – vector similarity search
 - `POST /api/chat/query` – hybrid vector + full-text retrieval with scored citations; returns a friendly message prompting knowledge upload when no relevant context is found
+- `POST /api/chat/source-code` – answer questions about the tracked source code repository with inline citations to files and line ranges
+- `GET /api/source-code/status` – report the latest source code sync job, duration, and processed counts
+- `POST /api/source-code/sync` – crawl the configured source folder, regenerate embeddings, and update the `code_embeddings` table
 - `GET /api/chat/history` – list chat conversations
 - `GET /api/chat/history/{id}` – retrieve a conversation's messages
 - `GET /api/stats` – usage metrics for the dashboard
@@ -66,6 +69,7 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `Embedding: { BaseUrl, Model, Provider, Dimensions }`
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `Chat: { CooldownSeconds }` – minimum seconds a client must wait between chat requests
+- `SourceCode: { DefaultTopK, SimilarityThreshold, PromptTemplate, SourceDirectory, IncludeExtensions, ExcludeDirectories, ChunkSize, ChunkOverlap }` – tuning and ingestion options for the Source Code Q&A feature
 - `ApiKey` – shared secret required in `X-API-KEY` header for all API calls
 - `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_API_KEY` for the frontend (configure in `.env.local`; see `frontend/.env.local.example`)
 
@@ -77,4 +81,8 @@ curl -X POST http://localhost:11434/embed -H 'Content-Type: application/json' \
 ```
 The response must contain a non-empty array of numbers. If the payload differs, the server will surface the raw snippet in the error message.
 
-`Dimensions` defaults to 768 and must match the `vector(<dim>)` in `schema.sql`.
+- `Dimensions` defaults to 768 and must match the `vector(<dim>)` in `schema.sql`.
+
+### Source Code Q&A Ingestion
+
+Visit the **Source Code Q&A** page in the admin UI (or call `POST /api/source-code/sync`) to index the repository under `backend/source-code/`. The backend walks the folder, chunks files by line ranges, generates embeddings, and upserts records into the `code_embeddings` table. Use the page controls or `GET /api/source-code/status` to see the last run, duration, and number of processed files/chunks. The job automatically skips common build directories such as `node_modules`, `.git`, `dist`, `bin`, and `obj`.

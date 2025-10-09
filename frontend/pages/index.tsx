@@ -32,6 +32,7 @@ export default function Home() {
         <div className="quick-links">
           <Link href="/upload" className="btn btn-primary">Upload Document</Link>
           <Link href="/chat" className="btn btn-secondary">New Chat</Link>
+          <Link href="/source-code" className="btn btn-secondary">Source Code Q&amp;A</Link>
           <Link href="/cv" className="btn btn-secondary">Job Vacancy Analysis</Link>
           <Link href="/data-sources" className="btn btn-secondary">Data Sources</Link>
         </div>
