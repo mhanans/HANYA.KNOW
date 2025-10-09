@@ -17,6 +17,7 @@ public class UiStore
         "document-analytics",
         "chat",
         "chat-history",
+        "source-code",
         "cv",
         "data-sources",
         "invoice-verification",

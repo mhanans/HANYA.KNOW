@@ -22,6 +22,7 @@ const navSections: { title: string; links: NavItem[] }[] = [
     links: [
       { href: '/chat', label: 'New Chat', icon: '💬', key: 'chat' },
       { href: '/chat-history', label: 'Chat History', icon: '🕓', key: 'chat-history' },
+      { href: '/source-code', label: 'Source Code Q&A', icon: '🧩', key: 'source-code' },
     ],
   },
   {
@@ -157,7 +158,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
       </nav>
-      <main className={`main-content${router.pathname === '/chat' ? ' chat-page' : ''}`}>{children}</main>
+      <main className={`main-content${['/chat', '/source-code'].includes(router.pathname) ? ' chat-page' : ''}`}>{children}</main>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 -- PostgreSQL schema for HANYA.KNOW
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS categories (
     id SERIAL PRIMARY KEY,
@@ -115,6 +116,38 @@ CREATE TABLE IF NOT EXISTS tickets (
     reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS code_embeddings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    file_path TEXT NOT NULL,
+    symbol_name TEXT,
+    content TEXT NOT NULL,
+    start_line INTEGER,
+    end_line INTEGER,
+    checksum TEXT NOT NULL,
+    embedding vector(768) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_code_embeddings_embedding
+    ON code_embeddings USING hnsw (embedding vector_l2_ops);
+
+CREATE INDEX IF NOT EXISTS idx_code_embeddings_file_path
+    ON code_embeddings(file_path);
+
+CREATE TABLE IF NOT EXISTS code_sync_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    status TEXT NOT NULL,
+    details TEXT,
+    file_count INTEGER,
+    chunk_count INTEGER,
+    duration_seconds DOUBLE PRECISION
+);
+
+CREATE INDEX IF NOT EXISTS idx_code_sync_jobs_started_at
+    ON code_sync_jobs(started_at DESC);
 
 CREATE TABLE IF NOT EXISTS ticket_ai_assignments (
     id SERIAL PRIMARY KEY,

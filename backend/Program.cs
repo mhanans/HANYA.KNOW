@@ -70,6 +70,7 @@ builder.Services.Configure<PostgresOptions>(builder.Configuration.GetSection("Co
 builder.Services.Configure<EmbeddingOptions>(builder.Configuration.GetSection("Embedding"));
 builder.Services.AddSingleton<EmbeddingClient>();
 builder.Services.AddSingleton<VectorStore>();
+builder.Services.AddSingleton<CodeEmbeddingStore>();
 builder.Services.AddSingleton<CategoryStore>();
 builder.Services.AddSingleton<RoleStore>();
 builder.Services.AddSingleton<StatsStore>();
@@ -77,6 +78,7 @@ builder.Services.AddSingleton<RecommendationStore>();
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<SettingsStore>();
 builder.Services.AddSingleton<UiStore>();
+builder.Services.AddSingleton<SourceCodeSyncService>();
 builder.Services.AddSingleton<TicketCategoryStore>();
 builder.Services.AddSingleton<PicStore>();
 builder.Services.AddSingleton<TicketStore>();
@@ -89,6 +91,7 @@ builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat")
 builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSection("Recommendation"));
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
+builder.Services.Configure<SourceCodeOptions>(builder.Configuration.GetSection("SourceCode"));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
