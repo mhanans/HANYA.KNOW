@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
 import { apiFetch } from '../lib/api';
 
 interface CodeSource {
@@ -30,6 +31,22 @@ interface SyncStatus {
   lastDurationSeconds?: number;
 }
 
+interface GitHubStatus {
+  isConfigured: boolean;
+  isConnected: boolean;
+  login?: string;
+  avatarUrl?: string;
+}
+
+interface GitHubRepository {
+  id: number;
+  name: string;
+  fullName: string;
+  description?: string;
+  private: boolean;
+  defaultBranch: string;
+}
+
 const SendIcon = ({ disabled }: { disabled: boolean }) => (
   <svg
     width="24"
@@ -52,6 +69,14 @@ export default function SourceCodeChat() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [syncInFlight, setSyncInFlight] = useState(false);
+  const router = useRouter();
+  const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
+  const [githubError, setGitHubError] = useState('');
+  const [repos, setRepos] = useState<GitHubRepository[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [exchangeInFlight, setExchangeInFlight] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const initials = 'AD';
 
@@ -89,11 +114,162 @@ export default function SourceCodeChat() {
     }
   };
 
+  const loadReposForStatus = useCallback(async (status?: GitHubStatus | null) => {
+    const effectiveStatus = status ?? githubStatus;
+    if (!effectiveStatus?.isConnected) {
+      setRepos([]);
+      setSelectedRepo('');
+      setSelectedBranch('');
+      return;
+    }
+
+    setReposLoading(true);
+    setGitHubError('');
+    try {
+      const res = await apiFetch('/api/github/repos');
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to load repositories.');
+      }
+      const list: GitHubRepository[] = await res.json();
+      setRepos(list);
+      if (list.length > 0) {
+        if (selectedRepo) {
+          const existing = list.find(repo => repo.fullName === selectedRepo);
+          if (existing) {
+            setSelectedBranch(existing.defaultBranch ?? '');
+          } else {
+            const fallback = list[0];
+            setSelectedRepo(fallback.fullName);
+            setSelectedBranch(fallback.defaultBranch ?? '');
+          }
+        } else {
+          setSelectedBranch('');
+        }
+      } else {
+        setSelectedRepo('');
+        setSelectedBranch('');
+      }
+    } catch (err: any) {
+      setGitHubError(err?.message || 'Failed to load GitHub repositories.');
+    } finally {
+      setReposLoading(false);
+    }
+  }, [githubStatus, selectedRepo]);
+
+  const loadGitHubStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/github/status');
+      if (!res.ok) return;
+      const body: GitHubStatus = await res.json();
+      setGithubStatus(body);
+      await loadReposForStatus(body);
+    } catch {
+      /* ignore */
+    }
+  }, [loadReposForStatus]);
+
+  const connectGitHub = async () => {
+    setGitHubError('');
+    try {
+      const res = await apiFetch('/api/github/login');
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Unable to start GitHub login.');
+      }
+      const body = await res.json();
+      if (!body?.url) throw new Error('Missing GitHub authorization URL.');
+      window.location.href = body.url;
+    } catch (err: any) {
+      setGitHubError(err?.message || 'Failed to start GitHub login.');
+    }
+  };
+
+  const disconnectGitHub = async () => {
+    setGitHubError('');
+    try {
+      const res = await apiFetch('/api/github/logout', { method: 'POST' });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to disconnect GitHub.');
+      }
+      setRepos([]);
+      setSelectedRepo('');
+      setSelectedBranch('');
+      await loadGitHubStatus();
+    } catch (err: any) {
+      setGitHubError(err?.message || 'Failed to disconnect GitHub.');
+    }
+  };
+
+  const refreshRepos = useCallback(async () => {
+    await loadReposForStatus();
+  }, [loadReposForStatus]);
+
+  const handleRepoChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    setSelectedRepo(value);
+    if (!value) {
+      setSelectedBranch('');
+      return;
+    }
+    const match = repos.find(repo => repo.fullName === value);
+    setSelectedBranch(match?.defaultBranch ?? '');
+  };
+
+  const handleBranchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setSelectedBranch(event.target.value);
+  };
+
+  const exchangeGitHub = useCallback(async (code: string, state: string) => {
+    setExchangeInFlight(true);
+    setGitHubError('');
+    try {
+      const res = await apiFetch('/api/github/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to connect GitHub.');
+      }
+      const body: GitHubStatus = await res.json();
+      setGithubStatus(body);
+      await loadReposForStatus(body);
+    } catch (err: any) {
+      setGitHubError(err?.message || 'Failed to complete GitHub login.');
+    } finally {
+      setExchangeInFlight(false);
+      router.replace('/source-code', undefined, { shallow: true });
+    }
+  }, [loadReposForStatus, router]);
+
   useEffect(() => {
     refreshStatus();
     const interval = setInterval(refreshStatus, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    loadGitHubStatus();
+  }, [loadGitHubStatus]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const errorParam = router.query.error;
+    const errorDescription = router.query.error_description;
+    const codeParam = router.query.code;
+    const stateParam = router.query.state;
+    if (typeof errorParam === 'string') {
+      setGitHubError(typeof errorDescription === 'string' ? String(errorDescription) : 'GitHub authorization was cancelled.');
+      router.replace('/source-code', undefined, { shallow: true });
+      return;
+    }
+    if (typeof codeParam === 'string' && typeof stateParam === 'string') {
+      void exchangeGitHub(codeParam, stateParam);
+    }
+  }, [exchangeGitHub, router.isReady, router.query.code, router.query.error, router.query.error_description, router.query.state]);
 
   const formatDate = (value?: string) => {
     if (!value) return 'Never';
@@ -110,14 +286,22 @@ export default function SourceCodeChat() {
     return `${mins}m ${rem.toFixed(1)}s`;
   };
 
-  const syncDisabled = syncInFlight || !!syncStatus?.isRunning;
+  const syncDisabled = syncInFlight || !!syncStatus?.isRunning || exchangeInFlight;
 
   const triggerSync = async () => {
     if (syncDisabled) return;
     setSyncError('');
     setSyncInFlight(true);
     try {
-      const res = await apiFetch('/api/source-code/sync', { method: 'POST' });
+      const payload: Record<string, string> = {};
+      if (selectedRepo) payload.githubRepository = selectedRepo;
+      if (selectedBranch) payload.branch = selectedBranch;
+      const options: RequestInit = { method: 'POST' };
+      if (Object.keys(payload).length > 0) {
+        options.headers = { 'Content-Type': 'application/json' };
+        options.body = JSON.stringify(payload);
+      }
+      const res = await apiFetch('/api/source-code/sync', options);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || 'Failed to sync source code.');
@@ -193,6 +377,73 @@ export default function SourceCodeChat() {
 
   return (
     <div className="source-code-page">
+      <section className="card github-card">
+        <div>
+          <h2>GitHub Repository</h2>
+          <p className="hint">Connect your GitHub account to import a repository before syncing embeddings.</p>
+        </div>
+        {githubError && <p className="error">{githubError}</p>}
+        {githubStatus === null ? (
+          <p className="hint">Checking GitHub connection…</p>
+        ) : !githubStatus.isConfigured ? (
+          <p className="hint warning">GitHub OAuth belum dikonfigurasi di backend.</p>
+        ) : githubStatus.isConnected ? (
+          <div className="github-connected">
+            <div className="github-user">
+              {githubStatus.avatarUrl && (
+                <img src={githubStatus.avatarUrl} alt="GitHub avatar" className="github-avatar" />
+              )}
+              <span className="github-login">@{githubStatus.login}</span>
+              <button type="button" className="btn secondary" onClick={disconnectGitHub}>
+                Disconnect
+              </button>
+            </div>
+            <div className="github-repo-controls">
+              <label htmlFor="github-repo-select">Repository</label>
+              <div className="github-repo-row">
+                <select
+                  id="github-repo-select"
+                  value={selectedRepo}
+                  onChange={handleRepoChange}
+                  disabled={reposLoading}
+                >
+                  <option value="">Keep current files</option>
+                  {repos.map(repo => (
+                    <option key={repo.id} value={repo.fullName}>
+                      {repo.fullName}
+                      {repo.private ? ' (private)' : ''}
+                    </option>
+                  ))}
+                  {repos.length === 0 && <option value="" disabled>No repositories available</option>}
+                </select>
+                <button type="button" className="btn secondary" onClick={refreshRepos} disabled={reposLoading}>
+                  {reposLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+              <label htmlFor="github-branch-input">Branch</label>
+              <input
+                id="github-branch-input"
+                type="text"
+                value={selectedBranch}
+                onChange={handleBranchChange}
+                placeholder="Branch name"
+                disabled={!selectedRepo}
+              />
+            </div>
+            {selectedRepo && (
+              <p className="hint selection-hint">
+                Selected repository: <strong>{selectedRepo}</strong>
+                {selectedBranch ? ` · branch ${selectedBranch}` : ''}
+              </p>
+            )}
+          </div>
+        ) : (
+          <button type="button" className="btn" onClick={connectGitHub} disabled={exchangeInFlight}>
+            {exchangeInFlight ? 'Opening GitHub…' : 'Login with GitHub'}
+          </button>
+        )}
+      </section>
+
       <section className="card sync-card">
         <div>
           <h1>Source Code Q&amp;A</h1>
