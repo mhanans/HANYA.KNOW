@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS user_roles (
     PRIMARY KEY(user_id, role_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_github_tokens (
+    user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    access_token TEXT NOT NULL,
+    token_type TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS ui_pages (
     id SERIAL PRIMARY KEY,
     key TEXT NOT NULL UNIQUE

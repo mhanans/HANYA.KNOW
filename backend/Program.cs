@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
 using Microsoft.IdentityModel.Tokens;
+using System.Net.Http.Headers;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -92,6 +93,21 @@ builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSecti
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
 builder.Services.Configure<SourceCodeOptions>(builder.Configuration.GetSection("SourceCode"));
+builder.Services.Configure<GitHubOptions>(builder.Configuration.GetSection("GitHub"));
+builder.Services.AddSingleton<GitHubTokenStore>();
+builder.Services.AddSingleton<GitHubIntegrationService>();
+builder.Services.AddHttpClient("GitHub", client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("HANYA.KNOW/1.0");
+    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+});
+builder.Services.AddHttpClient("GitHubOAuth", client =>
+{
+    client.BaseAddress = new Uri("https://github.com/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("HANYA.KNOW/1.0");
+    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

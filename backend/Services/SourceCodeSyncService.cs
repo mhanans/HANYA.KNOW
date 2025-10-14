@@ -89,6 +89,8 @@ public class SourceCodeSyncService
     public Task<SourceCodeSyncStatus> StartSyncInBackgroundAsync(CancellationToken cancellationToken = default)
         => RunSyncAsync(waitForCompletion: false, cancellationToken);
 
+    public string GetSourceRoot() => ResolveSourceRoot();
+
     private async Task<SourceCodeSyncStatus> RunSyncAsync(bool waitForCompletion, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_connectionString))
