@@ -448,6 +448,71 @@ select:focus {
   height: 100%;
 }
 
+.github-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.github-connected {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.github-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.github-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.github-login {
+  font-weight: 600;
+}
+
+.github-repo-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.github-repo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.github-repo-row select {
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+
+.github-repo-row .btn {
+  flex-shrink: 0;
+}
+
+.github-card input,
+.github-card select {
+  width: 100%;
+  max-width: 420px;
+}
+
+.hint.warning {
+  color: #b15d00;
+}
+
+.selection-hint {
+  margin-top: 0.5rem;
+}
+
 .sync-card {
   display: flex;
   align-items: flex-start;

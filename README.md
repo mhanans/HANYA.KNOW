@@ -35,6 +35,11 @@ MVP knowledge base with retrieval augmented generation.
 - `POST /api/chat/source-code` – answer questions about the tracked source code repository with inline citations to files and line ranges
 - `GET /api/source-code/status` – report the latest source code sync job, duration, and processed counts
 - `POST /api/source-code/sync` – crawl the configured source folder, regenerate embeddings, and update the `code_embeddings` table
+- `GET /api/github/status` – report whether the signed-in user has connected a GitHub account
+- `GET /api/github/login` – return the GitHub authorization URL for the signed-in user
+- `POST /api/github/exchange` – complete the GitHub OAuth handshake with the provided code and state
+- `POST /api/github/logout` – disconnect the stored GitHub token for the signed-in user
+- `GET /api/github/repos` – list the repositories accessible to the connected GitHub account
 - `GET /api/chat/history` – list chat conversations
 - `GET /api/chat/history/{id}` – retrieve a conversation's messages
 - `GET /api/stats` – usage metrics for the dashboard
@@ -70,6 +75,7 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `Llm: { Provider (openai|gemini), ApiKey, Model }`
 - `Chat: { CooldownSeconds }` – minimum seconds a client must wait between chat requests
 - `SourceCode: { DefaultTopK, SimilarityThreshold, PromptTemplate, SourceDirectory, IncludeExtensions, ExcludeDirectories, ChunkSize, ChunkOverlap }` – tuning and ingestion options for the Source Code Q&A feature
+- `GitHub: { ClientId, ClientSecret, RedirectUri, Scopes }` – OAuth app credentials used to sign in with GitHub and import repositories prior to a sync. `Scopes` defaults to `repo read:user` when omitted.
 - `ApiKey` – shared secret required in `X-API-KEY` header for all API calls
 - `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_API_KEY` for the frontend (configure in `.env.local`; see `frontend/.env.local.example`)
 
@@ -86,3 +92,5 @@ The response must contain a non-empty array of numbers. If the payload differs, 
 ### Source Code Q&A Ingestion
 
 Visit the **Source Code Q&A** page in the admin UI (or call `POST /api/source-code/sync`) to index the repository under `backend/source-code/`. The backend walks the folder, chunks files by line ranges, generates embeddings, and upserts records into the `code_embeddings` table. Use the page controls or `GET /api/source-code/status` to see the last run, duration, and number of processed files/chunks. The job automatically skips common build directories such as `node_modules`, `.git`, `dist`, `bin`, and `obj`.
+
+If you enable GitHub login for repository imports, configure your GitHub OAuth application's redirect URI to the Source Code page (for example `https://your-frontend.example.com/source-code`). After GitHub redirects back, the page exchanges the code for an access token and offers a repository/branch picker before triggering the sync job.
