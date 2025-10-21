@@ -15,6 +15,8 @@ INSERT INTO ui_pages (key) VALUES
   ('cv'),
   ('data-sources'),
   ('invoice-verification'),
+  ('pre-sales-project-templates'),
+  ('pre-sales-assessment-workspace'),
   ('pre-sales-ai-assessment'),
   ('users'),
   ('roles'),

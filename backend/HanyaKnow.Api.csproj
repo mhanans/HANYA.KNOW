@@ -14,5 +14,6 @@
     <PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.65.0" />
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
     <PackageReference Include="Google_GenerativeAI" Version="3.2.0" />
+    <PackageReference Include="MiniExcelLibs" Version="1.28.0" />
   </ItemGroup>
 </Project>
