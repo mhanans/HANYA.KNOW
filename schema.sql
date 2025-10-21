@@ -90,6 +90,18 @@ CREATE TABLE IF NOT EXISTS role_ui (
     PRIMARY KEY(role_id, ui_id)
 );
 
+CREATE TABLE IF NOT EXISTS project_templates (
+    id SERIAL PRIMARY KEY,
+    template_name TEXT NOT NULL,
+    template_data JSONB NOT NULL,
+    created_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_modified_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_templates_name
+    ON project_templates (template_name);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -124,6 +136,18 @@ CREATE TABLE IF NOT EXISTS tickets (
     reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS project_assessments (
+    id SERIAL PRIMARY KEY,
+    template_id INT REFERENCES project_templates(id) ON DELETE CASCADE,
+    assessment_data JSONB NOT NULL,
+    created_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_modified_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_assessments_template
+    ON project_assessments(template_id);
 
 CREATE TABLE IF NOT EXISTS code_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
