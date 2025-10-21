@@ -5,6 +5,7 @@ using backend.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace backend.Services;
 
@@ -46,7 +47,7 @@ public class ProjectAssessmentStore
         var templateId = reader.GetInt32(0);
         var projectName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
         var status = reader.IsDBNull(2) ? "Draft" : reader.GetString(2);
-        var json = reader.GetString(3);
+        var json = reader.GetFieldValue<string>(3);
         var createdAt = reader.GetDateTime(4);
         var lastModifiedAt = reader.IsDBNull(5) ? (DateTime?)null : reader.GetDateTime(5);
         var templateName = reader.IsDBNull(6) ? string.Empty : reader.GetString(6);
@@ -97,7 +98,7 @@ public class ProjectAssessmentStore
             cmd.Parameters.AddWithValue("templateId", assessment.TemplateId);
             cmd.Parameters.AddWithValue("projectName", projectName);
             cmd.Parameters.AddWithValue("status", status);
-            cmd.Parameters.AddWithValue("data", payload);
+            cmd.Parameters.Add("data", NpgsqlDbType.Jsonb).Value = payload;
             cmd.Parameters.AddWithValue("user", (object?)userId ?? DBNull.Value);
             var result = await cmd.ExecuteScalarAsync();
             return Convert.ToInt32(result);
@@ -113,7 +114,7 @@ public class ProjectAssessmentStore
             await using var cmd = new NpgsqlCommand(updateSql, conn);
             cmd.Parameters.AddWithValue("projectName", projectName);
             cmd.Parameters.AddWithValue("status", status);
-            cmd.Parameters.AddWithValue("data", payload);
+            cmd.Parameters.Add("data", NpgsqlDbType.Jsonb).Value = payload;
             cmd.Parameters.AddWithValue("id", assessment.Id.Value);
             var rows = await cmd.ExecuteNonQueryAsync();
             if (rows == 0)
