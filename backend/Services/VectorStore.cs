@@ -11,6 +11,8 @@ public class VectorStore
     private readonly EmbeddingClient _embedding;
     private readonly ILogger<VectorStore> _logger;
     private readonly int _expectedDim;
+    private bool _knowledgeBaseTablesChecked;
+    private bool _knowledgeBaseTablesAvailable = true;
 
     public VectorStore(IOptions<PostgresOptions> dbOptions, IOptions<EmbeddingOptions> embedOptions, EmbeddingClient embedding, ILogger<VectorStore> logger)
     {
@@ -73,23 +75,71 @@ public class VectorStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         var filter = (categories != null && categories.Length > 0) ? "WHERE category_id = ANY(@cats)" : string.Empty;
-        var sql = $@"SELECT source, page, content,
-                0.5 * (1 - (embedding <=> @embedding::vector)) +
-                0.5 * ts_rank_cd(content_tsv, plainto_tsquery('simple', @q)) AS score
-            FROM documents
-            {filter}
+        var baseSelect = $@"SELECT d.source AS source,
+                d.page AS page,
+                d.content AS content,
+                0.5 * (1 - (d.embedding <=> @embedding::vector)) +
+                0.5 * ts_rank_cd(d.content_tsv, plainto_tsquery('simple', @q)) AS score
+            FROM documents d
+            {filter}";
+
+        if (!_knowledgeBaseTablesChecked || _knowledgeBaseTablesAvailable)
+        {
+            var knowledgeSelect = @"SELECT doc.original_file_name AS source,
+                    c.page_number AS page,
+                    c.content AS content,
+                    1 - (c.embedding <=> @embedding::vector) AS score
+                FROM knowledge_base_chunks c
+                JOIN knowledge_base_documents doc ON doc.id = c.document_id";
+
+            var combinedSql = $@"SELECT source, page, content, score
+                FROM (({baseSelect}) UNION ALL ({knowledgeSelect})) AS combined
+                ORDER BY score DESC
+                LIMIT @k";
+
+            try
+            {
+                var combinedResults = await ExecuteSearchAsync(conn, combinedSql, embedding, query, topK, categories);
+                _knowledgeBaseTablesChecked = true;
+                _knowledgeBaseTablesAvailable = true;
+                _logger.LogInformation("Search returned {Count} results (including knowledge base)", combinedResults.Count);
+                return combinedResults;
+            }
+            catch (PostgresException ex) when (ex.SqlState == "42P01")
+            {
+                _logger.LogWarning("Knowledge base tables not found. Falling back to document-only search.");
+                _knowledgeBaseTablesChecked = true;
+                _knowledgeBaseTablesAvailable = false;
+            }
+        }
+
+        var fallbackSql = $@"SELECT source, page, content, score FROM (({baseSelect})) AS base
             ORDER BY score DESC
             LIMIT @k";
+        var fallbackResults = await ExecuteSearchAsync(conn, fallbackSql, embedding, query, topK, categories);
+        _logger.LogInformation("Search returned {Count} results", fallbackResults.Count);
+        return fallbackResults;
+    }
+
+    private async Task<List<(string Source, int? Page, string Content, double Score)>> ExecuteSearchAsync(
+        NpgsqlConnection conn,
+        string sql,
+        float[] embedding,
+        string query,
+        int topK,
+        int[]? categories)
+    {
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("embedding", embedding);
         cmd.Parameters["embedding"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Real;
         cmd.Parameters.AddWithValue("q", query);
         cmd.Parameters.AddWithValue("k", topK);
-        if (categories != null && categories.Length > 0)
+        if (categories != null && categories.Length > 0 && sql.Contains("@cats"))
         {
             cmd.Parameters.AddWithValue("cats", categories);
             cmd.Parameters["cats"].NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Integer;
         }
+
         await using var reader = await cmd.ExecuteReaderAsync();
         var results = new List<(string, int?, string, double)>();
         while (await reader.ReadAsync())
@@ -100,7 +150,6 @@ public class VectorStore
             var score = reader.GetDouble(3);
             results.Add((source, page, content, score));
         }
-        _logger.LogInformation("Search returned {Count} results", results.Count);
         return results;
     }
 

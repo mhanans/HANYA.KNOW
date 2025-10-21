@@ -5,9 +5,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  footer?: ReactNode;
 }
 
-export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export default function Modal({ isOpen, onClose, title, children, footer }: ModalProps) {
   if (!isOpen) return null;
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -20,9 +21,13 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
         </div>
         <div className="modal-body">{children}</div>
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Close
-          </button>
+          {footer !== undefined ? (
+            footer
+          ) : (
+            <button className="btn btn-secondary" onClick={onClose}>
+              Close
+            </button>
+          )}
         </div>
       </div>
     </div>

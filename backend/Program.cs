@@ -71,6 +71,9 @@ builder.Services.Configure<PostgresOptions>(builder.Configuration.GetSection("Co
 builder.Services.Configure<EmbeddingOptions>(builder.Configuration.GetSection("Embedding"));
 builder.Services.AddSingleton<EmbeddingClient>();
 builder.Services.AddSingleton<VectorStore>();
+builder.Services.Configure<KnowledgeBaseOptions>(builder.Configuration.GetSection("KnowledgeBase"));
+builder.Services.AddSingleton<KnowledgeBaseStore>();
+builder.Services.AddSingleton<KnowledgeBaseIngestionService>();
 builder.Services.AddSingleton<CodeEmbeddingStore>();
 builder.Services.AddSingleton<CategoryStore>();
 builder.Services.AddSingleton<RoleStore>();
@@ -88,6 +91,7 @@ builder.Services.AddSingleton<TicketAssignmentService>();
 builder.Services.AddSingleton<InvoiceVerificationService>();
 builder.Services.AddSingleton<ProjectTemplateStore>();
 builder.Services.AddSingleton<ProjectAssessmentStore>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<KnowledgeBaseIngestionService>());
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>();
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));

@@ -251,6 +251,14 @@ select:focus {
   border-top: 1px solid #e5e5e5;
 }
 
+.modal-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
 .close-button {
   background: none;
   border: none;
@@ -278,6 +286,270 @@ select:focus {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.5rem;
+}
+
+/* Presales AI History */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.page-header h1 {
+  margin: 0;
+}
+
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.kb-upload-zone {
+  position: relative;
+  border: 2px dashed #b2c8f7;
+  border-radius: 12px;
+  padding: 2rem 1.5rem;
+  background: #f7faff;
+  text-align: center;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.kb-upload-zone.drag-active {
+  border-color: #0070f3;
+  background: #eef5ff;
+}
+
+.kb-upload-zone input[type='file'] {
+  display: none;
+}
+
+.kb-upload-zone label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #335;
+  font-weight: 500;
+}
+
+.kb-upload-zone .upload-icon {
+  font-size: 2.5rem;
+}
+
+.kb-upload-zone .upload-text {
+  font-size: 1rem;
+}
+
+.kb-upload-zone .upload-hint {
+  font-size: 0.85rem;
+  color: #667;
+}
+
+.kb-staged-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.kb-staged-item {
+  background: #f0f5ff;
+  border: 1px solid #d4e2ff;
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.kb-staged-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.kb-staged-header strong {
+  display: block;
+}
+
+.kb-file-size {
+  display: block;
+  font-size: 0.85rem;
+  color: #667;
+}
+
+.kb-staged-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.kb-metadata-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 200px) 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.kb-metadata-grid label {
+  font-weight: 600;
+  text-align: left;
+}
+
+.kb-metadata-grid input,
+.kb-metadata-grid select {
+  width: 100%;
+}
+
+.kb-upload-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-ready {
+  background: #e6f4ff;
+  color: #0053a6;
+}
+
+.status-processing,
+.status-pending {
+  background: #fff5e6;
+  color: #a66a00;
+}
+
+.status-success {
+  background: #e6f8ec;
+  color: #1b7b3a;
+}
+
+.status-failed {
+  background: #fdecea;
+  color: #b71c1c;
+}
+
+.icon-button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+  font-size: 1.1rem;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.icon-button.danger:hover:not(:disabled) {
+  background: #fdecea;
+  color: #b71c1c;
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn.btn-danger,
+.btn-danger {
+  background: #e53935;
+}
+
+.btn.btn-danger:hover:not(:disabled),
+.btn-danger:hover:not(:disabled) {
+  background: #c62828;
+}
+
+.kb-table-wrapper {
+  overflow-x: auto;
+}
+
+.kb-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kb-table th,
+.kb-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #e5e5e5;
+  vertical-align: middle;
+}
+
+.kb-table th {
+  background: #f7faff;
+  font-weight: 600;
+}
+
+.kb-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #666;
+}
+
+.kb-actions-column {
+  width: 120px;
+  text-align: center;
+}
+
+.kb-row-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.kb-error-tooltip {
+  display: block;
+  font-size: 0.75rem;
+  color: #b71c1c;
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .kb-metadata-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kb-actions-column {
+    width: auto;
+  }
 }
 
 .candidate-name {
