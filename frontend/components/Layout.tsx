@@ -34,6 +34,17 @@ const navSections: { title: string; links: NavItem[] }[] = [
     ],
   },
   {
+    title: 'Pre-Sales',
+    links: [
+      {
+        href: '/pre-sales/ai-project-assessment-engine',
+        label: 'AI Project Assessment Engine',
+        icon: '🧮',
+        key: 'pre-sales-ai-assessment',
+      },
+    ],
+  },
+  {
     title: 'Support',
     links: [
       { href: '/tickets', label: 'Tickets', icon: '🎫', key: 'tickets' },

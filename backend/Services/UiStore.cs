@@ -21,6 +21,7 @@ public class UiStore
         "cv",
         "data-sources",
         "invoice-verification",
+        "pre-sales-ai-assessment",
         "users",
         "roles",
         "role-ui",
