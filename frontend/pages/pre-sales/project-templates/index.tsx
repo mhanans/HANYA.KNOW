@@ -72,7 +72,10 @@ export default function ProjectTemplates() {
         {loading ? (
           <p>Loading templates…</p>
         ) : templates.length === 0 ? (
-          <p>Tidak ada template yang tersimpan.</p>
+          <p>
+            You haven&apos;t created any project templates yet. Click <strong>&quot;Create New Template&quot;</strong> to build
+            your first project blueprint.
+          </p>
         ) : (
           <table className="table">
             <thead>
