@@ -1,6 +1,39 @@
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
-import type { DragEvent as ReactDragEvent } from 'react';
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react';
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Alert,
+  Box,
+  Button,
+  Divider,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import { LoadingButton } from '@mui/lab';
+import AddIcon from '@mui/icons-material/Add';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import CloseIcon from '@mui/icons-material/Close';
+import DeleteIcon from '@mui/icons-material/Delete';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { apiFetch } from '../../lib/api';
 
 interface TemplateItem {
@@ -438,321 +471,456 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
     router.push('/pre-sales/project-templates');
   };
 
+  const stopPropagation = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+  };
+
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h1>{isCreate ? 'Create Project Template' : 'Edit Project Template'}</h1>
-          <p>Bangun struktur estimasi lengkap dengan seksi, item, dan kolom dinamis.</p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={cancel}>Cancel</button>
-          <button className="btn btn-primary" disabled={!canSave || saving} onClick={save}>
-            {saving ? 'Saving…' : 'Save Template'}
-          </button>
-        </div>
-      </div>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={3}
+        justifyContent="space-between"
+        alignItems={{ xs: 'flex-start', md: 'center' }}
+      >
+        <Box>
+          <Typography variant="h1" gutterBottom>
+            {isCreate ? 'Create Project Template' : 'Edit Project Template'}
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Build a complete estimation structure with dynamic sections, items, and columns.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={2} width={{ xs: '100%', md: 'auto' }}>
+          <Button
+            variant="outlined"
+            color="inherit"
+            onClick={cancel}
+            sx={{ flexGrow: { xs: 1, md: 0 } }}
+          >
+            Cancel
+          </Button>
+          <LoadingButton
+            variant="contained"
+            color="primary"
+            onClick={save}
+            loading={saving}
+            disabled={!canSave}
+            sx={{ flexGrow: { xs: 1, md: 0 } }}
+          >
+            Save Template
+          </LoadingButton>
+        </Stack>
+      </Stack>
 
       {loading ? (
-        <div className="card"><p>Loading template…</p></div>
+        <Paper sx={{ p: 4 }}>
+          <Typography variant="body1">Loading template…</Typography>
+        </Paper>
       ) : (
-        <div className="card template-editor-card">
-          <div>
-            <label className="form-label">Template Name</label>
-            <input
-              className="form-input"
-              value={template.templateName}
-              onChange={e => updateTemplate(prev => ({ ...prev, templateName: e.target.value }))}
-              placeholder="AI Discovery Sprint"
-            />
-          </div>
+        <Stack spacing={4}>
+          <Paper sx={{ p: { xs: 3, md: 4 } }}>
+            <Stack spacing={3}>
+              <TextField
+                label="Template Name"
+                placeholder="AI Discovery Sprint"
+                value={template.templateName}
+                onChange={e => updateTemplate(prev => ({ ...prev, templateName: e.target.value }))}
+                fullWidth
+              />
 
-          <div>
-            <label className="form-label">Estimation Columns</label>
-            <div className="tag-input enhanced">
-              <div className="tags">
-                {template.estimationColumns.length === 0 && (
-                  <span className="tag muted">No estimation columns yet.</span>
-                )}
-                {template.estimationColumns.map((column, index) => (
-                  <span className="tag" key={column + index}>
-                    <span className="tag-label">{column}</span>
-                    <span className="tag-actions">
-                      <button type="button" onClick={() => moveColumn(index, -1)} title="Move up" aria-label="Move column up">
-                        ↑
-                      </button>
-                      <button type="button" onClick={() => moveColumn(index, 1)} title="Move down" aria-label="Move column down">
-                        ↓
-                      </button>
-                      <button type="button" onClick={() => removeColumn(index)} title="Remove" aria-label="Remove column">
-                        ×
-                      </button>
-                    </span>
-                  </span>
-                ))}
-              </div>
-              <div className="tag-input-row">
-                <input
-                  className="form-input"
-                  placeholder="e.g. Estimated Hours"
-                  value={columnInput}
-                  onChange={e => setColumnInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addColumn();
-                    }
-                  }}
-                />
-                <button type="button" className="btn btn-secondary" onClick={addColumn}>
-                  Add Column
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="template-editor-toolbar">
-            <div>
-              <h2>Sections &amp; Items</h2>
-              <p className="muted">Kelompokkan struktur template dalam kartu untuk navigasi yang lebih mudah.</p>
-            </div>
-            <button type="button" className="btn btn-secondary" onClick={addSection}>
-              Add Section
-            </button>
-          </div>
-
-          {template.sections.length === 0 ? (
-            <div className="empty-state">
-              <h3>Belum ada seksi</h3>
-              <p>Buat seksi pertama Anda untuk mulai membangun blueprint proyek.</p>
-              <button type="button" className="btn btn-secondary" onClick={addSection}>
-                Create Section
-              </button>
-            </div>
-          ) : (
-            <div className="section-editor">
-              {template.sections.map((section, sectionIndex) => {
-                const sectionUid = section.uid ?? String(sectionIndex);
-                const expanded = expandedSections.has(sectionUid);
-                return (
-                  <div
-                    className={`section-card${
-                      dragSectionUid === sectionUid ? ' is-dragging' : ''
-                    }${dragSectionOverUid === sectionUid ? ' drag-over' : ''}`}
-                    key={sectionUid}
-                    onDragOver={handleSectionDragOver(sectionUid)}
-                    onDrop={handleSectionDrop(sectionUid)}
-                    onDragLeave={handleSectionDragLeave(sectionUid)}
+              <Box>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="subtitle1">Estimation Columns</Typography>
+                  {template.estimationColumns.length === 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      No estimation columns yet.
+                    </Typography>
+                  )}
+                </Stack>
+                <Stack direction="row" flexWrap="wrap" gap={1.5}>
+                  {template.estimationColumns.map((column, index) => (
+                    <Paper
+                      key={`${column}-${index}`}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        px: 2,
+                        py: 1,
+                        borderRadius: 999,
+                        bgcolor: 'rgba(59,130,246,0.15)',
+                        border: '1px solid rgba(59,130,246,0.35)',
+                      }}
+                      elevation={0}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {column}
+                      </Typography>
+                      <Stack direction="row" spacing={0.5}>
+                        <Tooltip title="Move left">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={() => moveColumn(index, -1)}
+                              disabled={index === 0}
+                              sx={{ color: 'text.secondary' }}
+                            >
+                              <ArrowUpwardIcon fontSize="inherit" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Move right">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={() => moveColumn(index, 1)}
+                              disabled={index === template.estimationColumns.length - 1}
+                              sx={{ color: 'text.secondary' }}
+                            >
+                              <ArrowDownwardIcon fontSize="inherit" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Remove column">
+                          <IconButton
+                            size="small"
+                            onClick={() => removeColumn(index)}
+                            sx={{ color: 'error.light' }}
+                          >
+                            <CloseIcon fontSize="inherit" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={2}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                  mt={3}
+                >
+                  <TextField
+                    label="Add estimation column"
+                    placeholder="e.g. Backend Hours"
+                    value={columnInput}
+                    onChange={e => setColumnInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addColumn();
+                      }
+                    }}
+                    fullWidth
+                  />
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    startIcon={<AddIcon />}
+                    onClick={addColumn}
+                    sx={{ whiteSpace: 'nowrap' }}
                   >
-                    <div className="section-card-header">
-                      <button
-                        className="section-drag-handle"
+                    Add Column
+                  </Button>
+                </Stack>
+              </Box>
+            </Stack>
+          </Paper>
+
+          <Paper sx={{ p: { xs: 3, md: 4 } }}>
+            <Stack spacing={3}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={2}
+                justifyContent="space-between"
+                alignItems={{ xs: 'flex-start', md: 'center' }}
+              >
+                <Box>
+                  <Typography variant="h2">Sections &amp; Items</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Group the template structure into cards for easier navigation.
+                  </Typography>
+                </Box>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<AddIcon />}
+                  onClick={addSection}
+                >
+                  Add Section
+                </Button>
+              </Stack>
+              <Divider sx={{ borderColor: 'rgba(148, 163, 184, 0.2)' }} />
+              {template.sections.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <Typography variant="body1" color="text.secondary" gutterBottom>
+                    No sections yet. Start by adding your first section.
+                  </Typography>
+                  <Button variant="outlined" startIcon={<AddIcon />} onClick={addSection}>
+                    Add Section
+                  </Button>
+                </Box>
+              ) : (
+                <Stack spacing={2}>
+                  {template.sections.map((section, sectionIndex) => {
+                    const sectionUid = section.uid ?? `${sectionIndex}`;
+                    const isExpanded = expandedSections.has(sectionUid);
+                    const isDragOver = dragSectionOverUid === sectionUid;
+                    return (
+                      <Box
+                        key={sectionUid}
                         draggable
                         onDragStart={handleSectionDragStart(sectionUid)}
+                        onDragOver={handleSectionDragOver(sectionUid)}
+                        onDrop={handleSectionDrop(sectionUid)}
+                        onDragLeave={handleSectionDragLeave(sectionUid)}
                         onDragEnd={handleSectionDragEnd}
-                        aria-label="Drag to reorder section"
+                        sx={{
+                          borderRadius: 3,
+                          border: '1px solid',
+                          borderColor: isDragOver ? 'primary.main' : 'rgba(148, 163, 184, 0.2)',
+                          boxShadow: isDragOver ? '0 0 0 2px rgba(59,130,246,0.35)' : 'none',
+                          transition: 'all 0.2s ease',
+                          overflow: 'hidden',
+                          backgroundColor: 'background.paper',
+                        }}
                       >
-                        ☰
-                      </button>
-                      <div className="section-card-title">
-                        <input
-                          className="form-input section-name-input"
-                          value={section.sectionName}
-                          onChange={e =>
-                            updateSection(sectionIndex, current => ({ ...current, sectionName: e.target.value }))
-                          }
-                          placeholder="Section name"
-                        />
-                        <div className="section-type-select">
-                          <label>
-                            Type
-                            <select
-                              className="form-select"
-                              value={section.type}
-                              onChange={e =>
-                                updateSection(sectionIndex, current => ({ ...current, type: e.target.value }))
-                              }
-                            >
-                              <option value="Project-Level">Project-Level</option>
-                              <option value="App-Level">App-Level</option>
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-                      <div className="section-card-controls">
-                        <div className="section-order-buttons">
-                          <button
-                            type="button"
-                            onClick={() => moveSection(sectionIndex, -1)}
-                            disabled={sectionIndex === 0}
-                            aria-label="Move section up"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveSection(sectionIndex, 1)}
-                            disabled={sectionIndex === template.sections.length - 1}
-                            aria-label="Move section down"
-                          >
-                            ↓
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-tertiary"
-                          onClick={() => toggleSection(sectionUid)}
-                          aria-expanded={expanded}
+                        <Accordion
+                          expanded={isExpanded}
+                          onChange={() => toggleSection(sectionUid)}
+                          disableGutters
+                          square={false}
+                          sx={{
+                            backgroundColor: 'transparent',
+                            '&:before': { display: 'none' },
+                          }}
                         >
-                          {expanded ? 'Collapse' : 'Expand'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-icon"
-                          onClick={() => removeSection(sectionIndex)}
-                          aria-label="Delete section"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                    {expanded && (
-                      <div className="section-card-body">
-                        {section.items.length === 0 ? (
-                          <div className="empty-items">
-                            <p className="muted">Belum ada item di seksi ini.</p>
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() => addItem(sectionIndex)}
+                          <AccordionSummary
+                            expandIcon={<ExpandMoreIcon htmlColor="#94a3b8" />}
+                            sx={{ px: 3, py: 2 }}
+                          >
+                            <Stack
+                              direction={{ xs: 'column', lg: 'row' }}
+                              spacing={2}
+                              alignItems={{ xs: 'flex-start', lg: 'center' }}
+                              sx={{ width: '100%' }}
                             >
-                              Add First Item
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="item-table">
-                            <div className="item-table-header">
-                              <span></span>
-                              <span>ID</span>
-                              <span>Item Name</span>
-                              <span>Detail</span>
-                              <span className="actions-column">Actions</span>
-                            </div>
-                            {section.items.map((item, itemIndex) => {
-                              const itemUid = item.uid ?? `${sectionUid}-${itemIndex}`;
-                              const isDragOver =
-                                dragItemOverRef?.sectionUid === sectionUid && dragItemOverRef?.itemUid === itemUid;
-                              return (
-                                <div
-                                  key={itemUid}
-                                  className={`item-table-row${isDragOver ? ' drag-over' : ''}`}
-                                  draggable
-                                  onDragStart={handleItemDragStart(sectionUid, itemUid)}
-                                  onDragOver={handleItemDragOver(sectionUid, itemUid)}
-                                  onDrop={handleItemDrop(sectionUid, itemUid)}
-                                  onDragLeave={handleItemDragLeave(sectionUid, itemUid)}
-                                  onDragEnd={handleItemDragEnd}
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                alignItems="center"
+                                sx={{ flexGrow: 1, width: '100%' }}
+                              >
+                                <IconButton
+                                  className="section-drag-handle"
+                                  onClick={stopPropagation}
+                                  size="small"
+                                  sx={{ color: 'text.secondary', cursor: 'grab' }}
                                 >
-                                  <button className="item-drag-handle" aria-label="Drag to reorder item">
-                                    ⋮⋮
-                                  </button>
-                                  <input
-                                    className="form-input"
-                                    value={item.itemId}
+                                  <DragIndicatorIcon />
+                                </IconButton>
+                                <TextField
+                                  label="Section Name"
+                                  value={section.sectionName}
+                                  onChange={e =>
+                                    updateSection(sectionIndex, current => ({
+                                      ...current,
+                                      sectionName: e.target.value,
+                                    }))
+                                  }
+                                  onClick={stopPropagation}
+                                  fullWidth
+                                />
+                              </Stack>
+                              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: { lg: 300 } }}>
+                              <FormControl fullWidth onClick={stopPropagation}>
+                                  <InputLabel id={`section-type-${sectionUid}`}>Type</InputLabel>
+                                  <Select
+                                    labelId={`section-type-${sectionUid}`}
+                                    label="Type"
+                                    value={section.type}
                                     onChange={e =>
-                                      updateItem(sectionIndex, itemIndex, current => ({
+                                      updateSection(sectionIndex, current => ({
                                         ...current,
-                                        itemId: e.target.value,
+                                        type: e.target.value,
                                       }))
                                     }
-                                    placeholder="Item ID"
-                                  />
-                                  <input
-                                    className="form-input"
-                                    value={item.itemName}
-                                    onChange={e =>
-                                      updateItem(sectionIndex, itemIndex, current => ({
-                                        ...current,
-                                        itemName: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="Item name"
-                                  />
-                                  <input
-                                    className="form-input"
-                                    value={item.itemDetail}
-                                    onChange={e =>
-                                      updateItem(sectionIndex, itemIndex, current => ({
-                                        ...current,
-                                        itemDetail: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="Item detail"
-                                  />
-                                  <div className="item-row-actions">
-                                    <button
-                                      type="button"
-                                      onClick={() => moveItem(sectionIndex, itemIndex, -1)}
-                                      disabled={itemIndex === 0}
-                                      aria-label="Move item up"
-                                    >
-                                      ↑
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => moveItem(sectionIndex, itemIndex, 1)}
-                                      disabled={itemIndex === section.items.length - 1}
-                                      aria-label="Move item down"
-                                    >
-                                      ↓
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn btn-icon"
-                                      onClick={() => removeItem(sectionIndex, itemIndex)}
-                                      aria-label="Delete item"
-                                    >
-                                      ×
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            <div
-                              className={`item-drop-zone${
-                                dragItemOverRef?.sectionUid === sectionUid && dragItemOverRef?.itemUid === 'end'
-                                  ? ' drag-over'
-                                  : ''
-                              }`}
-                              onDragOver={handleItemDragOver(sectionUid, 'end')}
-                              onDrop={handleItemDrop(sectionUid, 'end')}
-                              onDragLeave={handleItemDragLeave(sectionUid, 'end')}
-                            >
-                              Drop here to place item at the end
-                            </div>
-                          </div>
-                        )}
-                        {section.items.length > 0 && (
-                          <button
-                            type="button"
-                            className="btn btn-secondary"
-                            onClick={() => addItem(sectionIndex)}
-                          >
-                            Add Item
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                                  >
+                                    <MenuItem value="Project-Level">Project-Level</MenuItem>
+                                    <MenuItem value="App-Level">App-Level</MenuItem>
+                                  </Select>
+                                </FormControl>
+                                <Tooltip title="Delete section">
+                                  <IconButton
+                                    color="error"
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      removeSection(sectionIndex);
+                                    }}
+                                  >
+                                    <DeleteIcon />
+                                  </IconButton>
+                                </Tooltip>
+                              </Stack>
+                            </Stack>
+                          </AccordionSummary>
+                          <AccordionDetails sx={{ px: 0, pb: 3 }}>
+                            <Box sx={{ px: 3, pt: 1 }}>
+                              <TableContainer component={Paper} variant="outlined" sx={{ backgroundColor: 'rgba(15,23,42,0.6)' }}>
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell width={56}></TableCell>
+                                      <TableCell width={160}>Item ID</TableCell>
+                                      <TableCell width="30%">Item Name</TableCell>
+                                      <TableCell>Item Detail</TableCell>
+                                      <TableCell align="right" width={120}>
+                                        Actions
+                                      </TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {section.items.length === 0 ? (
+                                      <TableRow>
+                                        <TableCell colSpan={5}>
+                                          <Typography variant="body2" color="text.secondary">
+                                            No items yet. Add items to this section to build your estimation grid.
+                                          </Typography>
+                                        </TableCell>
+                                      </TableRow>
+                                    ) : (
+                                      section.items.map((item, itemIndex) => {
+                                        const itemUid = item.uid ?? `${sectionUid}-${itemIndex}`;
+                                        return (
+                                          <TableRow
+                                            key={itemUid}
+                                            draggable
+                                            onDragStart={handleItemDragStart(sectionUid, itemUid)}
+                                            onDragOver={handleItemDragOver(sectionUid, itemUid)}
+                                            onDrop={handleItemDrop(sectionUid, itemUid)}
+                                            onDragLeave={handleItemDragLeave(sectionUid, itemUid)}
+                                            onDragEnd={handleItemDragEnd}
+                                          >
+                                            <TableCell width={56}>
+                                              <IconButton
+                                                className="item-drag-handle"
+                                                size="small"
+                                                sx={{ color: 'text.secondary', cursor: 'grab' }}
+                                              >
+                                                <DragIndicatorIcon fontSize="small" />
+                                              </IconButton>
+                                            </TableCell>
+                                            <TableCell width={160}>
+                                              <TextField
+                                                variant="outlined"
+                                                size="small"
+                                                value={item.itemId}
+                                                onChange={e =>
+                                                  updateItem(sectionIndex, itemIndex, current => ({
+                                                    ...current,
+                                                    itemId: e.target.value,
+                                                  }))
+                                                }
+                                                placeholder="Item ID"
+                                              />
+                                            </TableCell>
+                                            <TableCell width="30%">
+                                              <TextField
+                                                variant="outlined"
+                                                size="small"
+                                                value={item.itemName}
+                                                onChange={e =>
+                                                  updateItem(sectionIndex, itemIndex, current => ({
+                                                    ...current,
+                                                    itemName: e.target.value,
+                                                  }))
+                                                }
+                                                placeholder="User Authentication"
+                                                fullWidth
+                                              />
+                                            </TableCell>
+                                            <TableCell>
+                                              <TextField
+                                                variant="outlined"
+                                                size="small"
+                                                value={item.itemDetail}
+                                                onChange={e =>
+                                                  updateItem(sectionIndex, itemIndex, current => ({
+                                                    ...current,
+                                                    itemDetail: e.target.value,
+                                                  }))
+                                                }
+                                                placeholder="Implement secure login, JWT, and password reset"
+                                                fullWidth
+                                              />
+                                            </TableCell>
+                                            <TableCell align="right" width={120}>
+                                              <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                                <Tooltip title="Move up">
+                                                  <span>
+                                                    <IconButton
+                                                      size="small"
+                                                      onClick={() => moveItem(sectionIndex, itemIndex, -1)}
+                                                      disabled={itemIndex === 0}
+                                                    >
+                                                      <ArrowUpwardIcon fontSize="inherit" />
+                                                    </IconButton>
+                                                  </span>
+                                                </Tooltip>
+                                                <Tooltip title="Move down">
+                                                  <span>
+                                                    <IconButton
+                                                      size="small"
+                                                      onClick={() => moveItem(sectionIndex, itemIndex, 1)}
+                                                      disabled={itemIndex === section.items.length - 1}
+                                                    >
+                                                      <ArrowDownwardIcon fontSize="inherit" />
+                                                    </IconButton>
+                                                  </span>
+                                                </Tooltip>
+                                                <Tooltip title="Delete item">
+                                                  <IconButton
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={() => removeItem(sectionIndex, itemIndex)}
+                                                  >
+                                                    <DeleteIcon fontSize="small" />
+                                                  </IconButton>
+                                                </Tooltip>
+                                              </Stack>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              </TableContainer>
+                              <Button
+                                variant="outlined"
+                                startIcon={<AddIcon />}
+                                onClick={() => addItem(sectionIndex)}
+                                sx={{ mt: 2 }}
+                              >
+                                Add Item
+                              </Button>
+                            </Box>
+                          </AccordionDetails>
+                        </Accordion>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              )}
+            </Stack>
+          </Paper>
 
-          {error && <p className="error">{error}</p>}
-          {notice && <p className="success">{notice}</p>}
-        </div>
+          {error && <Alert severity="error">{error}</Alert>}
+          {notice && <Alert severity="success">{notice}</Alert>}
+        </Stack>
       )}
-    </div>
+    </Box>
   );
 }
+
