@@ -7,6 +7,7 @@ using backend.Middleware;
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using MiniExcelLibs;
 
 namespace backend.Controllers;
@@ -17,11 +18,19 @@ public class AssessmentController : ControllerBase
 {
     private readonly ProjectTemplateStore _templates;
     private readonly ProjectAssessmentStore _assessments;
+    private readonly ProjectAssessmentAnalysisService _analysisService;
+    private readonly ILogger<AssessmentController> _logger;
 
-    public AssessmentController(ProjectTemplateStore templates, ProjectAssessmentStore assessments)
+    public AssessmentController(
+        ProjectTemplateStore templates,
+        ProjectAssessmentStore assessments,
+        ProjectAssessmentAnalysisService analysisService,
+        ILogger<AssessmentController> logger)
     {
         _templates = templates;
         _assessments = assessments;
+        _analysisService = analysisService;
+        _logger = logger;
     }
 
     [HttpPost("analyze")]
@@ -46,28 +55,31 @@ public class AssessmentController : ControllerBase
             return NotFound("Template not found");
         }
 
-        var columns = template.EstimationColumns ?? new List<string>();
-        var assessment = new ProjectAssessment
+        try
         {
-            TemplateId = template.Id ?? request.TemplateId,
-            TemplateName = template.TemplateName,
-            ProjectName = request.ProjectName?.Trim() ?? string.Empty,
-            Status = "Draft",
-            Sections = template.Sections.Select(section => new AssessmentSection
-            {
-                SectionName = section.SectionName,
-                Items = section.Items.Select(item => new AssessmentItem
-                {
-                    ItemId = item.ItemId,
-                    ItemName = item.ItemName,
-                    ItemDetail = item.ItemDetail,
-                    IsNeeded = false,
-                    Estimates = columns.ToDictionary(col => col, _ => (double?)null)
-                }).ToList()
-            }).ToList()
-        };
+            var assessment = await _analysisService.AnalyzeAsync(
+                template,
+                request.TemplateId,
+                request.ProjectName ?? string.Empty,
+                request.File!,
+                HttpContext.RequestAborted);
 
-        return Ok(assessment);
+            return Ok(assessment);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "AI analysis failed for template {TemplateId}: {Message}", request.TemplateId, ex.Message);
+            return StatusCode(StatusCodes.Status502BadGateway, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error running AI analysis for template {TemplateId}", request.TemplateId);
+            return StatusCode(StatusCodes.Status500InternalServerError, "Failed to analyze the scope document due to an unexpected server error.");
+        }
     }
 
     [HttpPost("save")]
