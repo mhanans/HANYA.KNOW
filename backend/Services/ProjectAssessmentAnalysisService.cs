@@ -103,7 +103,7 @@ public class ProjectAssessmentAnalysisService
 You are an expert software delivery estimator helping a pre-sales team. Analyse the provided project scope against the project template items.
 
 OUTPUT RULES:
-- Respond ONLY with compact JSON that matches the schema: {"items": [ {"itemId": string, "isNeeded": bool, "estimates": {<column>: number|null} } ] }.
+- Respond ONLY with compact JSON that matches the schema: {{"items": [ {{"itemId": string, "isNeeded": bool, "estimates": {{<column>: number|null}} }} ] }}.
 - Include every template item exactly once using its itemId.
 - If information is missing, set the estimate value to null.
 - Use numbers for man-hour estimates without units. {columnInstructions}
