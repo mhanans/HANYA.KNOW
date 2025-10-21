@@ -36,7 +36,12 @@ public class ProjectAssessment
 {
     public int? Id { get; set; }
     public int TemplateId { get; set; }
+    public string TemplateName { get; set; } = string.Empty;
+    public string ProjectName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Draft";
     public List<AssessmentSection> Sections { get; set; } = new();
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? LastModifiedAt { get; set; }
 }
 
 public class AssessmentSection
@@ -52,4 +57,15 @@ public class AssessmentItem
     public string ItemName { get; set; } = string.Empty;
     public string ItemDetail { get; set; } = string.Empty;
     public Dictionary<string, double?> Estimates { get; set; } = new();
+}
+
+public class ProjectAssessmentSummary
+{
+    public int Id { get; set; }
+    public int TemplateId { get; set; }
+    public string TemplateName { get; set; } = string.Empty;
+    public string ProjectName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Draft";
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastModifiedAt { get; set; }
 }

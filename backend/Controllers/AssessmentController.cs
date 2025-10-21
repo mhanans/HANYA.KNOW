@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
@@ -49,6 +50,9 @@ public class AssessmentController : ControllerBase
         var assessment = new ProjectAssessment
         {
             TemplateId = template.Id ?? request.TemplateId,
+            TemplateName = template.TemplateName,
+            ProjectName = request.ProjectName?.Trim() ?? string.Empty,
+            Status = "Draft",
             Sections = template.Sections.Select(section => new AssessmentSection
             {
                 SectionName = section.SectionName,
@@ -76,16 +80,57 @@ public class AssessmentController : ControllerBase
         }
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var id = await _assessments.SaveAsync(assessment, int.TryParse(userId, out var uid) ? uid : null);
-        assessment.Id = id;
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var id = await _assessments.SaveAsync(assessment, userIdValue);
+        var saved = await _assessments.GetAsync(id, userIdValue);
+        return Ok(saved ?? assessment);
+    }
+
+    [HttpGet("history")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<IEnumerable<ProjectAssessmentSummary>>> History()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var items = await _assessments.ListAsync(userIdValue);
+        return Ok(items);
+    }
+
+    [HttpGet("{id}")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<ProjectAssessment>> Get(int id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var assessment = await _assessments.GetAsync(id, userIdValue);
+        if (assessment == null)
+        {
+            return NotFound();
+        }
         return Ok(assessment);
+    }
+
+    [HttpDelete("{id}")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var deleted = await _assessments.DeleteAsync(id, userIdValue);
+        if (!deleted)
+        {
+            return NotFound();
+        }
+        return NoContent();
     }
 
     [HttpGet("{id}/export")]
     [UiAuthorize("pre-sales-assessment-workspace")]
     public async Task<IActionResult> Export(int id)
     {
-        var assessment = await _assessments.GetAsync(id);
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var assessment = await _assessments.GetAsync(id, userIdValue);
         if (assessment == null)
         {
             return NotFound();
@@ -193,4 +238,5 @@ public class AssessmentAnalyzeRequest
 {
     public int TemplateId { get; set; }
     public IFormFile? File { get; set; }
+    public string? ProjectName { get; set; }
 }

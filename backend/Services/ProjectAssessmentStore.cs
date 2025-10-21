@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using backend.Models;
 using Microsoft.Extensions.Logging;
@@ -19,13 +20,17 @@ public class ProjectAssessmentStore
         _logger = logger;
     }
 
-    public async Task<ProjectAssessment?> GetAsync(int id)
+    public async Task<ProjectAssessment?> GetAsync(int id, int? userId = null)
     {
-        const string sql = "SELECT template_id, assessment_data FROM project_assessments WHERE id=@id";
+        const string sql = @"SELECT pa.template_id, pa.assessment_data, pa.created_at, pa.last_modified_at, COALESCE(pt.template_name, '')
+                               FROM project_assessments pa
+                               LEFT JOIN project_templates pt ON pt.id = pa.template_id
+                               WHERE pa.id=@id AND (@userId IS NULL OR pa.created_by_user_id=@userId)";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
@@ -34,6 +39,9 @@ public class ProjectAssessmentStore
 
         var templateId = reader.GetInt32(0);
         var json = reader.GetString(1);
+        var createdAt = reader.GetDateTime(2);
+        var lastModifiedAt = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
+        var templateName = reader.IsDBNull(4) ? string.Empty : reader.GetString(4);
         try
         {
             var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
@@ -41,6 +49,17 @@ public class ProjectAssessmentStore
             {
                 assessment.Id = id;
                 assessment.TemplateId = templateId;
+                assessment.TemplateName = templateName;
+                assessment.CreatedAt = createdAt;
+                assessment.LastModifiedAt = lastModifiedAt ?? createdAt;
+                if (string.IsNullOrWhiteSpace(assessment.ProjectName))
+                {
+                    assessment.ProjectName = string.Empty;
+                }
+                if (string.IsNullOrWhiteSpace(assessment.Status))
+                {
+                    assessment.Status = "Draft";
+                }
             }
             return assessment;
         }
@@ -88,5 +107,54 @@ public class ProjectAssessmentStore
             }
             return assessment.Id.Value;
         }
+    }
+
+    public async Task<IReadOnlyList<ProjectAssessmentSummary>> ListAsync(int? userId)
+    {
+        const string sql = @"SELECT pa.id,
+                                     pa.template_id,
+                                     COALESCE(pt.template_name, '') AS template_name,
+                                     COALESCE(pa.assessment_data->>'projectName', '') AS project_name,
+                                     COALESCE(pa.assessment_data->>'status', 'Draft') AS status,
+                                     pa.created_at,
+                                     pa.last_modified_at
+                              FROM project_assessments pa
+                              LEFT JOIN project_templates pt ON pt.id = pa.template_id
+                              WHERE (@userId IS NULL OR pa.created_by_user_id=@userId)
+                              ORDER BY COALESCE(pa.last_modified_at, pa.created_at) DESC, pa.id DESC";
+
+        var results = new List<ProjectAssessmentSummary>();
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var summary = new ProjectAssessmentSummary
+            {
+                Id = reader.GetInt32(0),
+                TemplateId = reader.GetInt32(1),
+                TemplateName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                ProjectName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                Status = reader.IsDBNull(4) ? "Draft" : reader.GetString(4),
+                CreatedAt = reader.GetDateTime(5),
+                LastModifiedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+            };
+            results.Add(summary);
+        }
+        return results;
+    }
+
+    public async Task<bool> DeleteAsync(int id, int? userId)
+    {
+        const string sql = "DELETE FROM project_assessments WHERE id=@id AND (@userId IS NULL OR created_by_user_id=@userId)";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        var rows = await cmd.ExecuteNonQueryAsync();
+        return rows > 0;
     }
 }
