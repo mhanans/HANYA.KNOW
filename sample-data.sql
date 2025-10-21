@@ -67,3 +67,58 @@ SELECT p.id, c.id FROM pics p, ticket_categories c
 WHERE p.name = 'Bob' AND c.ticket_type = 'Billing'
 ON CONFLICT DO NOTHING;
 
+-- Pre-sales project templates
+INSERT INTO project_templates (template_name, template_data, created_by_user_id, created_at, last_modified_at)
+SELECT
+  'AI Discovery Sprint',
+  $$
+  {
+    "templateName": "AI Discovery Sprint",
+    "estimationColumns": [
+      "Solution Architect",
+      "Business Analyst",
+      "Quality Engineer"
+    ],
+    "sections": [
+      {
+        "sectionName": "Discovery",
+        "type": "Project-Level",
+        "items": [
+          {
+            "itemId": "DISC-001",
+            "itemName": "Stakeholder Interviews",
+            "itemDetail": "Conduct interviews to capture goals and constraints."
+          },
+          {
+            "itemId": "DISC-002",
+            "itemName": "Current State Review",
+            "itemDetail": "Audit existing solutions, integrations, and data flows."
+          }
+        ]
+      },
+      {
+        "sectionName": "Solution Design",
+        "type": "Project-Level",
+        "items": [
+          {
+            "itemId": "DES-101",
+            "itemName": "Architecture Blueprint",
+            "itemDetail": "Draft the target architecture and technology stack."
+          },
+          {
+            "itemId": "DES-102",
+            "itemName": "Implementation Roadmap",
+            "itemDetail": "Define milestones, risks, and delivery phasing."
+          }
+        ]
+      }
+    ]
+  }
+  $$::jsonb,
+  (SELECT id FROM users WHERE username = 'admin' LIMIT 1),
+  NOW(),
+  NOW()
+WHERE NOT EXISTS (
+  SELECT 1 FROM project_templates WHERE template_name = 'AI Discovery Sprint'
+);
+
