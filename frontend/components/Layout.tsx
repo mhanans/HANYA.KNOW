@@ -66,6 +66,8 @@ const navSections: { title: string; links: NavItem[] }[] = [
   {
     title: 'Admin',
     links: [
+      { href: '/pre-sales/project-templates', label: 'Template Management', icon: '🗂️', key: 'pre-sales-project-templates' },
+      { href: '/pre-sales/presales-ai-history', label: 'Presales AI History', icon: '🗃️', key: 'admin-presales-history' },
       { href: '/users', label: 'User Management', icon: '👤', key: 'users' },
       { href: '/roles', label: 'Manage Role', icon: '🔧', key: 'roles' },
       { href: '/role-ui', label: 'Access Control', icon: '🔐', key: 'role-ui' },

@@ -149,6 +149,42 @@ CREATE TABLE IF NOT EXISTS project_assessments (
 CREATE INDEX IF NOT EXISTS idx_project_assessments_template
     ON project_assessments(template_id);
 
+CREATE TABLE IF NOT EXISTS knowledge_base_documents (
+    id SERIAL PRIMARY KEY,
+    original_file_name TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    project_name TEXT,
+    document_type TEXT,
+    client_type TEXT,
+    project_completion_date DATE,
+    processing_status TEXT NOT NULL DEFAULT 'Pending',
+    error_message TEXT,
+    chunk_count INT DEFAULT 0,
+    uploaded_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    processed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_base_documents_status
+    ON knowledge_base_documents(processing_status);
+
+CREATE TABLE IF NOT EXISTS knowledge_base_chunks (
+    id SERIAL PRIMARY KEY,
+    document_id INT REFERENCES knowledge_base_documents(id) ON DELETE CASCADE,
+    chunk_index INT NOT NULL,
+    page_number INT,
+    content TEXT NOT NULL,
+    embedding vector(768) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_base_chunks_document
+    ON knowledge_base_chunks(document_id);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_base_chunks_embedding
+    ON knowledge_base_chunks USING ivfflat (embedding vector_l2_ops);
+
 CREATE TABLE IF NOT EXISTS code_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     file_path TEXT NOT NULL,
