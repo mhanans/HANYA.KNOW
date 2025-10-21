@@ -176,20 +176,45 @@ public class LlmClient
 
         var url = $"https://generativelanguage.googleapis.com/v1/models/{options.Model}:generateContent?key={options.ApiKey}";
 
+        var systemMessages = messages
+            .Where(m => string.Equals(m.Role, "system", StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Content)
+            .Where(content => !string.IsNullOrWhiteSpace(content))
+            .ToList();
+
+        var chatMessages = messages
+            .Where(m => !string.Equals(m.Role, "system", StringComparison.OrdinalIgnoreCase))
+            .Select(m => new
+            {
+                role = m.Role == "assistant" ? "model" : m.Role,
+                parts = new[] { new { text = m.Content } }
+            })
+            .ToList();
+
+        var requestBody = new Dictionary<string, object>
+        {
+            ["contents"] = chatMessages
+        };
+
+        if (systemMessages.Count > 0)
+        {
+            requestBody["systemInstruction"] = new
+            {
+                role = "system",
+                parts = new[]
+                {
+                    new { text = string.Join("\n\n", systemMessages) }
+                }
+            };
+        }
+
         for (var attempt = 1; attempt <= options.MaxRetries; attempt++)
         {
             try
             {
                 // Gemini expects a role on each message; omit it and the API may return
                 // an empty candidate without parts, which manifests as "response missing text".
-                var res = await _http.PostAsJsonAsync(url, new
-                {
-                    contents = messages.Select(m => new
-                    {
-                        role = m.Role == "assistant" ? "model" : m.Role,
-                        parts = new[] { new { text = m.Content } }
-                    })
-                });
+                var res = await _http.PostAsJsonAsync(url, requestBody);
 
                 var body = await res.Content.ReadAsStringAsync();
                 if (!res.IsSuccessStatusCode)
