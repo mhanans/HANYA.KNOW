@@ -23,6 +23,19 @@ CREATE TABLE ProjectAssessments (
     LastModifiedAt DATETIME2
 );`;
 
+const knowledgeBaseSql = `CREATE TABLE KnowledgeBaseDocuments (
+    Id INT PRIMARY KEY IDENTITY,
+    OriginalFileName NVARCHAR(255) NOT NULL,
+    StoragePath NVARCHAR(1024) NOT NULL,
+    ProjectName NVARCHAR(255) NULL,
+    DocumentType NVARCHAR(100) NULL,
+    ProjectCompletionDate DATE NULL,
+    ProcessingStatus NVARCHAR(50) NOT NULL,
+    ErrorMessage NVARCHAR(MAX) NULL,
+    UploadedByUserId INT NOT NULL,
+    UploadedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+);`;
+
 const dtoCode = `// Untuk Template
 public class ProjectTemplate {
     public int? Id { get; set; }
@@ -73,6 +86,18 @@ const vectorMetadata = `{
       "BE": 8,
       "FE": 6
     }
+  }
+}`;
+
+const knowledgeBaseMetadata = `{
+  "content": "The pop-up notification must adhere to the brand guidelines specified in Appendix A and must be dismissible by the user...",
+  "metadata": {
+    "source_type": "knowledge_base",
+    "document_id": 456,
+    "document_name": "Project_Phoenix_FSD_v2.pdf",
+    "project_name": "Project Phoenix",
+    "document_type": "Functional Specification (FSD)",
+    "page_number": 27
   }
 }`;
 
@@ -160,6 +185,43 @@ export default function AiProjectAssessmentEngine() {
             </li>
           </ul>
         </article>
+        <article>
+          <h3>UI 4 · Admin &ndash; Presales AI History</h3>
+          <ul>
+            <li>
+              <strong>Tujuan:</strong> pusat unggah dan kurasi dokumen historis (mis. SOW, asesmen terdahulu) yang menjadi
+              memori jangka panjang AI.
+            </li>
+            <li>
+              <strong>Navigasi:</strong> tampil di bawah menu <em>Admin/Settings</em> berdampingan dengan <em>Template Management</em>.
+            </li>
+            <li>
+              <strong>Zona Unggah:</strong> drag-and-drop modern dengan dukungan batch, menerima format <code>.pdf</code> dan
+              menampilkan daftar staging (nama, ukuran, status) sebelum diproses.
+            </li>
+            <li>
+              <strong>Form Metadata Kontekstual:</strong> per dokumen dapat menambahkan <em>Project Name</em> (input teks) dan
+              <em>Client Type</em> (dropdown &ndash; CR, New Application, dll) untuk memperkaya vektor.
+            </li>
+            <li>
+              <strong>Primary Action:</strong> tombol <em>Process &amp; Add to Knowledge Base</em> yang men-disable saat proses
+              berjalan dan menampilkan indikator loading.
+            </li>
+            <li>
+              <strong>Data Grid Dokumen Terkelola:</strong> kolom <em>File Name</em>, <em>Project Name</em>, <em>Document Type</em>,
+              <em>Date Processed</em>, <em>Status</em>, dan <em>Actions</em> dengan badge status <em>Processing</em>, <em>Successfully
+              Indexed</em>, atau <em>Failed</em>. Tooltip error muncul untuk status gagal.
+            </li>
+            <li>
+              <strong>Aksi:</strong> ikon <em>Delete</em> (konfirmasi modal, menghapus vektor terkait) dan <em>Re-process</em> untuk
+              mengantre ulang dokumen yang gagal.
+            </li>
+            <li>
+              <strong>UX:</strong> proses non-blocking, feedback instan, serta pesan error ramah pengguna seperti
+              &ldquo;File format not supported&rdquo; atau &ldquo;Document appears to be corrupted&rdquo;.
+            </li>
+          </ul>
+        </article>
       </section>
 
       <section className="card">
@@ -179,14 +241,33 @@ export default function AiProjectAssessmentEngine() {
           <li><code>POST /api/assessment/analyze</code> memicu orkestrasi agen dan mengembalikan <code>ProjectAssessment</code>.</li>
           <li><code>POST /api/assessment/save</code> menyimpan perubahan asesmen.</li>
           <li><code>GET /api/assessment/{'{id}'}/export</code> menghasilkan Excel.</li>
+          <li><code>POST /api/knowledge-base/upload</code> menerima file + metadata, menyimpan sementara, dan mengantre job asinkron (HTTP 202).</li>
+          <li><code>GET /api/knowledge-base/documents</code> memuat data grid dokumen yang sudah diproses.</li>
+          <li><code>DELETE /api/knowledge-base/documents/{'{id}'}</code> menghapus dokumen dan menjadwalkan penghapusan vektor.</li>
         </ul>
+        <h3>Alur Asinkron Knowledge Base</h3>
+        <ol>
+          <li><strong>Enqueue:</strong> endpoint upload menyimpan file ke storage sementara, membuat entri <em>Pending</em> di
+            <code>KnowledgeBaseDocuments</code>, lalu mengantre job per dokumen (Hangfire/Quartz).</li>
+          <li><strong>Agent KB-1 &ndash; Ingestion &amp; Chunking:</strong> mengambil file, mengekstrak konten (mis. iTextSharp untuk
+            PDF), lalu membagi menjadi chunk 500-1000 token dengan menjaga batas alami (paragraf, tabel).</li>
+          <li><strong>Agent KB-2 &ndash; Embedding &amp; Indexing:</strong> membuat embedding (Gemini/LLM), menyimpan ke Vector DB dengan
+            metadata kaya, dan memperbarui status menjadi <em>Successfully Indexed</em> atau <em>Failed</em> dengan pesan error.</li>
+        </ol>
+        <p>
+          Agent 3 pada alur asesmen utama kini melakukan retrieval gabungan: histori asesmen terstruktur serta <em>knowledge base</em>
+          dokumen untuk konteks yang lebih kaya.
+        </p>
       </section>
 
       <section className="card">
         <h2>Bagian 3 · Model Data &amp; Skema</h2>
         <article>
           <h3>1. SQL Database Schema</h3>
-          <pre><code>{sqlSchema}</code></pre>
+          <pre><code>{`${sqlSchema}
+
+-- Menyimpan riwayat dokumen knowledge base
+${knowledgeBaseSql}`}</code></pre>
         </article>
         <article>
           <h3>2. C# DTOs</h3>
@@ -194,7 +275,10 @@ export default function AiProjectAssessmentEngine() {
         </article>
         <article>
           <h3>3. Vector Database Metadata</h3>
-          <pre><code>{vectorMetadata}</code></pre>
+          <pre><code>{`${vectorMetadata}
+
+-- Metadata khusus knowledge base
+${knowledgeBaseMetadata}`}</code></pre>
         </article>
       </section>
 
