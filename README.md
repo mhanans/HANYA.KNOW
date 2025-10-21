@@ -74,7 +74,7 @@ All requests to the API must include an `X-API-KEY` header matching the `ApiKey`
 - Chat answers include numbered citations with relevance scores.
 - Documents can be tagged with categories for targeted queries; manage categories, upload new PDFs, analyze documents, and filter questions by category.
 - Submit and track support tickets with automatic AI-driven categorization and assignment to available PICs.
-- Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the AI Project Assessment Engine blueprint (see `docs/pre-sales-ai-project-assessment-engine.md`).
+- Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the Presales AI history table for reopening saved assessments (see `docs/pre-sales-ai-project-assessment-engine.md`).
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.

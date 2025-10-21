@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS tickets (
 CREATE TABLE IF NOT EXISTS project_assessments (
     id SERIAL PRIMARY KEY,
     template_id INT REFERENCES project_templates(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'Draft',
     assessment_data JSONB NOT NULL,
     created_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -148,6 +150,9 @@ CREATE TABLE IF NOT EXISTS project_assessments (
 
 CREATE INDEX IF NOT EXISTS idx_project_assessments_template
     ON project_assessments(template_id);
+
+CREATE INDEX IF NOT EXISTS idx_project_assessments_status
+    ON project_assessments(status);
 
 CREATE TABLE IF NOT EXISTS knowledge_base_documents (
     id SERIAL PRIMARY KEY,

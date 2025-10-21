@@ -49,10 +49,10 @@ const navSections: { title: string; links: NavItem[] }[] = [
         key: 'pre-sales-assessment-workspace',
       },
       {
-        href: '/pre-sales/ai-project-assessment-engine',
-        label: 'AI Project Assessment Engine',
-        icon: '🧮',
-        key: 'pre-sales-ai-assessment',
+        href: '/pre-sales/presales-ai-history',
+        label: 'Presales AI History',
+        icon: '🗃️',
+        key: 'admin-presales-history',
       },
     ],
   },
@@ -67,7 +67,6 @@ const navSections: { title: string; links: NavItem[] }[] = [
     title: 'Admin',
     links: [
       { href: '/pre-sales/project-templates', label: 'Template Management', icon: '🗂️', key: 'pre-sales-project-templates' },
-      { href: '/pre-sales/presales-ai-history', label: 'Presales AI History', icon: '🗃️', key: 'admin-presales-history' },
       { href: '/users', label: 'User Management', icon: '👤', key: 'users' },
       { href: '/roles', label: 'Manage Role', icon: '🔧', key: 'roles' },
       { href: '/role-ui', label: 'Access Control', icon: '🔐', key: 'role-ui' },

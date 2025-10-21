@@ -142,8 +142,8 @@ public class AssessmentItem {
 ```
 
 ## 5. Hak Akses & Navigasi
-- Modul tersedia pada grup menu **Pre-Sales** dengan label *AI Project Assessment Engine*.
-- Gunakan key `pre-sales-project-templates`, `pre-sales-assessment-workspace`, dan `pre-sales-ai-assessment` di pengaturan Role UI untuk memberikan akses sesuai kebutuhan.
+- Modul tersedia pada grup menu **Pre-Sales** dengan label *Project Templates*, *Assessment Workspace*, dan *Presales AI History*.
+- Gunakan key `pre-sales-project-templates`, `pre-sales-assessment-workspace`, dan `admin-presales-history` di pengaturan Role UI untuk memberikan akses sesuai kebutuhan.
 
 ## 6. Implementasi Modul
 
@@ -151,7 +151,8 @@ public class AssessmentItem {
 - **Project Templates (`/pre-sales/project-templates`)** – data grid CRUD untuk metadata template dengan tombol *Create*, *Edit*, dan *Delete*.
 - **Template Editor (`/pre-sales/project-templates/[id]`)** – editor visual berbasis tree dengan dukungan reorder kolom dan item, guard perubahan belum tersimpan, serta aksi *Save*/*Cancel*.
 - **Assessment Workspace (`/pre-sales/workspace`)** – ruang kerja utama untuk menjalankan analisis AI, menandai item yang diperlukan, mengisi estimasi numerik, menyimpan perubahan, dan mengekspor hasil ke Excel.
-- **Blueprint (`/pre-sales/ai-project-assessment-engine`)** – dokumentasi produk sebagai referensi cepat tim Pre-Sales.
+- **Presales AI History (`/pre-sales/presales-ai-history`)** – tabel ringkasan asesmen untuk membuka atau menghapus hasil sebelumnya.
+- **Blueprint (`docs/pre-sales-ai-project-assessment-engine.md`)** – dokumentasi produk tersedia dalam repositori untuk referensi cepat tim Pre-Sales.
 
 ### 6.2 Endpoint Backend
 - `GET /api/templates` – daftar metadata template untuk dropdown dan grid administrasi.
@@ -163,5 +164,5 @@ public class AssessmentItem {
 
 ### 6.3 Skema Database
 - **project_templates** – menyimpan nama template, JSON struktur (`template_data`), serta metadata `created_by_user_id`, `created_at`, `last_modified_at`.
-- **project_assessments** – menyimpan hasil asesmen dalam JSON (`assessment_data`) dengan relasi ke template, beserta metadata pencatatan pengguna dan timestamp.
+- **project_assessments** – menyimpan hasil asesmen dalam JSON (`assessment_data`) dengan relasi ke template, metadata pengguna/timestamp, serta kolom indeks `project_name` dan `status` untuk kebutuhan pelaporan.
 
