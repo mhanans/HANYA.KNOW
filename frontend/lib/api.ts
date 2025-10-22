@@ -7,5 +7,10 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     const token = localStorage.getItem('token');
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
-  return fetch(`/api/proxy${cleaned}`, { ...options, headers });
+  const init: RequestInit = {
+    ...options,
+    headers,
+    credentials: options.credentials ?? 'include',
+  };
+  return fetch(`/api/proxy${cleaned}`, init);
 }
