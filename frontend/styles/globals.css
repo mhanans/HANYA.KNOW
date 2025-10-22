@@ -13,6 +13,107 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-header {
+  margin: 0;
+  text-align: center;
+}
+
+.login-subtitle {
+  margin: 0;
+  text-align: center;
+  color: #666;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0.75rem;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: #666;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #d9e2ff;
+}
+
+.login-divider span {
+  flex-shrink: 0;
+}
+
+.accelist-sso-form {
+  position: relative;
+}
+
+.accelist-sso-form tam-sso {
+  display: block;
+}
+
+.accelist-sso-form tam-sso button {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  background: #1a73e8;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.accelist-sso-form tam-sso button:hover {
+  background: #1558b0;
+}
+
+.accelist-sso-form tam-sso img {
+  display: inline-block !important;
+  width: auto !important;
+  margin-bottom: 0 !important;
+}
+
+.accelist-sso-form.loading tam-sso button {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.accelist-sso-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+}
+
 button,
 .btn {
   background: #0070f3;

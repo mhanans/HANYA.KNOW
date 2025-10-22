@@ -1,6 +1,9 @@
-using Npgsql;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace backend.Services;
 
@@ -27,7 +30,9 @@ public class UserStore
         var list = new List<User>();
         while (await reader.ReadAsync())
         {
-            var roles = reader.GetFieldValue<int[]>(2).ToList();
+            var roles = reader.IsDBNull(2)
+                ? new List<int>()
+                : reader.GetFieldValue<int[]>(2).ToList();
             list.Add(new User
             {
                 Id = reader.GetInt32(0),
@@ -123,7 +128,9 @@ public class UserStore
         {
             var dbPass = reader.GetString(1);
             if (!BCrypt.Net.BCrypt.Verify(password, dbPass)) return null;
-            var roles = reader.GetFieldValue<int[]>(2).ToList();
+            var roles = reader.IsDBNull(2)
+                ? new List<int>()
+                : reader.GetFieldValue<int[]>(2).ToList();
             return new User
             {
                 Id = reader.GetInt32(0),
@@ -132,6 +139,32 @@ public class UserStore
                 RoleIds = roles
             };
         }
+        return null;
+    }
+
+    public async Task<User?> FindByUsernameAsync(string username)
+    {
+        const string sql = @"SELECT u.id,
+            ARRAY(SELECT role_id FROM user_roles WHERE user_id = u.id) AS role_ids
+            FROM users u WHERE u.username=@u";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("u", username);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var roles = reader.IsDBNull(1)
+                ? new List<int>()
+                : reader.GetFieldValue<int[]>(1).ToList();
+            return new User
+            {
+                Id = reader.GetInt32(0),
+                Username = username,
+                RoleIds = roles
+            };
+        }
+
         return null;
     }
 }

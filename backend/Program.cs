@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Microsoft.IdentityModel.Tokens;
 using System.Net.Http.Headers;
@@ -103,6 +104,18 @@ builder.Services.Configure<SourceCodeOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<GitHubOptions>(builder.Configuration.GetSection("GitHub"));
 builder.Services.AddSingleton<GitHubTokenStore>();
 builder.Services.AddSingleton<GitHubIntegrationService>();
+builder.Services.Configure<AccelistSsoOptions>(builder.Configuration.GetSection("AccelistSso"));
+builder.Services.AddHttpClient("AccelistSso", (sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<AccelistSsoOptions>>().Value;
+    var host = (options.Host ?? string.Empty).TrimEnd('/');
+    if (!string.IsNullOrEmpty(host))
+    {
+        client.BaseAddress = new Uri(host + "/");
+    }
+    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
+builder.Services.AddSingleton<AccelistSsoAuthenticator>();
 builder.Services.AddHttpClient("GitHub", client =>
 {
     client.BaseAddress = new Uri("https://api.github.com/");
