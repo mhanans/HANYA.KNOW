@@ -271,6 +271,12 @@ public class ProjectAssessmentAnalysisService
         {
             throw;
         }
+        catch (GeminiApiException geminiEx)
+        {
+            _logger.LogError(geminiEx, "Unhandled exception during generation step for job {JobId}", jobId);
+            job.Status = JobStatus.FailedGeneration;
+            job.LastError = geminiEx.UserMessage;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception during generation step for job {JobId}", jobId);
@@ -332,6 +338,12 @@ public class ProjectAssessmentAnalysisService
         catch (OperationCanceledException)
         {
             throw;
+        }
+        catch (GeminiApiException geminiEx)
+        {
+            _logger.LogError(geminiEx, "Unhandled exception during estimation step for job {JobId}", jobId);
+            job.Status = JobStatus.FailedEstimation;
+            job.LastError = geminiEx.UserMessage;
         }
         catch (Exception ex)
         {
@@ -705,9 +717,9 @@ public class ProjectAssessmentAnalysisService
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorMessage = TryExtractErrorMessage(content) ?? response.ReasonPhrase;
+            var errorMessage = TryExtractErrorMessage(content) ?? response.ReasonPhrase ?? "Gemini API request failed.";
             _logger.LogError("Gemini API request failed. Path: {Path}, Status: {StatusCode}, Body: {Content}", path, response.StatusCode, content);
-            throw new InvalidOperationException($"Gemini API request to '{path}' failed with status {(int)response.StatusCode}: {errorMessage}");
+            throw new GeminiApiException(path, response.StatusCode, errorMessage, content);
         }
 
         if (string.IsNullOrWhiteSpace(content))
