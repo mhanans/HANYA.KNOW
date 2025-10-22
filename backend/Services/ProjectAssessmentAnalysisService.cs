@@ -116,19 +116,57 @@ public class ProjectAssessmentAnalysisService
     {
         _logger.LogInformation("Starting processing pipeline for assessment job {JobId}.", jobId);
 
-        await ExecuteItemGenerationStepAsync(jobId, cancellationToken).ConfigureAwait(false);
-
-        var jobAfterGeneration = await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);
-        if (jobAfterGeneration?.Status != JobStatus.GenerationComplete)
+        var job = await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);
+        if (job == null)
         {
-            _logger.LogDebug("Skipping estimation step for job {JobId} because status is {Status}.", jobId, jobAfterGeneration?.Status);
+            _logger.LogWarning("Assessment job {JobId} could not be loaded before pipeline execution.", jobId);
             return;
         }
 
-        await ExecuteEffortEstimationStepAsync(jobId, cancellationToken).ConfigureAwait(false);
+        if (ShouldRunGeneration(job))
+        {
+            await ExecuteItemGenerationStepAsync(jobId, cancellationToken).ConfigureAwait(false);
+            job = await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);
+            if (job == null)
+            {
+                _logger.LogWarning("Assessment job {JobId} could not be loaded after generation step.", jobId);
+                return;
+            }
+        }
+        else
+        {
+            _logger.LogDebug(
+                "Skipping generation step for job {JobId} because status is {Status} at step {Step}.",
+                jobId,
+                job.Status,
+                job.Step);
+        }
+
+        if (ShouldRunEstimation(job))
+        {
+            await ExecuteEffortEstimationStepAsync(jobId, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            _logger.LogDebug(
+                "Skipping estimation step for job {JobId} because status is {Status} at step {Step}.",
+                jobId,
+                job.Status,
+                job.Step);
+        }
 
         var finalJob = await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("Finished processing pipeline for assessment job {JobId} with status {Status}.", jobId, finalJob?.Status);
+        if (finalJob == null)
+        {
+            _logger.LogWarning("Assessment job {JobId} could not be loaded after pipeline execution.", jobId);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Finished processing pipeline for assessment job {JobId} with status {Status} at step {Step}.",
+            jobId,
+            finalJob.Status,
+            finalJob.Step);
     }
 
     public Task<AssessmentJob?> GetJobAsync(int jobId, CancellationToken cancellationToken)
@@ -190,6 +228,7 @@ public class ProjectAssessmentAnalysisService
                     job.GeneratedItemsJson = serializedItems;
                     job.LastError = null;
                     job.Status = JobStatus.GenerationComplete;
+                    job.SyncStepWithStatus();
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
                     await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
                     _logger.LogInformation("Repaired job {JobId} after generation failure and resumed estimation.", job.Id);
@@ -197,6 +236,7 @@ public class ProjectAssessmentAnalysisService
                 else
                 {
                     job.LastError = repairedJson;
+                    job.SyncStepWithStatus();
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -208,11 +248,13 @@ public class ProjectAssessmentAnalysisService
                     job.FinalAnalysisJson = serializedResult;
                     job.LastError = null;
                     job.Status = JobStatus.Complete;
+                    job.SyncStepWithStatus();
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
                     job.LastError = repairedJson;
+                    job.SyncStepWithStatus();
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -228,6 +270,47 @@ public class ProjectAssessmentAnalysisService
     public Task<bool> DeleteJobAsync(int jobId, CancellationToken cancellationToken)
     {
         return _jobStore.DeleteAsync(jobId, cancellationToken);
+    }
+
+    private static bool ShouldRunGeneration(AssessmentJob job)
+    {
+        if (job == null)
+        {
+            return false;
+        }
+
+        if (job.Status == JobStatus.FailedGeneration)
+        {
+            return true;
+        }
+
+        var generationInProgressStep = AssessmentJob.GetStepForStatus(JobStatus.GenerationInProgress);
+        return job.Step <= generationInProgressStep;
+    }
+
+    private static bool ShouldRunEstimation(AssessmentJob job)
+    {
+        if (job == null)
+        {
+            return false;
+        }
+
+        if (job.Status == JobStatus.Complete)
+        {
+            return false;
+        }
+
+        if (job.Status == JobStatus.FailedGeneration
+            || job.Status == JobStatus.Pending
+            || job.Status == JobStatus.GenerationInProgress)
+        {
+            return false;
+        }
+
+        var generationCompleteStep = AssessmentJob.GetStepForStatus(JobStatus.GenerationComplete);
+        var failedEstimationStep = AssessmentJob.GetStepForStatus(JobStatus.FailedEstimation);
+
+        return job.Step >= generationCompleteStep && job.Step <= failedEstimationStep;
     }
     private async Task ExecuteItemGenerationStepAsync(int jobId, CancellationToken cancellationToken)
     {

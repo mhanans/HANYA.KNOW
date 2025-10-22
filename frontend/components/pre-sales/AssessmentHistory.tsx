@@ -38,6 +38,7 @@ export interface AssessmentJobSummary {
   templateName: string;
   projectName: string;
   status: AssessmentJobStatus;
+  step?: number;
   createdAt?: string;
   lastModifiedAt?: string;
 }

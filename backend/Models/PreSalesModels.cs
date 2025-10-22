@@ -19,6 +19,7 @@ public class AssessmentJob
     public int TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
     public JobStatus Status { get; set; } = JobStatus.Pending;
+    public int Step { get; set; } = 1;
     public string ScopeDocumentPath { get; set; } = string.Empty;
     public string ScopeDocumentMimeType { get; set; } = string.Empty;
     public string OriginalTemplateJson { get; set; } = string.Empty;
@@ -30,6 +31,27 @@ public class AssessmentJob
     public string? LastError { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
+
+    public void SyncStepWithStatus()
+    {
+        Step = GetStepForStatus(Status);
+    }
+
+    public static int GetStepForStatus(JobStatus status)
+    {
+        return status switch
+        {
+            JobStatus.Pending => 2,
+            JobStatus.GenerationInProgress => 3,
+            JobStatus.GenerationComplete => 4,
+            JobStatus.FailedGeneration => 5,
+            JobStatus.EstimationInProgress => 6,
+            JobStatus.EstimationComplete => 7,
+            JobStatus.FailedEstimation => 8,
+            JobStatus.Complete => 9,
+            _ => 1
+        };
+    }
 }
 
 public class AssessmentJobSummary
@@ -39,6 +61,7 @@ public class AssessmentJobSummary
     public int TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
     public JobStatus Status { get; set; } = JobStatus.Pending;
+    public int Step { get; set; } = 1;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
 }

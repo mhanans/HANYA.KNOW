@@ -24,10 +24,13 @@ public class AssessmentJobStore
 
     public async Task<int> InsertAsync(AssessmentJob job, CancellationToken cancellationToken)
     {
+        job.SyncStepWithStatus();
+
         const string sql = @"INSERT INTO assessment_jobs (
                                     project_name,
                                     template_id,
                                     status,
+                                    step,
                                     scope_document_path,
                                     scope_document_mime_type,
                                     original_template_json,
@@ -43,6 +46,7 @@ public class AssessmentJobStore
                                     @projectName,
                                     @templateId,
                                     @status,
+                                    @step,
                                     @scopeDocumentPath,
                                     @scopeDocumentMimeType,
                                     @originalTemplateJson,
@@ -62,6 +66,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("projectName", job.ProjectName ?? string.Empty);
         cmd.Parameters.AddWithValue("templateId", job.TemplateId);
         cmd.Parameters.AddWithValue("status", job.Status.ToString());
+        cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
         cmd.Parameters.AddWithValue("scopeDocumentMimeType", job.ScopeDocumentMimeType ?? string.Empty);
         cmd.Parameters.Add("originalTemplateJson", NpgsqlDbType.Text).Value = job.OriginalTemplateJson ?? string.Empty;
@@ -93,6 +98,7 @@ public class AssessmentJobStore
                                      aj.project_name,
                                      aj.template_id,
                                      aj.status,
+                                     aj.step,
                                      aj.scope_document_path,
                                      aj.scope_document_mime_type,
                                      aj.original_template_json,
@@ -125,10 +131,13 @@ public class AssessmentJobStore
 
     public async Task UpdateAsync(AssessmentJob job, CancellationToken cancellationToken)
     {
+        job.SyncStepWithStatus();
+
         const string sql = @"UPDATE assessment_jobs
                               SET project_name=@projectName,
                                   template_id=@templateId,
                                   status=@status,
+                                  step=@step,
                                   scope_document_path=@scopeDocumentPath,
                                   scope_document_mime_type=@scopeDocumentMimeType,
                                   original_template_json=@originalTemplateJson,
@@ -148,6 +157,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("projectName", job.ProjectName ?? string.Empty);
         cmd.Parameters.AddWithValue("templateId", job.TemplateId);
         cmd.Parameters.AddWithValue("status", job.Status.ToString());
+        cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
         cmd.Parameters.AddWithValue("scopeDocumentMimeType", job.ScopeDocumentMimeType ?? string.Empty);
         cmd.Parameters.Add("originalTemplateJson", NpgsqlDbType.Text).Value = job.OriginalTemplateJson ?? string.Empty;
@@ -178,6 +188,7 @@ public class AssessmentJobStore
                                      aj.template_id,
                                      COALESCE(pt.template_name, '') AS template_name,
                                      aj.status,
+                                     aj.step,
                                      aj.created_at,
                                      aj.last_modified_at
                               FROM assessment_jobs aj
@@ -200,8 +211,9 @@ public class AssessmentJobStore
                 TemplateId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
                 TemplateName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
                 Status = ParseStatus(reader.IsDBNull(4) ? null : reader.GetString(4)),
-                CreatedAt = reader.IsDBNull(5) ? DateTime.UtcNow : reader.GetDateTime(5),
-                LastModifiedAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6)
+                Step = reader.IsDBNull(5) ? 1 : Math.Max(1, reader.GetInt32(5)),
+                CreatedAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6),
+                LastModifiedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7)
             });
         }
 
@@ -231,18 +243,19 @@ public class AssessmentJobStore
             ProjectName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
             TemplateId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
             Status = status,
-            ScopeDocumentPath = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
-            ScopeDocumentMimeType = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
-            OriginalTemplateJson = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
-            ReferenceAssessmentsJson = reader.IsDBNull(7) ? null : reader.GetString(7),
-            RawGenerationResponse = reader.IsDBNull(8) ? null : reader.GetString(8),
-            GeneratedItemsJson = reader.IsDBNull(9) ? null : reader.GetString(9),
-            RawEstimationResponse = reader.IsDBNull(10) ? null : reader.GetString(10),
-            FinalAnalysisJson = reader.IsDBNull(11) ? null : reader.GetString(11),
-            LastError = reader.IsDBNull(12) ? null : reader.GetString(12),
-            CreatedAt = reader.IsDBNull(13) ? DateTime.UtcNow : reader.GetDateTime(13),
-            LastModifiedAt = reader.IsDBNull(14) ? DateTime.UtcNow : reader.GetDateTime(14),
-            TemplateName = reader.FieldCount > 15 && !reader.IsDBNull(15) ? reader.GetString(15) : string.Empty
+            Step = reader.IsDBNull(4) ? 1 : Math.Max(1, reader.GetInt32(4)),
+            ScopeDocumentPath = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+            ScopeDocumentMimeType = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
+            OriginalTemplateJson = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+            ReferenceAssessmentsJson = reader.IsDBNull(8) ? null : reader.GetString(8),
+            RawGenerationResponse = reader.IsDBNull(9) ? null : reader.GetString(9),
+            GeneratedItemsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
+            RawEstimationResponse = reader.IsDBNull(11) ? null : reader.GetString(11),
+            FinalAnalysisJson = reader.IsDBNull(12) ? null : reader.GetString(12),
+            LastError = reader.IsDBNull(13) ? null : reader.GetString(13),
+            CreatedAt = reader.IsDBNull(14) ? DateTime.UtcNow : reader.GetDateTime(14),
+            LastModifiedAt = reader.IsDBNull(15) ? DateTime.UtcNow : reader.GetDateTime(15),
+            TemplateName = reader.FieldCount > 16 && !reader.IsDBNull(16) ? reader.GetString(16) : string.Empty
         };
     }
 
