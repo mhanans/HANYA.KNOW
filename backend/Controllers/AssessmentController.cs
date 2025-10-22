@@ -296,6 +296,7 @@ public class AssessmentController : ControllerBase
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         headerRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        headerRange.Style.Alignment.WrapText = true;
 
         worksheet.Column(1).Width = 25;
         worksheet.Column(2).Width = 30;
@@ -354,59 +355,50 @@ public class AssessmentController : ControllerBase
                 sectionTotalHours += itemTotal;
                 grandTotalHours += itemTotal;
 
+                var itemRowRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
+                itemRowRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+                worksheet.Cell(currentRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+                worksheet.Cell(currentRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+                worksheet.Cell(currentRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+
                 currentRow++;
             }
 
-            var sectionTotalLabelRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
-            sectionTotalLabelRange.Merge();
-            sectionTotalLabelRange.Value = $"{section.SectionName ?? string.Empty} · Total";
-            sectionTotalLabelRange.Style.Font.Bold = true;
-            sectionTotalLabelRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
-            sectionTotalLabelRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
-            sectionTotalLabelRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-            currentRow++;
-
-            worksheet.Cell(currentRow, 1).Value = string.Empty;
-            worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, 1).Value = $"{section.SectionName ?? string.Empty} · Total";
             worksheet.Cell(currentRow, 2).Value = "Totals";
-            worksheet.Cell(currentRow, 2).Style.Font.Bold = true;
-            worksheet.Cell(currentRow, 3).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, 3).Value = string.Empty;
 
             for (var index = 0; index < columns.Count; index++)
             {
                 worksheet.Cell(currentRow, 4 + index).Value = sectionTotals[columns[index]];
-                worksheet.Cell(currentRow, 4 + index).Style.Font.Bold = true;
             }
 
             worksheet.Cell(currentRow, totalColumnIndex).Value = sectionTotalHours;
-            worksheet.Cell(currentRow, totalColumnIndex).Style.Font.Bold = true;
+
+            var sectionTotalRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
+            sectionTotalRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
+            sectionTotalRange.Style.Font.Bold = true;
+            sectionTotalRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
             currentRow++;
 
             currentRow++;
         }
 
-        var grandTotalLabelRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
-        grandTotalLabelRange.Merge();
-        grandTotalLabelRange.Value = "Grand Total";
-        grandTotalLabelRange.Style.Font.Bold = true;
-        grandTotalLabelRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
-        grandTotalLabelRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
-        grandTotalLabelRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-        currentRow++;
-
-        worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+        worksheet.Cell(currentRow, 1).Value = "Grand Total";
         worksheet.Cell(currentRow, 2).Value = "Totals";
-        worksheet.Cell(currentRow, 2).Style.Font.Bold = true;
-        worksheet.Cell(currentRow, 3).Style.Font.Bold = true;
-
+        worksheet.Cell(currentRow, 3).Value = string.Empty;
         for (var index = 0; index < columns.Count; index++)
         {
             worksheet.Cell(currentRow, 4 + index).Value = grandTotals[columns[index]];
-            worksheet.Cell(currentRow, 4 + index).Style.Font.Bold = true;
         }
 
         worksheet.Cell(currentRow, totalColumnIndex).Value = grandTotalHours;
-        worksheet.Cell(currentRow, totalColumnIndex).Style.Font.Bold = true;
+
+        var grandTotalRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
+        grandTotalRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
+        grandTotalRange.Style.Font.Bold = true;
+        grandTotalRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
