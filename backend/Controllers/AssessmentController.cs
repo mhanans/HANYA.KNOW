@@ -8,7 +8,7 @@ using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using MiniExcelLibs;
+using ClosedXML.Excel;
 
 namespace backend.Controllers;
 
@@ -257,107 +257,159 @@ public class AssessmentController : ControllerBase
     private static byte[] BuildExport(ProjectAssessment assessment, ProjectTemplate? template)
     {
         var columns = (template?.EstimationColumns?.Count ?? 0) > 0
-            ? template!.EstimationColumns
-            : assessment.Sections
-                .SelectMany(s => s.Items)
-                .SelectMany(i => i.Estimates.Keys)
+            ? template!.EstimationColumns.ToList()
+            : (assessment.Sections ?? new List<AssessmentSection>())
+                .SelectMany(s => s.Items ?? new List<AssessmentItem>())
+                .SelectMany(i => (i.Estimates ?? new Dictionary<string, double?>()).Keys)
                 .Distinct()
                 .ToList();
 
-        IDictionary<string, object?> CreateRow()
-        {
-            var row = new Dictionary<string, object?>
-            {
-                ["Section"] = string.Empty,
-                ["Item"] = string.Empty,
-                ["Detail"] = string.Empty
-            };
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Assessment");
 
-            foreach (var column in columns)
-            {
-                row[column] = string.Empty;
-            }
+        worksheet.Cell(1, 1).Value = "Assessment Project Name";
+        worksheet.Cell(1, 1).Style.Font.Bold = true;
+        worksheet.Cell(1, 2).Value = assessment.ProjectName ?? string.Empty;
 
-            row["Total Manhours"] = string.Empty;
-            return row;
-        }
-
-        var rows = new List<IDictionary<string, object?>>();
-        var grandTotals = columns.ToDictionary(col => col, _ => 0.0);
-        double grandTotalHours = 0;
-
-        var metadataRow = CreateRow();
-        metadataRow["Section"] = "Assessment Project Name";
-        metadataRow["Item"] = assessment.ProjectName;
-        rows.Add(metadataRow);
-
+        worksheet.Cell(2, 1).Value = "Date Assessed";
+        worksheet.Cell(2, 1).Style.Font.Bold = true;
         var assessedOn = assessment.LastModifiedAt ?? assessment.CreatedAt;
         if (assessedOn.HasValue)
         {
-            var dateRow = CreateRow();
-            dateRow["Section"] = "Date Assessed";
-            dateRow["Item"] = assessedOn.Value.ToString("yyyy-MM-dd");
-            rows.Add(dateRow);
+            worksheet.Cell(2, 2).Value = assessedOn.Value.ToString("yyyy-MM-dd");
         }
 
-        rows.Add(CreateRow());
+        var headerRowNumber = 4;
+        var headers = new List<string> { "Section", "Item", "Detail" };
+        headers.AddRange(columns);
+        headers.Add("Total Manhours");
+        var totalColumnCount = headers.Count;
 
-        foreach (var section in assessment.Sections)
+        for (var index = 0; index < headers.Count; index++)
         {
-            var sectionHeader = CreateRow();
-            sectionHeader["Section"] = section.SectionName;
-            rows.Add(sectionHeader);
+            worksheet.Cell(headerRowNumber, index + 1).Value = headers[index];
+        }
+
+        var headerRange = worksheet.Range(headerRowNumber, 1, headerRowNumber, totalColumnCount);
+        headerRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#4472C4");
+        headerRange.Style.Font.FontColor = XLColor.White;
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        headerRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        worksheet.Column(1).Width = 25;
+        worksheet.Column(2).Width = 30;
+        worksheet.Column(3).Width = 50;
+        worksheet.Column(3).Style.Alignment.WrapText = true;
+
+        for (var columnIndex = 4; columnIndex <= totalColumnCount; columnIndex++)
+        {
+            worksheet.Column(columnIndex).Width = 15;
+        }
+
+        var currentRow = headerRowNumber + 1;
+        var totalColumns = totalColumnCount;
+        var totalColumnIndex = totalColumns;
+
+        var grandTotals = columns.ToDictionary(col => col, _ => 0.0);
+        double grandTotalHours = 0;
+
+        foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
+        {
+            var sectionHeaderRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
+            sectionHeaderRange.Merge();
+            sectionHeaderRange.Value = section.SectionName ?? string.Empty;
+            sectionHeaderRange.Style.Font.Bold = true;
+            sectionHeaderRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
+            sectionHeaderRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            sectionHeaderRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            currentRow++;
 
             var sectionTotals = columns.ToDictionary(col => col, _ => 0.0);
             double sectionTotalHours = 0;
 
-            foreach (var item in section.Items)
+            foreach (var item in section.Items ?? new List<AssessmentItem>())
             {
-                var row = CreateRow();
-                row["Item"] = item.ItemName;
-                row["Detail"] = item.ItemDetail;
+                worksheet.Cell(currentRow, 2).Value = item.ItemName ?? string.Empty;
+                worksheet.Cell(currentRow, 3).Value = item.ItemDetail ?? string.Empty;
 
                 double itemTotal = 0;
-                foreach (var column in columns)
+                var estimates = item.Estimates ?? new Dictionary<string, double?>();
+                for (var index = 0; index < columns.Count; index++)
                 {
-                    item.Estimates.TryGetValue(column, out var value);
+                    var columnName = columns[index];
+                    estimates.TryGetValue(columnName, out var value);
                     var hours = value ?? 0;
-                    row[column] = value;
-                    sectionTotals[column] += hours;
-                    grandTotals[column] += hours;
+                    if (value.HasValue)
+                    {
+                        worksheet.Cell(currentRow, 4 + index).Value = value.Value;
+                    }
+
+                    sectionTotals[columnName] += hours;
+                    grandTotals[columnName] += hours;
                     itemTotal += hours;
                 }
 
-                row["Total Manhours"] = itemTotal;
+                worksheet.Cell(currentRow, totalColumnIndex).Value = itemTotal;
                 sectionTotalHours += itemTotal;
                 grandTotalHours += itemTotal;
 
-                rows.Add(row);
+                currentRow++;
             }
 
-            var sectionTotalRow = CreateRow();
-            sectionTotalRow["Section"] = $"{section.SectionName} · Total";
-            foreach (var column in columns)
+            var sectionTotalLabelRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
+            sectionTotalLabelRange.Merge();
+            sectionTotalLabelRange.Value = $"{section.SectionName ?? string.Empty} · Total";
+            sectionTotalLabelRange.Style.Font.Bold = true;
+            sectionTotalLabelRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
+            sectionTotalLabelRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            sectionTotalLabelRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            currentRow++;
+
+            worksheet.Cell(currentRow, 1).Value = string.Empty;
+            worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, 2).Value = "Totals";
+            worksheet.Cell(currentRow, 2).Style.Font.Bold = true;
+            worksheet.Cell(currentRow, 3).Style.Font.Bold = true;
+
+            for (var index = 0; index < columns.Count; index++)
             {
-                sectionTotalRow[column] = sectionTotals[column];
+                worksheet.Cell(currentRow, 4 + index).Value = sectionTotals[columns[index]];
+                worksheet.Cell(currentRow, 4 + index).Style.Font.Bold = true;
             }
-            sectionTotalRow["Total Manhours"] = sectionTotalHours;
-            rows.Add(sectionTotalRow);
 
-            rows.Add(CreateRow());
+            worksheet.Cell(currentRow, totalColumnIndex).Value = sectionTotalHours;
+            worksheet.Cell(currentRow, totalColumnIndex).Style.Font.Bold = true;
+            currentRow++;
+
+            currentRow++;
         }
 
-        var grandRow = CreateRow();
-        grandRow["Section"] = "Grand Total";
-        foreach (var column in columns)
+        var grandTotalLabelRange = worksheet.Range(currentRow, 1, currentRow, totalColumns);
+        grandTotalLabelRange.Merge();
+        grandTotalLabelRange.Value = "Grand Total";
+        grandTotalLabelRange.Style.Font.Bold = true;
+        grandTotalLabelRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#D3D3D3");
+        grandTotalLabelRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+        grandTotalLabelRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        currentRow++;
+
+        worksheet.Cell(currentRow, 1).Style.Font.Bold = true;
+        worksheet.Cell(currentRow, 2).Value = "Totals";
+        worksheet.Cell(currentRow, 2).Style.Font.Bold = true;
+        worksheet.Cell(currentRow, 3).Style.Font.Bold = true;
+
+        for (var index = 0; index < columns.Count; index++)
         {
-            grandRow[column] = grandTotals[column];
+            worksheet.Cell(currentRow, 4 + index).Value = grandTotals[columns[index]];
+            worksheet.Cell(currentRow, 4 + index).Style.Font.Bold = true;
         }
-        grandRow["Total Manhours"] = grandTotalHours;
-        rows.Add(grandRow);
+
+        worksheet.Cell(currentRow, totalColumnIndex).Value = grandTotalHours;
+        worksheet.Cell(currentRow, totalColumnIndex).Style.Font.Bold = true;
 
         using var stream = new MemoryStream();
-        stream.SaveAs(rows);
+        workbook.SaveAs(stream);
         return stream.ToArray();
     }
 
