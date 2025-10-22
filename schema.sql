@@ -155,6 +155,18 @@ CREATE INDEX IF NOT EXISTS idx_project_assessments_template
 CREATE INDEX IF NOT EXISTS idx_project_assessments_status
     ON project_assessments(status);
 
+CREATE TABLE IF NOT EXISTS assessment_step_definitions (
+    status TEXT PRIMARY KEY,
+    step INT NOT NULL CHECK (step >= 1),
+    step_name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    job_status TEXT,
+    job_outputs TEXT[] NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_step_definitions_step
+    ON assessment_step_definitions(step);
+
 CREATE TABLE IF NOT EXISTS assessment_jobs (
     id SERIAL PRIMARY KEY,
     project_name TEXT NOT NULL DEFAULT '',

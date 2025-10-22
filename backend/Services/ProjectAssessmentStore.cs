@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using backend.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,23 +17,9 @@ public class ProjectAssessmentStore
     private readonly string _connectionString;
     private readonly ILogger<ProjectAssessmentStore> _logger;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly string[] StatusStepOrder =
-    {
-        "Draft",
-        "Pending",
-        "GenerationInProgress",
-        "GenerationComplete",
-        "EstimationInProgress",
-        "EstimationComplete",
-        "Complete",
-        "Completed"
-    };
-
-    private static readonly IReadOnlyDictionary<string, int> StatusStepMap = StatusStepOrder
-        .Select((status, index) => new KeyValuePair<string, int>(status, index + 1))
-        .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-
-    private static readonly int MaxStatusStep = StatusStepMap.Values.DefaultIfEmpty(1).Max();
+    private readonly SemaphoreSlim _stepDefinitionsLock = new(1, 1);
+    private IReadOnlyDictionary<string, int>? _statusStepMap;
+    private int _maxStatusStep = 1;
 
     public ProjectAssessmentStore(IOptions<PostgresOptions> dbOptions, ILogger<ProjectAssessmentStore> logger)
     {
@@ -39,22 +27,86 @@ public class ProjectAssessmentStore
         _logger = logger;
     }
 
-    private static int CalculateStep(string status, int providedStep)
+    private async Task EnsureStepDefinitionsAsync(CancellationToken cancellationToken)
     {
-        var normalizedStatus = status?.Trim();
-        var baseStep = providedStep > 0 ? providedStep : 1;
-        var cappedBase = Math.Min(Math.Max(1, baseStep), MaxStatusStep);
-
-        if (!string.IsNullOrEmpty(normalizedStatus) && StatusStepMap.TryGetValue(normalizedStatus, out var mappedStep))
+        if (_statusStepMap != null)
         {
-            if (string.Equals(normalizedStatus, "Complete", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalizedStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+            return;
+        }
+
+        await _stepDefinitionsLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_statusStepMap != null)
             {
-                mappedStep = MaxStatusStep;
+                return;
             }
 
-            var normalizedStep = Math.Min(Math.Max(1, mappedStep), MaxStatusStep);
-            return Math.Max(cappedBase, normalizedStep);
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            const string sql = @"SELECT status, step FROM assessment_step_definitions";
+
+            try
+            {
+                await using var conn = new NpgsqlConnection(_connectionString);
+                await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var status = reader.IsDBNull(0) ? null : reader.GetString(0);
+                    if (string.IsNullOrWhiteSpace(status))
+                    {
+                        continue;
+                    }
+
+                    var step = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                    if (step < 1)
+                    {
+                        continue;
+                    }
+
+                    map[status.Trim()] = step;
+                }
+            }
+            catch (PostgresException ex) when (string.Equals(ex.SqlState, PostgresErrorCodes.UndefinedTable, StringComparison.Ordinal))
+            {
+                _logger.LogWarning(ex, "Assessment step definitions table not found; defaulting to single-step workflow.");
+                _statusStepMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _maxStatusStep = 1;
+                return;
+            }
+
+            if (map.Count == 0)
+            {
+                _logger.LogWarning("No assessment step definitions found; defaulting to single-step workflow.");
+                _statusStepMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _maxStatusStep = 1;
+                return;
+            }
+
+            _statusStepMap = map;
+            _maxStatusStep = map.Values.DefaultIfEmpty(1).Max();
+        }
+        finally
+        {
+            _stepDefinitionsLock.Release();
+        }
+    }
+
+    private async Task<int> NormalizeStepAsync(string status, int providedStep, CancellationToken cancellationToken)
+    {
+        await EnsureStepDefinitionsAsync(cancellationToken).ConfigureAwait(false);
+
+        var map = _statusStepMap;
+        var maxStep = Math.Max(1, _maxStatusStep);
+        var baseStep = providedStep > 0 ? providedStep : 1;
+        var cappedBase = Math.Min(Math.Max(1, baseStep), maxStep);
+
+        if (!string.IsNullOrWhiteSpace(status) && map != null && map.TryGetValue(status.Trim(), out var mappedStep))
+        {
+            var normalized = Math.Min(Math.Max(1, mappedStep), maxStep);
+            return Math.Max(cappedBase, normalized);
         }
 
         return cappedBase;
@@ -128,7 +180,7 @@ public class ProjectAssessmentStore
 
         var projectName = assessment.ProjectName?.Trim() ?? string.Empty;
         var status = string.IsNullOrWhiteSpace(assessment.Status) ? "Draft" : assessment.Status.Trim();
-        var step = CalculateStep(status, assessment.Step);
+        var step = await NormalizeStepAsync(status, assessment.Step, CancellationToken.None).ConfigureAwait(false);
         assessment.Step = step;
         var payload = JsonSerializer.Serialize(assessment, JsonOptions);
         await using var conn = new NpgsqlConnection(_connectionString);
