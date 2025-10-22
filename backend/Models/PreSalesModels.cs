@@ -69,3 +69,14 @@ public class ProjectAssessmentSummary
     public DateTime CreatedAt { get; set; }
     public DateTime? LastModifiedAt { get; set; }
 }
+
+public class SimilarAssessmentReference
+{
+    public int Id { get; set; }
+    public int TemplateId { get; set; }
+    public string TemplateName { get; set; } = string.Empty;
+    public string ProjectName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Draft";
+    public double TotalHours { get; set; }
+    public DateTime? LastModifiedAt { get; set; }
+}

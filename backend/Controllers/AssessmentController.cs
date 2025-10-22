@@ -55,6 +55,10 @@ public class AssessmentController : ControllerBase
             return NotFound("Template not found");
         }
 
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var referenceAssessments = await _assessments.GetRecentByTemplateAsync(request.TemplateId, userIdValue, limit: 3);
+
         try
         {
             var assessment = await _analysisService.AnalyzeAsync(
@@ -62,6 +66,7 @@ public class AssessmentController : ControllerBase
                 request.TemplateId,
                 request.ProjectName ?? string.Empty,
                 request.File!,
+                referenceAssessments,
                 HttpContext.RequestAborted);
 
             return Ok(assessment);
@@ -106,6 +111,36 @@ public class AssessmentController : ControllerBase
         var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
         var items = await _assessments.ListAsync(userIdValue);
         return Ok(items);
+    }
+
+    [HttpGet("template/{templateId}/similar")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<IEnumerable<SimilarAssessmentReference>>> SimilarByTemplate(int templateId)
+    {
+        if (templateId <= 0)
+        {
+            return BadRequest("TemplateId is required");
+        }
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var assessments = await _assessments.GetRecentByTemplateAsync(templateId, userIdValue, limit: 5);
+
+        var references = assessments
+            .Where(a => a.Id.HasValue)
+            .Select(a => new SimilarAssessmentReference
+            {
+                Id = a.Id!.Value,
+                TemplateId = a.TemplateId,
+                TemplateName = a.TemplateName,
+                ProjectName = a.ProjectName,
+                Status = a.Status,
+                TotalHours = CalculateTotalHours(a),
+                LastModifiedAt = a.LastModifiedAt
+            })
+            .ToList();
+
+        return Ok(references);
     }
 
     [HttpGet("{id}")]
@@ -243,6 +278,31 @@ public class AssessmentController : ControllerBase
         using var stream = new MemoryStream();
         stream.SaveAs(rows);
         return stream.ToArray();
+    }
+
+    private static double CalculateTotalHours(ProjectAssessment assessment)
+    {
+        double total = 0;
+        foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
+        {
+            foreach (var item in section.Items ?? new List<AssessmentItem>())
+            {
+                if (!item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
+
+                foreach (var value in item.Estimates.Values)
+                {
+                    if (value.HasValue)
+                    {
+                        total += value.Value;
+                    }
+                }
+            }
+        }
+
+        return total;
     }
 }
 
