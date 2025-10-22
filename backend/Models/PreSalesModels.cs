@@ -85,6 +85,7 @@ public class ProjectAssessment
     public string TemplateName { get; set; } = string.Empty;
     public string ProjectName { get; set; } = string.Empty;
     public string Status { get; set; } = "Draft";
+    public int Step { get; set; } = 1;
     public List<AssessmentSection> Sections { get; set; } = new();
     public DateTime? CreatedAt { get; set; }
     public DateTime? LastModifiedAt { get; set; }
@@ -112,6 +113,7 @@ public class ProjectAssessmentSummary
     public string TemplateName { get; set; } = string.Empty;
     public string ProjectName { get; set; } = string.Empty;
     public string Status { get; set; } = "Draft";
+    public int Step { get; set; } = 1;
     public DateTime CreatedAt { get; set; }
     public DateTime? LastModifiedAt { get; set; }
 }

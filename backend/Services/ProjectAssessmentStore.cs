@@ -15,6 +15,23 @@ public class ProjectAssessmentStore
     private readonly string _connectionString;
     private readonly ILogger<ProjectAssessmentStore> _logger;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly string[] StatusStepOrder =
+    {
+        "Draft",
+        "Pending",
+        "GenerationInProgress",
+        "GenerationComplete",
+        "EstimationInProgress",
+        "EstimationComplete",
+        "Complete",
+        "Completed"
+    };
+
+    private static readonly IReadOnlyDictionary<string, int> StatusStepMap = StatusStepOrder
+        .Select((status, index) => new KeyValuePair<string, int>(status, index + 1))
+        .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly int MaxStatusStep = StatusStepMap.Values.DefaultIfEmpty(1).Max();
 
     public ProjectAssessmentStore(IOptions<PostgresOptions> dbOptions, ILogger<ProjectAssessmentStore> logger)
     {
@@ -22,11 +39,33 @@ public class ProjectAssessmentStore
         _logger = logger;
     }
 
+    private static int CalculateStep(string status, int providedStep)
+    {
+        var normalizedStatus = status?.Trim();
+        var baseStep = providedStep > 0 ? providedStep : 1;
+        var cappedBase = Math.Min(Math.Max(1, baseStep), MaxStatusStep);
+
+        if (!string.IsNullOrEmpty(normalizedStatus) && StatusStepMap.TryGetValue(normalizedStatus, out var mappedStep))
+        {
+            if (string.Equals(normalizedStatus, "Complete", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalizedStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+            {
+                mappedStep = MaxStatusStep;
+            }
+
+            var normalizedStep = Math.Min(Math.Max(1, mappedStep), MaxStatusStep);
+            return Math.Max(cappedBase, normalizedStep);
+        }
+
+        return cappedBase;
+    }
+
     public async Task<ProjectAssessment?> GetAsync(int id, int? userId = null)
     {
         const string sql = @"SELECT pa.template_id,
                                      pa.project_name,
                                      pa.status,
+                                     pa.step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at,
@@ -48,10 +87,11 @@ public class ProjectAssessmentStore
         var templateId = reader.GetInt32(0);
         var projectName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
         var status = reader.IsDBNull(2) ? "Draft" : reader.GetString(2);
-        var json = reader.GetFieldValue<string>(3);
-        var createdAt = reader.GetDateTime(4);
-        var lastModifiedAt = reader.IsDBNull(5) ? (DateTime?)null : reader.GetDateTime(5);
-        var templateName = reader.IsDBNull(6) ? string.Empty : reader.GetString(6);
+        var step = reader.IsDBNull(3) ? 1 : reader.GetInt32(3);
+        var json = reader.GetFieldValue<string>(4);
+        var createdAt = reader.GetDateTime(5);
+        var lastModifiedAt = reader.IsDBNull(6) ? (DateTime?)null : reader.GetDateTime(6);
+        var templateName = reader.IsDBNull(7) ? string.Empty : reader.GetString(7);
         try
         {
             var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
@@ -68,6 +108,7 @@ public class ProjectAssessmentStore
                 assessment.Status = string.IsNullOrWhiteSpace(status)
                     ? "Draft"
                     : status;
+                assessment.Step = Math.Max(1, step);
             }
             return assessment;
         }
@@ -87,18 +128,21 @@ public class ProjectAssessmentStore
 
         var projectName = assessment.ProjectName?.Trim() ?? string.Empty;
         var status = string.IsNullOrWhiteSpace(assessment.Status) ? "Draft" : assessment.Status.Trim();
+        var step = CalculateStep(status, assessment.Step);
+        assessment.Step = step;
         var payload = JsonSerializer.Serialize(assessment, JsonOptions);
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
 
         if (assessment.Id is null)
         {
-            const string insertSql = @"INSERT INTO project_assessments (template_id, project_name, status, assessment_data, created_by_user_id, created_at, last_modified_at)
-                                       VALUES (@templateId, @projectName, @status, @data, @user, NOW(), NOW()) RETURNING id";
+            const string insertSql = @"INSERT INTO project_assessments (template_id, project_name, status, step, assessment_data, created_by_user_id, created_at, last_modified_at)
+                                       VALUES (@templateId, @projectName, @status, @step, @data, @user, NOW(), NOW()) RETURNING id";
             await using var cmd = new NpgsqlCommand(insertSql, conn);
             cmd.Parameters.AddWithValue("templateId", assessment.TemplateId);
             cmd.Parameters.AddWithValue("projectName", projectName);
             cmd.Parameters.AddWithValue("status", status);
+            cmd.Parameters.AddWithValue("step", step);
             cmd.Parameters.Add("data", NpgsqlDbType.Jsonb).Value = payload;
             cmd.Parameters.AddWithValue("user", (object?)userId ?? DBNull.Value);
             var result = await cmd.ExecuteScalarAsync();
@@ -109,12 +153,14 @@ public class ProjectAssessmentStore
             const string updateSql = @"UPDATE project_assessments
                                          SET project_name=@projectName,
                                              status=@status,
+                                             step=@step,
                                              assessment_data=@data,
                                              last_modified_at=NOW()
                                          WHERE id=@id";
             await using var cmd = new NpgsqlCommand(updateSql, conn);
             cmd.Parameters.AddWithValue("projectName", projectName);
             cmd.Parameters.AddWithValue("status", status);
+            cmd.Parameters.AddWithValue("step", step);
             cmd.Parameters.Add("data", NpgsqlDbType.Jsonb).Value = payload;
             cmd.Parameters.AddWithValue("id", assessment.Id.Value);
             var rows = await cmd.ExecuteNonQueryAsync();
@@ -133,6 +179,7 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
+                                     pa.step,
                                      pa.created_at,
                                      pa.last_modified_at
                               FROM project_assessments pa
@@ -155,8 +202,9 @@ public class ProjectAssessmentStore
                 TemplateName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
                 ProjectName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
                 Status = reader.IsDBNull(4) ? "Draft" : reader.GetString(4),
-                CreatedAt = reader.GetDateTime(5),
-                LastModifiedAt = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                Step = reader.IsDBNull(5) ? 1 : Math.Max(1, reader.GetInt32(5)),
+                CreatedAt = reader.GetDateTime(6),
+                LastModifiedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
             };
             results.Add(summary);
         }
@@ -170,6 +218,7 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
+                                     pa.step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at
@@ -196,9 +245,10 @@ public class ProjectAssessmentStore
             var templateName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
             var projectName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
             var status = reader.IsDBNull(4) ? "Draft" : reader.GetString(4);
-            var json = reader.GetFieldValue<string>(5);
-            var createdAt = reader.GetDateTime(6);
-            var lastModifiedAt = reader.IsDBNull(7) ? (DateTime?)null : reader.GetDateTime(7);
+            var step = reader.IsDBNull(5) ? 1 : reader.GetInt32(5);
+            var json = reader.GetFieldValue<string>(6);
+            var createdAt = reader.GetDateTime(7);
+            var lastModifiedAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8);
 
             try
             {
@@ -210,6 +260,7 @@ public class ProjectAssessmentStore
                     assessment.TemplateName = templateName;
                     assessment.ProjectName = projectName;
                     assessment.Status = string.IsNullOrWhiteSpace(status) ? "Draft" : status;
+                    assessment.Step = Math.Max(1, step);
                     assessment.CreatedAt = createdAt;
                     assessment.LastModifiedAt = lastModifiedAt ?? createdAt;
                     results.Add(assessment);
@@ -237,6 +288,7 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
+                                     pa.step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at
@@ -260,9 +312,10 @@ public class ProjectAssessmentStore
             var templateName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
             var projectName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
             var status = reader.IsDBNull(4) ? "Draft" : reader.GetString(4);
-            var json = reader.GetFieldValue<string>(5);
-            var createdAt = reader.GetDateTime(6);
-            var lastModifiedAt = reader.IsDBNull(7) ? (DateTime?)null : reader.GetDateTime(7);
+            var step = reader.IsDBNull(5) ? 1 : reader.GetInt32(5);
+            var json = reader.GetFieldValue<string>(6);
+            var createdAt = reader.GetDateTime(7);
+            var lastModifiedAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8);
 
             try
             {
@@ -274,6 +327,7 @@ public class ProjectAssessmentStore
                     assessment.TemplateName = templateName;
                     assessment.ProjectName = projectName;
                     assessment.Status = string.IsNullOrWhiteSpace(status) ? "Draft" : status;
+                    assessment.Step = Math.Max(1, step);
                     assessment.CreatedAt = createdAt;
                     assessment.LastModifiedAt = lastModifiedAt ?? createdAt;
                     results.Add(assessment);
@@ -295,6 +349,7 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
+                                     pa.step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at
@@ -320,9 +375,10 @@ public class ProjectAssessmentStore
             var templateName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
             var projectName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
             var status = reader.IsDBNull(4) ? "Draft" : reader.GetString(4);
-            var json = reader.GetFieldValue<string>(5);
-            var createdAt = reader.GetDateTime(6);
-            var lastModifiedAt = reader.IsDBNull(7) ? (DateTime?)null : reader.GetDateTime(7);
+            var step = reader.IsDBNull(5) ? 1 : reader.GetInt32(5);
+            var json = reader.GetFieldValue<string>(6);
+            var createdAt = reader.GetDateTime(7);
+            var lastModifiedAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8);
 
             try
             {
@@ -334,6 +390,7 @@ public class ProjectAssessmentStore
                     assessment.TemplateName = templateName;
                     assessment.ProjectName = projectName;
                     assessment.Status = string.IsNullOrWhiteSpace(status) ? "Draft" : status;
+                    assessment.Step = Math.Max(1, step);
                     assessment.CreatedAt = createdAt;
                     assessment.LastModifiedAt = lastModifiedAt ?? createdAt;
                     results.Add(assessment);

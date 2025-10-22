@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS project_assessments (
     template_id INT REFERENCES project_templates(id) ON DELETE CASCADE,
     project_name TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'Draft',
+    step INT NOT NULL DEFAULT 1,
     assessment_data JSONB NOT NULL,
     created_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

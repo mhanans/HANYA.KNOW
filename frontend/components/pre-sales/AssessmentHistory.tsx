@@ -48,6 +48,7 @@ interface ProjectAssessmentSummary {
   templateName: string;
   projectName: string;
   status: string;
+  step?: number;
   createdAt?: string;
   lastModifiedAt?: string;
 }
@@ -274,6 +275,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
               <TableCell>Project Name</TableCell>
               <TableCell>Template</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell align="center">Step</TableCell>
               <TableCell>Created</TableCell>
               <TableCell>Last Updated</TableCell>
               <TableCell align="right">Actions</TableCell>
@@ -287,6 +289,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                 <TableCell>
                   <Chip label={formatStatusLabel(row.status)} size="small" color={row.status === 'Completed' ? 'success' : 'default'} />
                 </TableCell>
+                <TableCell align="center">{row.step ?? '—'}</TableCell>
                 <TableCell>{formatTimestamp(row.createdAt)}</TableCell>
                 <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
                 <TableCell align="right">

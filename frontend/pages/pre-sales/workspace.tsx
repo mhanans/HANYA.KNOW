@@ -67,6 +67,7 @@ interface ProjectAssessment {
   templateName?: string;
   projectName: string;
   status: AssessmentStatus;
+  step: number;
   sections: AssessmentSection[];
   createdAt?: string;
   lastModifiedAt?: string;
@@ -107,6 +108,7 @@ const formatTimestamp = (value?: string) => {
 
 const normalizeAssessment = (assessment: ProjectAssessment): ProjectAssessment => ({
   ...assessment,
+  step: Math.max(1, assessment.step ?? 1),
   sections: (assessment.sections ?? []).map(section => ({
     ...section,
     items: (section.items ?? []).map(item => ({
