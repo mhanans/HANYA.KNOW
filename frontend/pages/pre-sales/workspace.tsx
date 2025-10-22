@@ -372,6 +372,39 @@ export default function AssessmentWorkspace() {
     [setHistoryRefresh, showError, showSuccess]
   );
 
+  const refreshSimilarAssessments = useCallback(async (templateId: number) => {
+    if (!templateId) {
+      similarRequestId.current += 1;
+      setSimilarAssessments([]);
+      setSimilarError('');
+      setSimilarLoading(false);
+      return;
+    }
+
+    const requestToken = ++similarRequestId.current;
+    setSimilarLoading(true);
+    setSimilarError('');
+
+    try {
+      const res = await apiFetch(`/api/assessment/template/${templateId}/similar`);
+      if (!res.ok) throw new Error(await res.text());
+      const data: SimilarAssessmentReference[] = await res.json();
+      if (similarRequestId.current === requestToken) {
+        setSimilarAssessments(data);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load reference assessments.';
+      if (similarRequestId.current === requestToken) {
+        setSimilarAssessments([]);
+        setSimilarError(message);
+      }
+    } finally {
+      if (similarRequestId.current === requestToken) {
+        setSimilarLoading(false);
+      }
+    }
+  }, []);
+
   const loadAssessmentFromJob = useCallback(
     async (jobId: number) => {
       try {
@@ -453,39 +486,6 @@ export default function AssessmentWorkspace() {
     },
     [applyJobStatus, loadAssessmentFromJob, refreshJobStatus, showError, stopJobPolling]
   );
-
-  const refreshSimilarAssessments = useCallback(async (templateId: number) => {
-    if (!templateId) {
-      similarRequestId.current += 1;
-      setSimilarAssessments([]);
-      setSimilarError('');
-      setSimilarLoading(false);
-      return;
-    }
-
-    const requestToken = ++similarRequestId.current;
-    setSimilarLoading(true);
-    setSimilarError('');
-
-    try {
-      const res = await apiFetch(`/api/assessment/template/${templateId}/similar`);
-      if (!res.ok) throw new Error(await res.text());
-      const data: SimilarAssessmentReference[] = await res.json();
-      if (similarRequestId.current === requestToken) {
-        setSimilarAssessments(data);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load reference assessments.';
-      if (similarRequestId.current === requestToken) {
-        setSimilarAssessments([]);
-        setSimilarError(message);
-      }
-    } finally {
-      if (similarRequestId.current === requestToken) {
-        setSimilarLoading(false);
-      }
-    }
-  }, []);
 
   useEffect(() => {
     const loadTemplates = async () => {
