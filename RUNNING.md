@@ -36,6 +36,7 @@ This guide walks through configuring and running the HANYA.KNOW MVP.
    - `Llm:ApiKey` – API key for the chosen provider
    - `Llm:Model` – model name such as `gpt-3.5-turbo` or `gemini-pro`
    - `Chat:CooldownSeconds` – minimum seconds between chat requests per client
+   - `AccelistSso: { Host, AppId, RedirectUri, Scope }` – TAM Passport configuration for rendering the login widget and verifying tokens
    - `ApiKey` – shared secret that clients must send in an `X-API-KEY` header
 
 3. Restore and run the API:
@@ -64,6 +65,11 @@ The backend skips common build directories (`node_modules`, `.git`, `dist`, `bin
    ```bash
    NEXT_PUBLIC_API_BASE_URL=http://localhost:5000
    NEXT_PUBLIC_API_KEY=dummy-api-key
+   # Uncomment and configure the variables below to enable the Accelist SSO button
+   # NEXT_PUBLIC_ACCELIST_SSO_HOST=https://sso.example.com
+   # NEXT_PUBLIC_ACCELIST_SSO_APP_ID=your-app-id
+   # NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI=http://localhost:3000/login
+   # NEXT_PUBLIC_ACCELIST_SSO_SCOPE=email profile openid
    ```
 3. Start the dev server:
    ```bash

@@ -1,6 +1,12 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '../lib/api';
+
+const SSO_HOST = (process.env.NEXT_PUBLIC_ACCELIST_SSO_HOST ?? '').replace(/\/$/, '');
+const SSO_APP_ID = process.env.NEXT_PUBLIC_ACCELIST_SSO_APP_ID ?? '';
+const SSO_REDIRECT_URI = process.env.NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI ?? '';
+const SSO_SCOPE = process.env.NEXT_PUBLIC_ACCELIST_SSO_SCOPE ?? 'email profile openid';
+const SSO_ENABLED = Boolean(SSO_HOST && SSO_APP_ID && SSO_REDIRECT_URI);
 
 const UserIcon = () => (
   <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -49,7 +55,20 @@ export default function Login() {
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!SSO_ENABLED) return;
+    if (typeof window === 'undefined') return;
+    const existing = document.querySelector('script[data-accelist-sso]');
+    if (existing) return;
+    const script = document.createElement('script');
+    script.src = `${SSO_HOST}/js/tam-sso.js`;
+    script.async = true;
+    script.dataset.accelistSso = 'true';
+    document.body.appendChild(script);
+  }, [SSO_ENABLED, SSO_HOST]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -84,73 +103,149 @@ export default function Login() {
     }
   };
 
+  const submitSso = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!SSO_ENABLED) return;
+    setError('');
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    const token = data.get('TAMSignOnToken');
+    if (!token || typeof token !== 'string') {
+      setError('SSO authentication failed. Please try again.');
+      form.reset();
+      return;
+    }
+
+    setSsoLoading(true);
+    try {
+      const res = await apiFetch('/api/login/sso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tamSignOnToken: token })
+      });
+      if (!res.ok) {
+        let message = 'SSO authentication failed.';
+        try {
+          const payload = await res.json();
+          if (payload?.message) message = payload.message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
+      const body = await res.json();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('token', body.token);
+        document.cookie = `token=${body.token}; path=/`;
+      }
+      router.push('/');
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred.');
+      }
+    } finally {
+      form.reset();
+      setSsoLoading(false);
+    }
+  };
+
   return (
     <div className="login-container">
-      <form className="card login-card" onSubmit={submit}>
-        <img src="/logo.svg" alt="HANYA.KNOW logo" className="logo" />
-        <h1 className="login-header">Login</h1>
-        <p className="login-subtitle">Welcome back! Please sign in to your account.</p>
+      <div className="card login-card">
+        <form className="login-form" onSubmit={submit}>
+          <img src="/logo.svg" alt="HANYA.KNOW logo" className="logo" />
+          <h1 className="login-header">Login</h1>
+          <p className="login-subtitle">Welcome back! Please sign in to your account.</p>
 
-        <div className="form-group">
-          <label htmlFor="username">Username</label>
-          <div className="input-wrapper">
-            <span className="input-icon"><UserIcon /></span>
-            <input
-              id="username"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="e.g., admin"
-              className="form-input"
-            />
+          <div className="form-group">
+            <label htmlFor="username">Username</label>
+            <div className="input-wrapper">
+              <span className="input-icon"><UserIcon /></span>
+              <input
+                id="username"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="e.g., admin"
+                className="form-input"
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="form-group">
-          <label htmlFor="password">Password</label>
-          <div className="input-wrapper">
-            <span className="input-icon"><LockIcon /></span>
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="form-input"
-            />
-            <button
-              type="button"
-              className="toggle-password"
-              onClick={() => setShowPassword(s => !s)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <div className="input-wrapper">
+              <span className="input-icon"><LockIcon /></span>
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="form-input"
+              />
+              <button
+                type="button"
+                className="toggle-password"
+                onClick={() => setShowPassword(s => !s)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
+          </div>
+
+          <div className="remember-row">
+            <label>
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={e => setRemember(e.target.checked)}
+              />{' '}
+              Remember me
+            </label>
+            <a href="#" className="forgot-link">Forgot password?</a>
+          </div>
+
+          {error && (
+            <div className="error-banner">
+              <WarningIcon />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button type="submit" className="btn btn-primary login-button" disabled={loading}>
+            {loading ? <Spinner /> : 'Login'}
+          </button>
+        </form>
+        {SSO_ENABLED && (
+          <>
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+            <form
+              id="accelist-sso-form"
+              className={`accelist-sso-form${ssoLoading ? ' loading' : ''}`}
+              onSubmit={submitSso}
             >
-              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-            </button>
-          </div>
-        </div>
-
-        <div className="remember-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={e => setRemember(e.target.checked)}
-            />{' '}
-            Remember me
-          </label>
-          <a href="#" className="forgot-link">Forgot password?</a>
-        </div>
-
-        {error && (
-          <div className="error-banner">
-            <WarningIcon />
-            <span>{error}</span>
-          </div>
+              <input type="hidden" name="TAMSignOnToken" />
+              <tam-sso
+                app={SSO_APP_ID}
+                server={SSO_HOST}
+                scope={SSO_SCOPE}
+                redirect-uri={SSO_REDIRECT_URI}
+                auto-submit="accelist-sso-form"
+              ></tam-sso>
+              {ssoLoading && (
+                <div className="accelist-sso-overlay">
+                  <Spinner />
+                </div>
+              )}
+            </form>
+          </>
         )}
-
-        <button type="submit" className="btn btn-primary login-button" disabled={loading}>
-          {loading ? <Spinner /> : 'Login'}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
