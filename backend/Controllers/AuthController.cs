@@ -1,12 +1,14 @@
 using backend.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Collections.Generic;
-using System.Security.Claims;
 using Microsoft.IdentityModel.Tokens;
+using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
-using System.Text;
 using System.Linq;
+using System.Security.Claims;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace backend.Controllers;
@@ -17,13 +19,11 @@ public class AuthController : ControllerBase
 {
     private readonly UserStore _users;
     private readonly IConfiguration _config;
-    private readonly AccelistSsoAuthenticator _ssoAuthenticator;
 
-    public AuthController(UserStore users, IConfiguration config, AccelistSsoAuthenticator ssoAuthenticator)
+    public AuthController(UserStore users, IConfiguration config)
     {
         _users = users;
         _config = config;
-        _ssoAuthenticator = ssoAuthenticator;
     }
 
     [AllowAnonymous]
@@ -38,28 +38,12 @@ public class AuthController : ControllerBase
         return Ok(new { user.Id, user.Username, Roles = user.RoleIds, Token = tokenString });
     }
 
-    [AllowAnonymous]
-    [HttpPost("login/sso")]
-    public async Task<IActionResult> LoginWithAccelistSso(AccelistSsoLoginRequest request)
-    {
-        var email = await _ssoAuthenticator.GetEmailFromTokenAsync(request.TamSignOnToken ?? string.Empty);
-        if (string.IsNullOrWhiteSpace(email))
-        {
-            return Unauthorized(new { message = "SSO authentication failed" });
-        }
-
-        var user = await _users.FindByUsernameAsync(email);
-        if (user == null || user.RoleIds.Count == 0)
-        {
-            return Unauthorized(new { message = "Login failed: User not found in database or no roles assigned" });
-        }
-
-        var tokenString = GenerateToken(user);
-        return Ok(new { user.Id, user.Username, Roles = user.RoleIds, Token = tokenString });
-    }
-
     [HttpPost("logout")]
-    public IActionResult Logout() => Ok();
+    public async Task<IActionResult> Logout()
+    {
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return Ok();
+    }
 
     [HttpGet("me")]
     public IActionResult Me()
@@ -96,9 +80,4 @@ public class LoginRequest
 {
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
-}
-
-public class AccelistSsoLoginRequest
-{
-    public string? TamSignOnToken { get; set; }
 }

@@ -1,13 +1,7 @@
-import { useState, FormEvent, useEffect, useRef, useCallback } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import Script from 'next/script';
 import { useRouter } from 'next/router';
 import { apiFetch } from '../lib/api';
-
-const SSO_HOST = (process.env.NEXT_PUBLIC_ACCELIST_SSO_HOST ?? '').replace(/\/$/, '');
-const SSO_APP_ID = process.env.NEXT_PUBLIC_ACCELIST_SSO_APP_ID ?? '';
-const SSO_REDIRECT_URI = process.env.NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI ?? '';
-const DEFAULT_SCOPE = 'email profile openid';
-const SSO_SCOPE = (process.env.NEXT_PUBLIC_ACCELIST_SSO_SCOPE ?? DEFAULT_SCOPE).trim() || DEFAULT_SCOPE;
-const SSO_LOAD_ERROR = 'Unable to load Accelist SSO. Please refresh and try again.';
 
 const UserIcon = () => (
   <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -56,335 +50,82 @@ export default function Login() {
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ssoError, setSsoError] = useState('');
   const [ssoLoading, setSsoLoading] = useState(false);
-  const [resolvedRedirectUri, setResolvedRedirectUri] = useState(SSO_REDIRECT_URI);
-  const [ssoReady, setSsoReady] = useState(false);
-  const [tamSsoElement, setTamSsoElement] = useState<HTMLElement | null>(null);
-  const ssoElementContainerRef = useRef<HTMLDivElement | null>(null);
-  const tamSsoElementRef = useRef<HTMLElement | null>(null);
-  const handledSsoTokenRef = useRef<string | null>(null);
   const router = useRouter();
-  const ssoEnabled = Boolean(SSO_HOST && SSO_APP_ID && resolvedRedirectUri);
+  const ssoFormRef = useRef<HTMLFormElement>(null);
+  const observerRef = useRef<MutationObserver | null>(null);
 
-  const markSsoReady = useCallback(() => {
-    setSsoReady(true);
-    setError(prev => (prev === SSO_LOAD_ERROR ? '' : prev));
-  }, [setError]);
+  useEffect(() => {
+    const form = ssoFormRef.current;
+    if (!form) {
+      return;
+    }
 
-  const handleSsoLoadFailure = useCallback(() => {
-    setSsoReady(false);
-    setError(prev => prev || SSO_LOAD_ERROR);
-  }, [setError]);
+    const handleTokenReception = async (tokenInput: HTMLInputElement) => {
+      if (!tokenInput.value) {
+        return;
+      }
 
-  const completeSso = useCallback(
-    async (token: string, form?: HTMLFormElement) => {
-      if (!ssoEnabled) return;
-      setError('');
+      observerRef.current?.disconnect();
       setSsoLoading(true);
+      setSsoError('');
+
       try {
-        const res = await apiFetch('/api/login/sso', {
+        const tokens = JSON.parse(tokenInput.value);
+        if (!tokens.id_token) {
+          throw new Error('ID token is missing from SSO response.');
+        }
+
+        const response = await fetch('/api/auth/sso-login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tamSignOnToken: token })
+          body: JSON.stringify({ idToken: tokens.id_token }),
+          credentials: 'include',
         });
-        if (!res.ok) {
-          let message = 'SSO authentication failed.';
-          try {
-            const payload = await res.json();
-            if (payload?.message) message = payload.message;
-          } catch {
-            // ignore
+
+        if (response.ok) {
+          router.push('/');
+          return;
+        }
+
+        const errorData = await response.json().catch(() => null);
+        const message = errorData?.message ?? 'SSO login failed. Please try again.';
+        setSsoError(message);
+        observerRef.current = new MutationObserver(mutations => {
+          for (const mutation of mutations) {
+            mutation.addedNodes.forEach(node => {
+              if (node.nodeName === 'INPUT' && (node as HTMLInputElement).id === 'TAMSignOnToken') {
+                handleTokenReception(node as HTMLInputElement);
+              }
+            });
           }
-          throw new Error(message);
-        }
-        const body = await res.json();
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('token', body.token);
-          document.cookie = `token=${body.token}; path=/`;
-        }
-        router.push('/');
+        });
+        observerRef.current.observe(form, { childList: true, subtree: true });
       } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError('An unexpected error occurred.');
-        }
+        const message = err instanceof Error ? err.message : 'Failed to process the SSO token.';
+        setSsoError(message);
       } finally {
-        if (form) {
-          form.reset();
-        } else if (typeof window !== 'undefined') {
-          const input = document.querySelector<HTMLInputElement>('input[name="TAMSignOnToken"]');
-          if (input) {
-            input.value = '';
-          }
-        }
         setSsoLoading(false);
       }
-    },
-    [router, setError, ssoEnabled]
-  );
-
-  useEffect(() => {
-    if (resolvedRedirectUri || typeof window === 'undefined') {
-      return;
-    }
-    setResolvedRedirectUri(`${window.location.origin}/auth/sso/callback`);
-  }, [resolvedRedirectUri]);
-
-  useEffect(() => {
-    if (!ssoEnabled) {
-      setSsoReady(false);
-      return;
-    }
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    let active = true;
-    const handleError = () => {
-      if (!active) {
-        return;
-      }
-      handleSsoLoadFailure();
     };
 
-    const markReady = () => {
-      if (!active) {
-        return;
-      }
-      markSsoReady();
-    };
-
-    const awaitDefinition = () => {
-      if (!window.customElements) {
-        markReady();
-        return;
-      }
-      if (window.customElements.get('tam-sso')) {
-        markReady();
-        return;
-      }
-      try {
-        window.customElements
-          .whenDefined('tam-sso')
-          .then(() => {
-            markReady();
-          })
-          .catch(handleError);
-      } catch (err) {
-        markReady();
-      }
-    };
-
-    const existing = document.querySelector<HTMLScriptElement>('script[data-accelist-sso]');
-    if (existing) {
-      awaitDefinition();
-      existing.addEventListener('error', handleError);
-      return () => {
-        active = false;
-        existing.removeEventListener('error', handleError);
-      };
-    }
-
-    const script = document.createElement('script');
-    script.src = `${SSO_HOST}/js/tam-sso.js`;
-    script.async = true;
-    script.dataset.accelistSso = 'true';
-    script.addEventListener('load', awaitDefinition);
-    script.addEventListener('error', handleError);
-    document.body.appendChild(script);
-
-    return () => {
-      active = false;
-      script.removeEventListener('load', awaitDefinition);
-      script.removeEventListener('error', handleError);
-    };
-  }, [handleSsoLoadFailure, markSsoReady, ssoEnabled]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const container = ssoElementContainerRef.current;
-    if (!container) {
-      return;
-    }
-
-    if (!ssoEnabled) {
-      if (tamSsoElementRef.current) {
-        tamSsoElementRef.current.remove();
-        tamSsoElementRef.current = null;
-      }
-      if (tamSsoElement !== null) {
-        setTamSsoElement(null);
-      }
-      return;
-    }
-
-    let element = tamSsoElementRef.current;
-    if (!element) {
-      element = document.createElement('tam-sso');
-      tamSsoElementRef.current = element;
-    }
-    if (tamSsoElement !== element) {
-      setTamSsoElement(element);
-    }
-
-    if (element.parentElement !== container) {
-      container.innerHTML = '';
-      container.appendChild(element);
-    }
-
-    element.setAttribute('app', SSO_APP_ID);
-    element.setAttribute('server', SSO_HOST);
-    element.setAttribute('scope', SSO_SCOPE);
-    if (resolvedRedirectUri) {
-      element.setAttribute('redirect-uri', resolvedRedirectUri);
-    } else {
-      element.removeAttribute('redirect-uri');
-    }
-    element.setAttribute('auto-submit', 'accelist-sso-form');
-
-    return () => {
-      // no-op cleanup; element persists for reuse
-    };
-  }, [resolvedRedirectUri, ssoEnabled, tamSsoElement]);
-
-  useEffect(() => {
-    if (!ssoEnabled || !tamSsoElement || typeof window === 'undefined' || ssoReady) {
-      return;
-    }
-
-    let cancelled = false;
-    let intervalId: ReturnType<typeof window.setInterval> | undefined;
-    let timeoutId: ReturnType<typeof window.setTimeout> | undefined;
-
-    const checkReady = () => {
-      if (cancelled) {
-        return false;
-      }
-      const element = tamSsoElementRef.current;
-      if (!element) {
-        return false;
-      }
-      const root = element.shadowRoot ?? element;
-      const hasInteractiveChild = root.querySelector('button, [role="button"], input[type="submit"]');
-      if (hasInteractiveChild) {
-        markSsoReady();
-        if (intervalId !== undefined) {
-          window.clearInterval(intervalId);
-        }
-        if (timeoutId !== undefined) {
-          window.clearTimeout(timeoutId);
-        }
-        return true;
-      }
-      return false;
-    };
-
-    if (checkReady()) {
-      return;
-    }
-
-    const observer = new MutationObserver(() => {
-      if (checkReady()) {
-        observer.disconnect();
+    observerRef.current = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach(node => {
+          if (node.nodeName === 'INPUT' && (node as HTMLInputElement).id === 'TAMSignOnToken') {
+            handleTokenReception(node as HTMLInputElement);
+          }
+        });
       }
     });
 
-    observer.observe(tamSsoElement, { childList: true, subtree: true });
-    if (tamSsoElement.shadowRoot) {
-      observer.observe(tamSsoElement.shadowRoot, { childList: true, subtree: true });
-    }
-
-    const readyListener = () => {
-      checkReady();
-    };
-
-    tamSsoElement.addEventListener('tam-sso-ready', readyListener);
-    tamSsoElement.addEventListener('ready', readyListener);
-    tamSsoElement.addEventListener('load', readyListener);
-
-    intervalId = window.setInterval(() => {
-      checkReady();
-    }, 250);
-
-    timeoutId = window.setTimeout(() => {
-      if (!checkReady()) {
-        observer.disconnect();
-        handleSsoLoadFailure();
-      }
-    }, 10000);
+    observerRef.current.observe(form, { childList: true, subtree: true });
 
     return () => {
-      cancelled = true;
-      observer.disconnect();
-      tamSsoElement.removeEventListener('tam-sso-ready', readyListener);
-      tamSsoElement.removeEventListener('ready', readyListener);
-      tamSsoElement.removeEventListener('load', readyListener);
-      if (intervalId !== undefined) {
-        window.clearInterval(intervalId);
-      }
-      if (timeoutId !== undefined) {
-        window.clearTimeout(timeoutId);
-      }
+      observerRef.current?.disconnect();
     };
-  }, [handleSsoLoadFailure, markSsoReady, ssoEnabled, ssoReady, tamSsoElement]);
-
-  useEffect(() => {
-    return () => {
-      if (tamSsoElementRef.current) {
-        tamSsoElementRef.current.remove();
-        tamSsoElementRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!ssoEnabled || typeof window === 'undefined' || !router.isReady) {
-      return;
-    }
-
-    const currentUrl = new URL(window.location.href);
-    const initialToken = currentUrl.searchParams.get('TAMSignOnToken');
-    let token = initialToken ?? '';
-
-    if (!token && currentUrl.hash.includes('TAMSignOnToken')) {
-      const hashParams = new URLSearchParams(currentUrl.hash.replace(/^#/, ''));
-      token = hashParams.get('TAMSignOnToken') ?? '';
-      if (token) {
-        hashParams.delete('TAMSignOnToken');
-        const newHash = hashParams.toString();
-        currentUrl.hash = newHash ? `#${newHash}` : '';
-      }
-    }
-
-    if (initialToken) {
-      currentUrl.searchParams.delete('TAMSignOnToken');
-    }
-
-    const cleanedUrl = currentUrl.toString();
-    if (cleanedUrl !== window.location.href) {
-      window.history.replaceState({}, document.title, cleanedUrl);
-    }
-
-    if (!token || handledSsoTokenRef.current === token) {
-      return;
-    }
-
-    handledSsoTokenRef.current = token;
-
-    const form = document.getElementById('accelist-sso-form') as HTMLFormElement | null;
-    if (form) {
-      const input = form.querySelector<HTMLInputElement>('input[name="TAMSignOnToken"]');
-      if (input) {
-        input.value = token;
-      }
-    }
-
-    void completeSso(token, form ?? undefined);
-  }, [completeSso, router.isReady, ssoEnabled]);
+  }, [router]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -419,131 +160,107 @@ export default function Login() {
     }
   };
 
-  const submitSso = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!ssoEnabled) return;
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    const token = data.get('TAMSignOnToken');
-    if (!token || typeof token !== 'string') {
-      setError('SSO authentication failed. Please try again.');
-      form.reset();
-      return;
-    }
-    if (handledSsoTokenRef.current === token) {
-      return;
-    }
-
-    handledSsoTokenRef.current = token;
-
-    await completeSso(token, form);
-  };
+  const ssoHost = process.env.NEXT_PUBLIC_ACCELIST_SSO_HOST;
 
   return (
     <div className="login-container">
-      <div className="card login-card">
-        <form className="login-form" onSubmit={submit}>
-          <img src="/logo.svg" alt="HANYA.KNOW logo" className="logo" />
-          <h1 className="login-header">Login</h1>
-          <p className="login-subtitle">Welcome back! Please sign in to your account.</p>
+      <form className="card login-card" onSubmit={submit}>
+        <img src="/logo.svg" alt="HANYA.KNOW logo" className="logo" />
+        <h1 className="login-header">Login</h1>
+        <p className="login-subtitle">Welcome back! Please sign in to your account.</p>
 
-          <div className="form-group">
-            <label htmlFor="username">Username</label>
-            <div className="input-wrapper">
-              <span className="input-icon"><UserIcon /></span>
-              <input
-                id="username"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="e.g., admin"
-                className="form-input"
-              />
-            </div>
+        <div className="form-group">
+          <label htmlFor="username">Username</label>
+          <div className="input-wrapper">
+            <span className="input-icon"><UserIcon /></span>
+            <input
+              id="username"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="e.g., admin"
+              className="form-input"
+            />
           </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <div className="input-wrapper">
-              <span className="input-icon"><LockIcon /></span>
-              <input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="form-input"
-              />
-              <button
-                type="button"
-                className="toggle-password"
-                onClick={() => setShowPassword(s => !s)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-              </button>
-            </div>
-          </div>
-
-          <div className="remember-row">
-            <label>
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={e => setRemember(e.target.checked)}
-              />{' '}
-              Remember me
-            </label>
-            <a href="#" className="forgot-link">Forgot password?</a>
-          </div>
-
-          {error && (
-            <div className="error-banner">
-              <WarningIcon />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary login-button" disabled={loading}>
-            {loading ? <Spinner /> : 'Login'}
-          </button>
-        </form>
-        <div className="accelist-sso-section">
-          <div className="login-divider">
-            <span>{ssoEnabled ? 'or' : 'Single sign-on'}</span>
-          </div>
-          {ssoEnabled ? (
-            <form
-              id="accelist-sso-form"
-              className={`accelist-sso-form${ssoLoading ? ' loading' : ''}`}
-              onSubmit={submitSso}
-            >
-              <input type="hidden" name="TAMSignOnToken" />
-              <div className="accelist-sso-widget">
-                {!ssoReady && (
-                  <button type="button" className="btn secondary accelist-sso-placeholder" disabled>
-                    Loading Accelist SSO…
-                  </button>
-                )}
-                <div
-                  ref={ssoElementContainerRef}
-                  className={`accelist-sso-element ${ssoReady ? 'ready' : 'pending'}`}
-                />
-                {ssoLoading && (
-                  <div className="accelist-sso-overlay">
-                    <Spinner />
-                  </div>
-                )}
-              </div>
-            </form>
-          ) : (
-            <div className="accelist-sso-widget">
-              <button type="button" className="btn secondary accelist-sso-placeholder" disabled>
-                Login with SSO not available
-              </button>
-            </div>
-          )}
         </div>
-      </div>
+
+        <div className="form-group">
+          <label htmlFor="password">Password</label>
+          <div className="input-wrapper">
+            <span className="input-icon"><LockIcon /></span>
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="form-input"
+            />
+            <button
+              type="button"
+              className="toggle-password"
+              onClick={() => setShowPassword(s => !s)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
+        </div>
+
+        <div className="remember-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={e => setRemember(e.target.checked)}
+            />{' '}
+            Remember me
+          </label>
+          <a href="#" className="forgot-link">Forgot password?</a>
+        </div>
+
+        {error && (
+          <div className="error-banner">
+            <WarningIcon />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <button type="submit" className="btn btn-primary login-button" disabled={loading}>
+          {loading ? <Spinner /> : 'Login'}
+        </button>
+
+        {ssoHost ? (
+          <>
+            <div className="divider"><span>or</span></div>
+            <form id="ssoLoginForm" ref={ssoFormRef} className="sso-form" onSubmit={event => event.preventDefault()}>
+              <tam-sso
+                app={process.env.NEXT_PUBLIC_ACCELIST_SSO_APP_ID}
+                server={ssoHost}
+                scope={process.env.NEXT_PUBLIC_ACCELIST_SSO_SCOPE}
+                redirect-uri={process.env.NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI}
+                auto-submit="ssoLoginForm"
+                data-label="Login with SSO"
+              >
+                <button
+                  type="button"
+                  className="btn btn-secondary login-button sso-button"
+                  disabled={ssoLoading}
+                >
+                  {ssoLoading ? <Spinner /> : 'Login with SSO'}
+                </button>
+              </tam-sso>
+            </form>
+            {ssoError && (
+              <div className="error-banner">
+                <WarningIcon />
+                <span>{ssoError}</span>
+              </div>
+            )}
+          </>
+        ) : null}
+      </form>
+
+      {ssoHost ? <Script src={`${ssoHost}/js/tam-sso.js`} strategy="lazyOnload" /> : null}
     </div>
   );
 }
