@@ -1,17 +1,26 @@
-using backend.Services;
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text;
 using backend.Middleware;
+using backend.Models.Configuration;
+using backend.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
-using System.Net.Http.Headers;
-using System.Text;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+const string CombinedScheme = "Combined";
 
 builder.Services.AddControllers(options =>
 {
@@ -45,9 +54,9 @@ builder.Services.AddSwaggerGen(options =>
                 Reference = new OpenApiReference
                 {
                     Type = ReferenceType.SecurityScheme,
-                    Id = "ApiKey"
+                    Id = "ApiKey",
                 },
-                In = ParameterLocation.Header
+                In = ParameterLocation.Header,
             },
             Array.Empty<string>()
         }
@@ -60,7 +69,7 @@ builder.Services.AddSwaggerGen(options =>
                 Reference = new OpenApiReference
                 {
                     Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
+                    Id = "Bearer",
                 }
             },
             Array.Empty<string>()
@@ -107,18 +116,7 @@ builder.Services.Configure<SourceCodeOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<GitHubOptions>(builder.Configuration.GetSection("GitHub"));
 builder.Services.AddSingleton<GitHubTokenStore>();
 builder.Services.AddSingleton<GitHubIntegrationService>();
-builder.Services.Configure<AccelistSsoOptions>(builder.Configuration.GetSection("AccelistSso"));
-builder.Services.AddHttpClient("AccelistSso", (sp, client) =>
-{
-    var options = sp.GetRequiredService<IOptions<AccelistSsoOptions>>().Value;
-    var host = (options.Host ?? string.Empty).TrimEnd('/');
-    if (!string.IsNullOrEmpty(host))
-    {
-        client.BaseAddress = new Uri(host + "/");
-    }
-    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-});
-builder.Services.AddSingleton<AccelistSsoAuthenticator>();
+builder.Services.Configure<AccelistSsoOptions>(builder.Configuration.GetSection(AccelistSsoOptions.SectionName));
 builder.Services.AddHttpClient("GitHub", client =>
 {
     client.BaseAddress = new Uri("https://api.github.com/");
@@ -132,8 +130,40 @@ builder.Services.AddHttpClient("GitHubOAuth", client =>
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = CombinedScheme;
+        options.DefaultChallengeScheme = CombinedScheme;
+    })
+    .AddPolicyScheme(CombinedScheme, CombinedScheme, options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.ContainsKey("Authorization")
+                ? JwtBearerDefaults.AuthenticationScheme
+                : CookieAuthenticationDefaults.AuthenticationScheme;
+    })
+    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+    {
+        options.Cookie.Name = "HanyaKnow.Auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
+    })
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
     {
         var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? string.Empty);
         options.TokenValidationParameters = new TokenValidationParameters
@@ -146,7 +176,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
-// Add CORS policy using origins from configuration
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 builder.Services.AddCors(options =>
 {
@@ -165,7 +194,6 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Test embedding service connectivity at startup
 using (var scope = app.Services.CreateScope())
 {
     var provider = scope.ServiceProvider;
@@ -193,14 +221,109 @@ using (var scope = app.Services.CreateScope())
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
-    // Allow Swagger "try it out" requests to include cookies so
-    // authenticated endpoints can be tested from the UI.
     options.UseRequestInterceptor("(req) => { req.credentials = 'include'; return req; }");
 });
-// Use the CORS policy
+app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<ApiKeyMiddleware>();
+
+public record SsoLoginRequest(string IdToken);
+
+app.MapPost("/api/auth/sso-login", async (
+    SsoLoginRequest request,
+    IOptions<AccelistSsoOptions> ssoOptions,
+    IOptionsMonitor<CookieAuthenticationOptions> cookieOptionsMonitor,
+    HttpContext httpContext,
+    ILogger<Program> logger) =>
+{
+    if (string.IsNullOrWhiteSpace(request.IdToken))
+    {
+        return Results.BadRequest(new { message = "ID token is required." });
+    }
+
+    var ssoConfig = ssoOptions.Value;
+    var host = ssoConfig.Host?.TrimEnd('/') ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(ssoConfig.AppId))
+    {
+        logger.LogError("Accelist SSO configuration is incomplete. Host: {Host}, AppId: {AppId}", host, ssoConfig.AppId);
+        return Results.Problem("SSO configuration is incomplete.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var metadataAddress = $"{host}/.well-known/openid-configuration";
+    var configManager = new ConfigurationManager<OpenIdConnectConfiguration>(
+        metadataAddress,
+        new OpenIdConnectConfigurationRetriever());
+
+    OpenIdConnectConfiguration discoveryDocument;
+    try
+    {
+        discoveryDocument = await configManager.GetConfigurationAsync(CancellationToken.None);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to download OIDC metadata from {MetadataAddress}", metadataAddress);
+        return Results.Problem("Failed to reach SSO provider.", statusCode: StatusCodes.Status502BadGateway);
+    }
+
+    var validationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidIssuer = host,
+        ValidateAudience = true,
+        ValidAudience = ssoConfig.AppId,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKeys = discoveryDocument.SigningKeys,
+        ClockSkew = TimeSpan.FromSeconds(30)
+    };
+
+    try
+    {
+        var tokenHandler = new JwtSecurityTokenHandler();
+        var principal = tokenHandler.ValidateToken(request.IdToken, validationParameters, out _);
+
+        var claimsIdentity = new ClaimsIdentity(principal.Claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var cookieOptions = cookieOptionsMonitor.Get(CookieAuthenticationDefaults.AuthenticationScheme);
+        var authProperties = new AuthenticationProperties
+        {
+            IsPersistent = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.Add(cookieOptions.ExpireTimeSpan)
+        };
+
+        await httpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(claimsIdentity),
+            authProperties);
+
+        return Results.Ok(new { message = "Authentication successful." });
+    }
+    catch (SecurityTokenException ex)
+    {
+        logger.LogWarning(ex, "Invalid SSO token received");
+        return Results.Unauthorized(new { message = "Invalid token.", details = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Unexpected error while validating SSO token");
+        return Results.Problem("An unexpected error occurred during login.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
+
+app.MapGet("/api/user/profile", (ClaimsPrincipal user) =>
+{
+    if (user.Identity?.IsAuthenticated != true)
+    {
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(new
+    {
+        Email = user.FindFirstValue(ClaimTypes.Email),
+        Name = user.FindFirstValue(ClaimTypes.Name)
+    });
+}).RequireAuthorization();
+
 app.MapControllers();
 app.Run();

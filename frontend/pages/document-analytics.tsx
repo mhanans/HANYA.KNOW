@@ -17,6 +17,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SummarizeIcon from '@mui/icons-material/Summarize';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import Modal from '../components/Modal';
+import { apiFetch } from '../lib/api';
 
 interface Doc { source: string; hasSummary: boolean; }
 
