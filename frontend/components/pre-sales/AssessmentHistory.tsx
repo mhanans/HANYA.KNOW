@@ -63,6 +63,22 @@ const statusColors: Record<AssessmentJobStatus, 'default' | 'warning' | 'success
   FailedEstimation: 'error',
 };
 
+const formatStatusLabel = (status: AssessmentJobSummary['status']) => {
+  if (typeof status !== 'string') {
+    return 'Unknown';
+  }
+
+  return status.replace(/([a-z])([A-Z])/g, '$1 $2');
+};
+
+const getStatusColor = (status: AssessmentJobSummary['status']) => {
+  if (typeof status === 'string' && status in statusColors) {
+    return statusColors[status as AssessmentJobStatus];
+  }
+
+  return 'default';
+};
+
 export default function AssessmentHistory({ refreshToken, onSelect }: AssessmentHistoryProps) {
   const [rows, setRows] = useState<AssessmentJobSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -120,11 +136,7 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
                 <TableCell>{row.projectName || 'Untitled Assessment'}</TableCell>
                 <TableCell>{row.templateName || '—'}</TableCell>
                 <TableCell>
-                  <Chip
-                    label={row.status.replace(/([a-z])([A-Z])/g, '$1 $2')}
-                    color={statusColors[row.status]}
-                    size="small"
-                  />
+                  <Chip label={formatStatusLabel(row.status)} color={getStatusColor(row.status)} size="small" />
                 </TableCell>
                 <TableCell>{formatTimestamp(row.createdAt)}</TableCell>
                 <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
