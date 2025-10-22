@@ -154,6 +154,30 @@ CREATE INDEX IF NOT EXISTS idx_project_assessments_template
 CREATE INDEX IF NOT EXISTS idx_project_assessments_status
     ON project_assessments(status);
 
+CREATE TABLE IF NOT EXISTS assessment_jobs (
+    id SERIAL PRIMARY KEY,
+    project_name TEXT NOT NULL DEFAULT '',
+    template_id INT NOT NULL REFERENCES project_templates(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    scope_document_path TEXT NOT NULL,
+    scope_document_mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    original_template_json TEXT NOT NULL,
+    reference_assessments_json TEXT,
+    raw_generation_response TEXT,
+    generated_items_json TEXT,
+    raw_estimation_response TEXT,
+    final_analysis_json TEXT,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_modified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_jobs_status
+    ON assessment_jobs(status);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_jobs_template
+    ON assessment_jobs(template_id);
+
 CREATE TABLE IF NOT EXISTS knowledge_base_documents (
     id SERIAL PRIMARY KEY,
     original_file_name TEXT NOT NULL,

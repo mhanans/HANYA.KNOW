@@ -10,6 +10,37 @@ public class ProjectTemplate
     public List<TemplateSection> Sections { get; set; } = new();
 }
 
+public class AssessmentJob
+{
+    public int Id { get; set; }
+    public string ProjectName { get; set; } = string.Empty;
+    public int TemplateId { get; set; }
+    public JobStatus Status { get; set; } = JobStatus.Pending;
+    public string ScopeDocumentPath { get; set; } = string.Empty;
+    public string ScopeDocumentMimeType { get; set; } = string.Empty;
+    public string OriginalTemplateJson { get; set; } = string.Empty;
+    public string? ReferenceAssessmentsJson { get; set; }
+    public string? RawGenerationResponse { get; set; }
+    public string? GeneratedItemsJson { get; set; }
+    public string? RawEstimationResponse { get; set; }
+    public string? FinalAnalysisJson { get; set; }
+    public string? LastError { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
+}
+
+public enum JobStatus
+{
+    Pending,
+    GenerationInProgress,
+    GenerationComplete,
+    EstimationInProgress,
+    EstimationComplete,
+    Complete,
+    FailedGeneration,
+    FailedEstimation
+}
+
 public class TemplateSection
 {
     public string SectionName { get; set; } = string.Empty;
