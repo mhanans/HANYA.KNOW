@@ -74,71 +74,73 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSubmit }) => {
 
   return (
     <div className="login-container">
-      <form className="card login-card" onSubmit={submit}>
+      <div className="card login-card">
         <img src="/logo.svg" alt="HANYA.KNOW logo" className="logo" />
         <h1 className="login-header">Login</h1>
         <p className="login-subtitle">Welcome back! Please sign in to your account.</p>
 
-        <div className="form-group">
-          <label htmlFor="username">Username</label>
-          <div className="input-wrapper">
-            <span className="input-icon"><UserIcon /></span>
-            <input
-              id="username"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="e.g., admin"
-              className="form-input"
-            />
+        <form className="login-form" onSubmit={submit}>
+          <div className="form-group">
+            <label htmlFor="username">Username</label>
+            <div className="input-wrapper">
+              <span className="input-icon"><UserIcon /></span>
+              <input
+                id="username"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="e.g., admin"
+                className="form-input"
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="form-group">
-          <label htmlFor="password">Password</label>
-          <div className="input-wrapper">
-            <span className="input-icon"><LockIcon /></span>
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="form-input"
-            />
-            <button
-              type="button"
-              className="toggle-password"
-              onClick={() => setShowPassword(s => !s)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-            </button>
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <div className="input-wrapper">
+              <span className="input-icon"><LockIcon /></span>
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="form-input"
+              />
+              <button
+                type="button"
+                className="toggle-password"
+                onClick={() => setShowPassword(s => !s)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="remember-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={e => setRemember(e.target.checked)}
-            />{' '}
-            Remember me
-          </label>
-          <a href="#" className="forgot-link">Forgot password?</a>
-        </div>
-
-        {error && (
-          <div className="error-banner">
-            <WarningIcon />
-            <span>{error}</span>
+          <div className="remember-row">
+            <label>
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={e => setRemember(e.target.checked)}
+              />{' '}
+              Remember me
+            </label>
+            <a href="#" className="forgot-link">Forgot password?</a>
           </div>
-        )}
 
-        <button type="submit" className="btn btn-primary login-button" disabled={loading}>
-          {loading ? <Spinner /> : 'Login'}
-        </button>
-      </form>
+          {error && (
+            <div className="error-banner">
+              <WarningIcon />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button type="submit" className="btn btn-primary login-button" disabled={loading}>
+            {loading ? <Spinner /> : 'Login'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
