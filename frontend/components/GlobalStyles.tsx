@@ -196,6 +196,22 @@ const globalCss = `
     .forgot-link { color: var(--primary-accent); font-size: 0.9rem; }
     .error-banner { display: flex; align-items: center; gap: 8px; background-color: rgba(229,62,62,0.1); border: 1px solid var(--error-color); color: var(--error-color); padding: 8px 12px; border-radius: var(--border-radius-md); }
     .spinner { width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    .login-divider { display: flex; align-items: center; gap: 12px; margin: 24px 0 12px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: var(--text-secondary); }
+    .login-divider::before,
+    .login-divider::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+    .login-divider span { flex-shrink: 0; }
+    .accelist-sso-section { display: flex; flex-direction: column; gap: 12px; }
+    .accelist-sso-form { position: relative; }
+    .accelist-sso-widget { position: relative; }
+    .accelist-sso-element { display: block; width: 100%; }
+    .accelist-sso-element.pending { display: none; }
+    .accelist-sso-form tam-sso { display: block; }
+    .accelist-sso-form tam-sso button { width: 100%; padding: 12px; border-radius: var(--border-radius-md); font-size: 1rem; background: var(--primary-accent); border: none; color: #fff; cursor: pointer; transition: background 0.2s ease; }
+    .accelist-sso-form tam-sso button:hover { background: var(--primary-accent-hover); }
+    .accelist-sso-form tam-sso img { display: inline-block !important; width: auto !important; margin-bottom: 0 !important; }
+    .accelist-sso-placeholder { width: 100%; padding: 12px; border-radius: var(--border-radius-md); font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    .accelist-sso-form.loading tam-sso button { pointer-events: none; opacity: 0.6; }
+    .accelist-sso-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.7); border-radius: var(--border-radius-md); }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `;
 

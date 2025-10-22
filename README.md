@@ -26,6 +26,7 @@ MVP knowledge base with retrieval augmented generation.
 - `DELETE /api/roles/{id}` – delete a role
 - Roles include UI access permissions
 - `POST /api/login` – authenticate a user
+- `POST /api/login/sso` – authenticate a user through Accelist SSO using the email returned by TAM Passport
 - `POST /api/logout` – end the current session
 - `GET /api/me` – fetch the currently authenticated user
 - `GET /api/users` – list users and their roles
@@ -85,8 +86,10 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `Chat: { CooldownSeconds }` – minimum seconds a client must wait between chat requests
 - `SourceCode: { DefaultTopK, SimilarityThreshold, PromptTemplate, SourceDirectory, IncludeExtensions, ExcludeDirectories, ChunkSize, ChunkOverlap }` – tuning and ingestion options for the Source Code Q&A feature
 - `GitHub: { ClientId, ClientSecret, RedirectUri, Scopes }` – OAuth app credentials used to sign in with GitHub and import repositories prior to a sync. `Scopes` defaults to `repo read:user` when omitted.
+- `AccelistSso: { Host, AppId, RedirectUri, Scope }` – TAM Passport configuration used to render the login widget and verify tokens
 - `ApiKey` – shared secret required in `X-API-KEY` header for all API calls
 - `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_API_KEY` for the frontend (configure in `.env.local`; see `frontend/.env.local.example`)
+- `NEXT_PUBLIC_ACCELIST_SSO_HOST`, `NEXT_PUBLIC_ACCELIST_SSO_APP_ID`, `NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI`, and optional `NEXT_PUBLIC_ACCELIST_SSO_SCOPE` to enable the "Login with Accelist SSO" button on the frontend
 
 To verify your embedding service responds correctly, send a sample request (adjust the URL and model for your setup):
 
