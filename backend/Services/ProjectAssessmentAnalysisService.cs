@@ -34,10 +34,17 @@ public class ProjectAssessmentAnalysisService
         _apiKey = configuration["Gemini:ApiKey"]
                   ?? configuration["GoogleAI:ApiKey"]
                   ?? configuration["Google:ApiKey"]
+                  ?? configuration["Llm:ApiKey"]
+                  ?? configuration["ApiKey"]
                   ?? throw new InvalidOperationException("Kunci API Gemini tidak dikonfigurasi.");
 
         // Gunakan gemini-pro-vision secara default jika tidak ada yang ditentukan, karena ini yang terbaik untuk dokumen.
-        _model = configuration["Gemini:Model"] ?? "gemini-pro-vision";
+        _model = configuration["Gemini:Model"]
+                 ?? configuration["GoogleAI:Model"]
+                 ?? configuration["Google:Model"]
+                 ?? configuration["Llm:Model"]
+                 ?? configuration["Model"]
+                 ?? "gemini-pro-vision";
         
         _logger.LogInformation("Menggunakan model Gemini untuk Analisis Penilaian Proyek: {Model}", _model);
 
