@@ -5,8 +5,9 @@ import { apiFetch } from '../lib/api';
 const SSO_HOST = (process.env.NEXT_PUBLIC_ACCELIST_SSO_HOST ?? '').replace(/\/$/, '');
 const SSO_APP_ID = process.env.NEXT_PUBLIC_ACCELIST_SSO_APP_ID ?? '';
 const SSO_REDIRECT_URI = process.env.NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI ?? '';
-const SSO_SCOPE = process.env.NEXT_PUBLIC_ACCELIST_SSO_SCOPE ?? 'email profile openid';
-const SSO_ENABLED = Boolean(SSO_HOST && SSO_APP_ID && SSO_REDIRECT_URI);
+const DEFAULT_SCOPE = 'email profile openid';
+const SSO_SCOPE = (process.env.NEXT_PUBLIC_ACCELIST_SSO_SCOPE ?? DEFAULT_SCOPE).trim() || DEFAULT_SCOPE;
+const SSO_LOAD_ERROR = 'Unable to load Accelist SSO. Please refresh and try again.';
 
 const UserIcon = () => (
   <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -56,7 +57,73 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
+  const [resolvedRedirectUri, setResolvedRedirectUri] = useState(SSO_REDIRECT_URI);
+  const [ssoReady, setSsoReady] = useState(false);
   const router = useRouter();
+  const ssoEnabled = Boolean(SSO_HOST && SSO_APP_ID && resolvedRedirectUri);
+
+  useEffect(() => {
+    if (resolvedRedirectUri || typeof window === 'undefined') {
+      return;
+    }
+    setResolvedRedirectUri(`${window.location.origin}/auth/sso/callback`);
+  }, [resolvedRedirectUri]);
+
+  useEffect(() => {
+    if (!ssoEnabled) {
+      setSsoReady(false);
+      return;
+    }
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    let active = true;
+    const markReady = () => {
+      if (active) {
+        setSsoReady(true);
+        setError(prev => (prev === SSO_LOAD_ERROR ? '' : prev));
+      }
+    };
+    const handleError = () => {
+      if (!active) {
+        return;
+      }
+      setSsoReady(false);
+      setError(prev => prev || SSO_LOAD_ERROR);
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>('script[data-accelist-sso]');
+    if (existing) {
+      if (window.customElements?.get('tam-sso')) {
+        markReady();
+        return () => {
+          active = false;
+        };
+      }
+      existing.addEventListener('load', markReady);
+      existing.addEventListener('error', handleError);
+      return () => {
+        active = false;
+        existing.removeEventListener('load', markReady);
+        existing.removeEventListener('error', handleError);
+      };
+    }
+
+    const script = document.createElement('script');
+    script.src = `${SSO_HOST}/js/tam-sso.js`;
+    script.async = true;
+    script.dataset.accelistSso = 'true';
+    script.onload = markReady;
+    script.onerror = handleError;
+    document.body.appendChild(script);
+
+    return () => {
+      active = false;
+      script.onload = null;
+      script.onerror = null;
+    };
+  }, [ssoEnabled, setError, SSO_HOST]);
 
   useEffect(() => {
     if (!SSO_ENABLED) return;
@@ -105,7 +172,7 @@ export default function Login() {
 
   const submitSso = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!SSO_ENABLED) return;
+    if (!ssoEnabled) return;
     setError('');
     const form = e.currentTarget;
     const data = new FormData(form);
@@ -219,8 +286,8 @@ export default function Login() {
             {loading ? <Spinner /> : 'Login'}
           </button>
         </form>
-        {SSO_ENABLED && (
-          <>
+        {ssoEnabled && (
+          <div className="accelist-sso-section">
             <div className="login-divider">
               <span>or</span>
             </div>
@@ -230,20 +297,28 @@ export default function Login() {
               onSubmit={submitSso}
             >
               <input type="hidden" name="TAMSignOnToken" />
-              <tam-sso
-                app={SSO_APP_ID}
-                server={SSO_HOST}
-                scope={SSO_SCOPE}
-                redirect-uri={SSO_REDIRECT_URI}
-                auto-submit="accelist-sso-form"
-              ></tam-sso>
-              {ssoLoading && (
-                <div className="accelist-sso-overlay">
-                  <Spinner />
-                </div>
-              )}
+              <div className="accelist-sso-widget">
+                {!ssoReady && (
+                  <button type="button" className="btn secondary accelist-sso-placeholder" disabled>
+                    Loading Accelist SSO…
+                  </button>
+                )}
+                <tam-sso
+                  className={`accelist-sso-element ${ssoReady ? 'ready' : 'pending'}`}
+                  app={SSO_APP_ID}
+                  server={SSO_HOST}
+                  scope={SSO_SCOPE}
+                  redirect-uri={resolvedRedirectUri}
+                  auto-submit="accelist-sso-form"
+                ></tam-sso>
+                {ssoLoading && (
+                  <div className="accelist-sso-overlay">
+                    <Spinner />
+                  </div>
+                )}
+              </div>
             </form>
-          </>
+          </div>
         )}
       </div>
     </div>
