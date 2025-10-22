@@ -35,6 +35,14 @@ body {
   gap: 1rem;
 }
 
+.logo {
+  display: block;
+  margin: 0 auto 0.75rem;
+  max-width: 180px;
+  width: 100%;
+  height: auto;
+}
+
 .login-header {
   margin: 0;
   text-align: center;
