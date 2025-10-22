@@ -4,7 +4,7 @@ import {
   Card,
   CardContent,
   CardHeader,
-  IconButton,
+  Chip,
   LinearProgress,
   Stack,
   Table,
@@ -15,27 +15,34 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  IconButton,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
 import LaunchIcon from '@mui/icons-material/Launch';
 import { apiFetch } from '../../lib/api';
-import Swal from 'sweetalert2';
 
-export type AssessmentStatus = 'Draft' | 'Completed';
+export type AssessmentJobStatus =
+  | 'Pending'
+  | 'GenerationInProgress'
+  | 'GenerationComplete'
+  | 'EstimationInProgress'
+  | 'EstimationComplete'
+  | 'Complete'
+  | 'FailedGeneration'
+  | 'FailedEstimation';
 
-export interface AssessmentSummary {
+export interface AssessmentJobSummary {
   id: number;
   templateId: number;
   templateName: string;
   projectName: string;
-  status: AssessmentStatus;
+  status: AssessmentJobStatus;
   createdAt?: string;
   lastModifiedAt?: string;
 }
 
 interface AssessmentHistoryProps {
   refreshToken: number;
-  onSelect: (assessmentId: number) => void;
+  onSelect: (jobId: number) => void;
 }
 
 const formatTimestamp = (value?: string) => {
@@ -45,30 +52,35 @@ const formatTimestamp = (value?: string) => {
   return date.toLocaleString();
 };
 
+const statusColors: Record<AssessmentJobStatus, 'default' | 'warning' | 'success' | 'error' | 'info'> = {
+  Pending: 'warning',
+  GenerationInProgress: 'warning',
+  GenerationComplete: 'info',
+  EstimationInProgress: 'warning',
+  EstimationComplete: 'info',
+  Complete: 'success',
+  FailedGeneration: 'error',
+  FailedEstimation: 'error',
+};
+
 export default function AssessmentHistory({ refreshToken, onSelect }: AssessmentHistoryProps) {
-  const [rows, setRows] = useState<AssessmentSummary[]>([]);
+  const [rows, setRows] = useState<AssessmentJobSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await apiFetch('/api/assessment/history');
+      const response = await apiFetch('/api/assessment/jobs');
       if (!response.ok) {
         throw new Error(await response.text());
       }
-      const data: AssessmentSummary[] = await response.json();
+      const data: AssessmentJobSummary[] = await response.json();
       setRows(data);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to load assessment history.';
+      const message = err instanceof Error ? err.message : 'Unable to load assessment jobs.';
       setError(message);
-      await Swal.fire({
-        icon: 'error',
-        title: 'Unable to load history',
-        text: message,
-      });
     } finally {
       setLoading(false);
     }
@@ -78,57 +90,12 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
     loadHistory();
   }, [loadHistory, refreshToken]);
 
-  const handleDelete = useCallback(
-    async (id: number) => {
-      setError('');
-      const confirmation = await Swal.fire({
-        title: 'Delete this assessment?',
-        text: 'This action cannot be undone.',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel',
-        reverseButtons: true,
-        confirmButtonColor: '#ef4444',
-      });
-
-      if (!confirmation.isConfirmed) {
-        return;
-      }
-
-      setDeletingId(id);
-      try {
-        const response = await apiFetch(`/api/assessment/${id}`, { method: 'DELETE' });
-        if (!response.ok) {
-          throw new Error(await response.text());
-        }
-        await loadHistory();
-        await Swal.fire({
-          icon: 'success',
-          title: 'Assessment deleted',
-          text: 'The assessment entry has been removed.',
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to delete assessment.';
-        setError(message);
-        await Swal.fire({
-          icon: 'error',
-          title: 'Delete failed',
-          text: message,
-        });
-      } finally {
-        setDeletingId(null);
-      }
-    },
-    [loadHistory]
-  );
-
   const content = useMemo(() => {
     if (rows.length === 0) {
       return (
         <Stack spacing={1.5} alignItems="center" py={4}>
           <Typography variant="subtitle1" color="text.secondary">
-            No assessments yet. Saved assessments will appear here.
+            No assessments yet. Jobs launched from the workspace will appear here.
           </Typography>
         </Stack>
       );
@@ -152,26 +119,21 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
               <TableRow key={row.id} hover>
                 <TableCell>{row.projectName || 'Untitled Assessment'}</TableCell>
                 <TableCell>{row.templateName || '—'}</TableCell>
-                <TableCell>{row.status}</TableCell>
+                <TableCell>
+                  <Chip
+                    label={row.status.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                    color={statusColors[row.status]}
+                    size="small"
+                  />
+                </TableCell>
                 <TableCell>{formatTimestamp(row.createdAt)}</TableCell>
                 <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Tooltip title="Open assessment">
+                    <Tooltip title="Open in workspace">
                       <IconButton color="primary" onClick={() => onSelect(row.id)}>
                         <LaunchIcon fontSize="small" />
                       </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete assessment">
-                      <span>
-                        <IconButton
-                          color="error"
-                          disabled={deletingId === row.id}
-                          onClick={() => handleDelete(row.id)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </span>
                     </Tooltip>
                   </Stack>
                 </TableCell>
@@ -181,13 +143,13 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
         </Table>
       </TableContainer>
     );
-  }, [rows, deletingId, handleDelete, onSelect]);
+  }, [rows, onSelect]);
 
   return (
     <Card>
       <CardHeader
-        title="Recent Assessments"
-        subheader="Access drafts and completed project assessments created in this workspace."
+        title="Recent Assessment Jobs"
+        subheader="Monitor processing progress and reopen results in the workspace."
       />
       {loading && <LinearProgress />}
       <CardContent>

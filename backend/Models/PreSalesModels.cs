@@ -15,6 +15,7 @@ public class AssessmentJob
     public int Id { get; set; }
     public string ProjectName { get; set; } = string.Empty;
     public int TemplateId { get; set; }
+    public string TemplateName { get; set; } = string.Empty;
     public JobStatus Status { get; set; } = JobStatus.Pending;
     public string ScopeDocumentPath { get; set; } = string.Empty;
     public string ScopeDocumentMimeType { get; set; } = string.Empty;
@@ -25,6 +26,17 @@ public class AssessmentJob
     public string? RawEstimationResponse { get; set; }
     public string? FinalAnalysisJson { get; set; }
     public string? LastError { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class AssessmentJobSummary
+{
+    public int Id { get; set; }
+    public string ProjectName { get; set; } = string.Empty;
+    public int TemplateId { get; set; }
+    public string TemplateName { get; set; } = string.Empty;
+    public JobStatus Status { get; set; } = JobStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
 }

@@ -37,7 +37,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import GetAppIcon from '@mui/icons-material/GetApp';
 import { LoadingButton } from '@mui/lab';
-import AssessmentHistory, { AssessmentStatus } from '../../components/pre-sales/AssessmentHistory';
+import AssessmentHistory, { AssessmentJobStatus } from '../../components/pre-sales/AssessmentHistory';
 import { apiFetch } from '../../lib/api';
 import Swal from 'sweetalert2';
 
@@ -70,12 +70,25 @@ interface ProjectAssessment {
   lastModifiedAt?: string;
 }
 
+type AssessmentStatus = 'Draft' | 'Completed';
+
 interface SimilarAssessmentReference {
   id: number;
   projectName: string;
   templateName: string;
   status: AssessmentStatus;
   totalHours: number;
+  lastModifiedAt?: string;
+}
+
+interface AssessmentJob {
+  id: number;
+  projectName: string;
+  templateId: number;
+  templateName: string;
+  status: AssessmentJobStatus;
+  lastError?: string | null;
+  createdAt?: string;
   lastModifiedAt?: string;
 }
 
@@ -89,6 +102,24 @@ const formatTimestamp = (value?: string) => {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
 };
+
+const normalizeAssessment = (assessment: ProjectAssessment): ProjectAssessment => ({
+  ...assessment,
+  sections: (assessment.sections ?? []).map(section => ({
+    ...section,
+    items: (section.items ?? []).map(item => ({
+      ...item,
+      isNeeded: item.isNeeded ?? true,
+      estimates: item.estimates ?? {},
+    })),
+  })),
+});
+
+const terminalJobStatuses: AssessmentJobStatus[] = ['Complete', 'FailedGeneration', 'FailedEstimation'];
+const failureJobStatuses: AssessmentJobStatus[] = ['FailedGeneration', 'FailedEstimation'];
+
+const isTerminalJobStatus = (status: AssessmentJobStatus) => terminalJobStatuses.includes(status);
+const isFailureJobStatus = (status: AssessmentJobStatus) => failureJobStatuses.includes(status);
 
 interface AssessmentTreeGridProps {
   sections: AssessmentSection[];
@@ -230,6 +261,7 @@ export default function AssessmentWorkspace() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [loadingAssessment, setLoadingAssessment] = useState(false);
   const [assessment, setAssessment] = useState<ProjectAssessment | null>(null);
+  const [activeJob, setActiveJob] = useState<AssessmentJob | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
@@ -237,6 +269,8 @@ export default function AssessmentWorkspace() {
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState('');
   const similarRequestId = useRef(0);
+  const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
 
   const showError = (message: string, title = 'Something went wrong') => {
     if (!message) return;
@@ -252,6 +286,173 @@ export default function AssessmentWorkspace() {
       showConfirmButton: false,
     });
   };
+
+  const stopJobPolling = useCallback(() => {
+    if (jobPollTimer.current) {
+      clearTimeout(jobPollTimer.current);
+      jobPollTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    stopJobPolling();
+  }, [stopJobPolling]);
+
+  const applyJobStatus = useCallback(
+    (job: AssessmentJob) => {
+      setActiveJob(job);
+
+      const steps: string[] = ['Uploading scope document…'];
+      let progressValue = 10;
+
+      switch (job.status) {
+        case 'Pending':
+          steps.push('Waiting for background processor to start…');
+          progressValue = 15;
+          break;
+        case 'GenerationInProgress':
+          steps.push('Generating assessment breakdown…');
+          progressValue = 40;
+          break;
+        case 'GenerationComplete':
+          steps.push('Generation complete.');
+          steps.push('Queued for effort estimation…');
+          progressValue = 55;
+          break;
+        case 'EstimationInProgress':
+          steps.push('Generation complete.');
+          steps.push('Estimating effort and costs…');
+          progressValue = 80;
+          break;
+        case 'EstimationComplete':
+          steps.push('Generation complete.');
+          steps.push('Effort estimation completed.');
+          progressValue = 90;
+          break;
+        case 'Complete':
+          steps.push('Generation complete.');
+          steps.push('Effort estimation completed.');
+          steps.push('Analysis complete.');
+          progressValue = 100;
+          break;
+        case 'FailedGeneration':
+          steps.push('Generation step failed.');
+          progressValue = 0;
+          break;
+        case 'FailedEstimation':
+          steps.push('Generation complete.');
+          steps.push('Estimation step failed.');
+          progressValue = 0;
+          break;
+        default:
+          break;
+      }
+
+      setAnalysisLog(steps);
+      setProgress(progressValue);
+      setIsAnalyzing(!isTerminalJobStatus(job.status));
+
+      const previousStatus = lastJobStatusRef.current;
+      const statusChanged = previousStatus !== job.status;
+
+      if (job.status === 'Complete' && statusChanged) {
+        showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
+      } else if (isFailureJobStatus(job.status) && statusChanged) {
+        const message = job.lastError || 'The AI analysis did not return valid data. Try again later.';
+        showError(message, 'Analysis failed');
+      }
+
+      if (statusChanged) {
+        setHistoryRefresh(token => token + 1);
+      }
+
+      lastJobStatusRef.current = job.status;
+      return { previousStatus, statusChanged };
+    },
+    [setHistoryRefresh, showError, showSuccess]
+  );
+
+  const loadAssessmentFromJob = useCallback(
+    async (jobId: number) => {
+      try {
+        const res = await apiFetch(`/api/assessment/jobs/${jobId}/assessment`);
+        if (res.status === 404) {
+          setAssessment(null);
+          return;
+        }
+        if (!res.ok) throw new Error(await res.text());
+        const data: ProjectAssessment = await res.json();
+        setAssessment(normalizeAssessment(data));
+        setSelectedTemplate(data.templateId);
+        setProjectTitle(data.projectName);
+        void refreshSimilarAssessments(data.templateId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load assessment results.';
+        showError(message, 'Unable to load assessment');
+      }
+    },
+    [refreshSimilarAssessments, showError]
+  );
+
+  const refreshJobStatus = useCallback(
+    async (jobId: number) => {
+      stopJobPolling();
+      try {
+        const res = await apiFetch(`/api/assessment/jobs/${jobId}`);
+        if (!res.ok) throw new Error(await res.text());
+        const job: AssessmentJob = await res.json();
+        const { statusChanged } = applyJobStatus(job);
+
+        if (job.status === 'Complete') {
+          if (statusChanged) {
+            await loadAssessmentFromJob(jobId);
+          }
+          stopJobPolling();
+        } else if (isFailureJobStatus(job.status)) {
+          stopJobPolling();
+        } else {
+          jobPollTimer.current = setTimeout(() => {
+            void refreshJobStatus(jobId);
+          }, statusChanged ? 500 : 2500);
+        }
+      } catch (err) {
+        stopJobPolling();
+        const message = err instanceof Error ? err.message : 'Failed to check job status.';
+        showError(message, 'Status check failed');
+      }
+    },
+    [applyJobStatus, loadAssessmentFromJob, showError, stopJobPolling]
+  );
+
+  const loadJob = useCallback(
+    async (jobId: number) => {
+      stopJobPolling();
+      setLoadingAssessment(true);
+      try {
+        const res = await apiFetch(`/api/assessment/jobs/${jobId}`);
+        if (!res.ok) throw new Error(await res.text());
+        const job: AssessmentJob = await res.json();
+        applyJobStatus(job);
+        setSelectedTemplate(job.templateId);
+        setProjectTitle(job.projectName);
+        void refreshSimilarAssessments(job.templateId);
+        if (job.status === 'Complete') {
+          await loadAssessmentFromJob(jobId);
+        } else if (!isFailureJobStatus(job.status)) {
+          setAssessment(null);
+          jobPollTimer.current = setTimeout(() => {
+            void refreshJobStatus(jobId);
+          }, 1500);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load assessment job.';
+        showError(message, 'Unable to load job');
+      } finally {
+        setLoadingAssessment(false);
+      }
+    },
+    [applyJobStatus, loadAssessmentFromJob, refreshJobStatus, showError, stopJobPolling]
+  );
 
   const refreshSimilarAssessments = useCallback(async (templateId: number) => {
     if (!templateId) {
@@ -310,14 +511,26 @@ export default function AssessmentWorkspace() {
   }, [refreshSimilarAssessments, selectedTemplate]);
 
   useEffect(() => {
-    const idParam = router.query.assessmentId;
-    if (!idParam) return;
-    const id = Array.isArray(idParam) ? Number(idParam[0]) : Number(idParam);
-    if (!Number.isFinite(id)) return;
-    loadAssessment(id);
-    router.replace('/pre-sales/workspace', undefined, { shallow: true });
+    const jobParam = router.query.jobId;
+    if (jobParam) {
+      const jobId = Array.isArray(jobParam) ? Number(jobParam[0]) : Number(jobParam);
+      if (Number.isFinite(jobId)) {
+        loadJob(jobId);
+        router.replace('/pre-sales/workspace', undefined, { shallow: true });
+        return;
+      }
+    }
+
+    const assessmentParam = router.query.assessmentId;
+    if (assessmentParam) {
+      const id = Array.isArray(assessmentParam) ? Number(assessmentParam[0]) : Number(assessmentParam);
+      if (Number.isFinite(id)) {
+        loadAssessment(id);
+        router.replace('/pre-sales/workspace', undefined, { shallow: true });
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.query.assessmentId]);
+  }, [router.query.jobId, router.query.assessmentId]);
 
   useEffect(() => {
     if (!assessment) return;
@@ -360,7 +573,7 @@ export default function AssessmentWorkspace() {
   };
 
   const updateAssessment = (updater: (current: ProjectAssessment) => ProjectAssessment) => {
-    setAssessment(prev => (prev ? updater(prev) : prev));
+    setAssessment(prev => (prev ? normalizeAssessment(updater(prev)) : prev));
   };
 
   const updateItem = (sectionIndex: number, itemIndex: number, updater: (item: AssessmentItem) => AssessmentItem) => {
@@ -395,9 +608,12 @@ export default function AssessmentWorkspace() {
       showError('Select a template and upload a scope document first.', 'Missing information');
       return;
     }
+    stopJobPolling();
+    lastJobStatusRef.current = null;
+    setAssessment(null);
     setIsAnalyzing(true);
-    setAnalysisLog(['Uploading scope document…']);
-    setProgress(10);
+    setAnalysisLog(['Uploading scope document…', 'Waiting for background processor to start…']);
+    setProgress(15);
     try {
       const formData = new FormData();
       formData.append('templateId', String(selectedTemplate));
@@ -405,23 +621,28 @@ export default function AssessmentWorkspace() {
       formData.append('file', file);
       const res = await apiFetch('/api/assessment/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(await res.text());
-      const data: ProjectAssessment = await res.json();
-      const enriched: ProjectAssessment = {
-        ...data,
-        projectName: projectTitle.trim(),
-        status: 'Draft',
-      };
-      setAssessment(enriched);
-      setAnalysisLog(['Uploading scope document…', 'Running AI estimation…', 'Analysis complete.']);
-      setProgress(100);
-      showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
+      const job: AssessmentJob = await res.json();
+      const trimmedTitle = projectTitle.trim();
+      if (trimmedTitle !== projectTitle) {
+        setProjectTitle(trimmedTitle);
+      }
+      applyJobStatus(job);
+      setSelectedTemplate(job.templateId);
+      if (isTerminalJobStatus(job.status)) {
+        if (job.status === 'Complete') {
+          await loadAssessmentFromJob(job.id);
+        }
+      } else {
+        jobPollTimer.current = setTimeout(() => {
+          void refreshJobStatus(job.id);
+        }, 2000);
+      }
     } catch (err) {
-      setAnalysisLog(prev => [...prev, 'Analysis failed.']);
       const message = err instanceof Error ? err.message : 'Failed to analyze the scope document.';
       showError(message, 'Analysis failed');
       setProgress(0);
-    } finally {
       setIsAnalyzing(false);
+      setActiveJob(null);
     }
   };
 
@@ -436,7 +657,7 @@ export default function AssessmentWorkspace() {
       });
       if (!res.ok) throw new Error(await res.text());
       const saved: ProjectAssessment = await res.json();
-      setAssessment(saved);
+      setAssessment(normalizeAssessment(saved));
       setProjectTitle(saved.projectName);
       showSuccess('Assessment saved', 'Assessment saved successfully.');
       setHistoryRefresh(token => token + 1);
@@ -470,12 +691,18 @@ export default function AssessmentWorkspace() {
   };
 
   const loadAssessment = async (id: number) => {
+    stopJobPolling();
+    lastJobStatusRef.current = null;
+    setActiveJob(null);
+    setIsAnalyzing(false);
+    setProgress(0);
+    setAnalysisLog([]);
     setLoadingAssessment(true);
     try {
       const res = await apiFetch(`/api/assessment/${id}`);
       if (!res.ok) throw new Error(await res.text());
       const data: ProjectAssessment = await res.json();
-      setAssessment(data);
+      setAssessment(normalizeAssessment(data));
       setSelectedTemplate(data.templateId);
       setProjectTitle(data.projectName);
     } catch (err) {
@@ -623,7 +850,7 @@ export default function AssessmentWorkspace() {
                   label="Project Name"
                   value={assessment.projectName}
                   onChange={event =>
-                    setAssessment(prev => (prev ? { ...prev, projectName: event.target.value } : prev))
+                    setAssessment(prev => (prev ? normalizeAssessment({ ...prev, projectName: event.target.value }) : prev))
                   }
                 />
                 <FormControl sx={{ minWidth: 200 }}>
@@ -633,7 +860,11 @@ export default function AssessmentWorkspace() {
                     label="Status"
                     value={assessment.status}
                     onChange={event =>
-                      setAssessment(prev => (prev ? { ...prev, status: event.target.value as AssessmentStatus } : prev))
+                      setAssessment(prev =>
+                        prev
+                          ? normalizeAssessment({ ...prev, status: event.target.value as AssessmentStatus })
+                          : prev
+                      )
                     }
                   >
                     {statusOptions.map(status => (
