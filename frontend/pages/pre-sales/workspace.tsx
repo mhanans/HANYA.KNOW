@@ -348,6 +348,13 @@ export default function AssessmentWorkspace() {
           break;
       }
 
+      if (isFailureJobStatus(job.status)) {
+        const failureMessage = job.lastError?.trim();
+        if (failureMessage) {
+          steps.push(`Error: ${failureMessage}`);
+        }
+      }
+
       setAnalysisLog(steps);
       setProgress(progressValue);
       setIsAnalyzing(!isTerminalJobStatus(job.status));
@@ -923,7 +930,7 @@ export default function AssessmentWorkspace() {
 
       <AssessmentHistory
         refreshToken={historyRefresh}
-        onSelect={loadAssessment}
+        onSelect={loadJob}
       />
     </Box>
   );
