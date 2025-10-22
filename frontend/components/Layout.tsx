@@ -1,21 +1,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ReactNode, useEffect, useState } from 'react';
-import {
-  Avatar,
-  Box,
-  Button,
-  Collapse,
-  Divider,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Stack,
-  Typography,
-} from '@mui/material';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { apiFetch } from '../lib/api';
 
 interface Settings { applicationName?: string; logoUrl?: string; }
@@ -81,7 +66,6 @@ const navSections: { title: string; links: NavItem[] }[] = [
   {
     title: 'Admin',
     links: [
-      { href: '/pre-sales/project-templates', label: 'Template Management', icon: '🗂️', key: 'pre-sales-project-templates' },
       { href: '/users', label: 'User Management', icon: '👤', key: 'users' },
       { href: '/roles', label: 'Manage Role', icon: '🔧', key: 'roles' },
       { href: '/role-ui', label: 'Access Control', icon: '🔐', key: 'role-ui' },
@@ -147,11 +131,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   };
 
   if (router.pathname === '/login') {
-    return (
-      <Box component="main" sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-        {children}
-      </Box>
-    );
+    return <main className="main-content">{children}</main>;
   }
 
   if (router.pathname === '/vendor-invoice-edit') {
@@ -159,109 +139,49 @@ export default function Layout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: 'background.default', color: 'text.primary' }}>
-      <Box
-        component="nav"
-        sx={{
-          width: 260,
-          flexShrink: 0,
-          bgcolor: 'background.default',
-          borderRight: theme => `1px solid ${theme.palette.divider}`,
-          display: 'flex',
-          flexDirection: 'column',
-          p: 3,
-          gap: 3,
-        }}
-      >
-        <Box>
-          <Typography variant="h6" fontWeight={700} gutterBottom>
-            {settings.applicationName ?? 'HANYA.KNOW'}
-          </Typography>
-          <Divider sx={{ borderColor: 'divider', mb: 2 }} />
-          <Stack spacing={2}>
-            {accessibleSections.map(section => {
-              const isOpen = openSection === section.title;
-              return (
-                <Box key={section.title}>
-                  <ListItemButton
-                    onClick={() => setOpenSection(section.title)}
-                    sx={{
-                      borderRadius: 2,
-                      '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
-                    }}
-                  >
-                    <ListItemText
-                      primary={
-                        <Typography variant="overline" color="text.secondary">
-                          {section.title}
-                        </Typography>
-                      }
-                    />
-                    {isOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                  </ListItemButton>
-                  <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                    <List disablePadding>
-                      {section.links.filter(link => allowed.includes(link.key)).map(link => (
-                        <ListItem key={link.href} disablePadding>
-                          <Link href={link.href} legacyBehavior passHref>
-                            <ListItemButton
-                              component="a"
-                              selected={router.pathname === link.href}
-                              sx={{
-                                borderRadius: 2,
-                                color: 'text.secondary',
-                                '&.Mui-selected': {
-                                  bgcolor: 'primary.main',
-                                  color: 'common.white',
-                                  '&:hover': { bgcolor: 'primary.dark' },
-                                },
-                              }}
-                            >
-                              <Stack direction="row" spacing={1.5} alignItems="center">
-                                <Typography component="span" fontSize={18}>
-                                  {link.icon}
-                                </Typography>
-                                <Typography variant="body2">{link.label}</Typography>
-                              </Stack>
-                            </ListItemButton>
-                          </Link>
-                        </ListItem>
-                      ))}
-                    </List>
-                  </Collapse>
-                </Box>
-              );
-            })}
-          </Stack>
-        </Box>
+    <div className="app-layout">
+      <nav className="sidebar">
+        <div>
+          <div className="sidebar-header"><h2>{settings.applicationName ?? 'HANYA.KNOW'}</h2></div>
+          {accessibleSections.map(section => (
+            <div className="nav-group" key={section.title}>
+              <h3
+                className="nav-group-title"
+                onClick={() => setOpenSection(section.title)}
+              >
+                {section.title}
+              </h3>
+              {openSection === section.title && (
+                <ul className="nav-links">
+                  {section.links.filter(link => allowed.includes(link.key)).map(link => (
+                    <li key={link.href}>
+                      <Link href={link.href} legacyBehavior>
+                        <a className={router.pathname === link.href ? 'active' : ''}>
+                          <span className="nav-icon">{link.icon}</span>
+                          {link.label}
+                        </a>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
         {username && (
-          <Box sx={{ mt: 'auto', pt: 3 }}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Avatar sx={{ bgcolor: 'primary.main' }}>{username.slice(0, 2).toUpperCase()}</Avatar>
-              <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="subtitle2">{username}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  administrator
-                </Typography>
-              </Box>
-              <Button variant="outlined" color="error" size="small" onClick={logout} title="Logout">
-                Logout
-              </Button>
-            </Stack>
-          </Box>
+          <div className="user-profile">
+            <div className="avatar"></div>
+            <div className="user-info">
+              <span className="user-name">{username}</span>
+              <span className="user-role">administrator</span>
+            </div>
+            <button className="btn-logout" onClick={logout} title="Logout">
+              ⎋ Logout
+            </button>
+          </div>
         )}
-      </Box>
-      <Box
-        component="main"
-        sx={{
-          flexGrow: 1,
-          height: '100vh',
-          overflowY: ['/chat', '/source-code'].includes(router.pathname) ? 'hidden' : 'auto',
-          p: 4,
-        }}
-      >
-        {children}
-      </Box>
-    </Box>
+      </nav>
+      <main className={`main-content${['/chat', '/source-code'].includes(router.pathname) ? ' chat-page' : ''}`}>{children}</main>
+    </div>
   );
 }

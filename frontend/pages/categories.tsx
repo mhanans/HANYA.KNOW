@@ -1,22 +1,4 @@
 import { useState, useEffect } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import AddIcon from '@mui/icons-material/Add';
-import SaveIcon from '@mui/icons-material/Save';
 import { apiFetch } from '../lib/api';
 
 interface Category {
@@ -87,80 +69,44 @@ export default function Categories() {
   };
 
   return (
-    <Box sx={{ maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <Typography variant="h1">Manage Categories</Typography>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
-        <TextField
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="New category"
-          label="New category"
-          fullWidth
-        />
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={create}
-          sx={{ whiteSpace: 'nowrap' }}
-        >
-          Add
-        </Button>
-      </Stack>
-      <Card>
-        <CardContent>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {categories.map(c => (
-                <TableRow key={c.id} hover>
-                  <TableCell>
-                    <TextField
-                      value={c.name}
-                      onChange={e =>
-                        setCategories(prev =>
-                          prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
-                        )
-                      }
-                      fullWidth
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Stack direction="row" spacing={1} justifyContent="flex-end">
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        startIcon={<SaveIcon />}
-                        onClick={() => update(c.id, c.name)}
-                      >
-                        Save
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        startIcon={<DeleteIcon />}
-                        onClick={() => remove(c.id)}
-                      >
-                        Delete
-                      </Button>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {error && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {error}
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-    </Box>
+    <div className="page-container">
+      <h1>Manage Categories</h1>
+      <div className="controls">
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="New category" className="form-input" />
+        <button onClick={create} className="btn btn-primary">Add</button>
+      </div>
+      <div className="card table-wrapper">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map(c => (
+              <tr key={c.id}>
+                <td>
+                  <input
+                    value={c.name}
+                    className="form-input"
+                    onChange={e =>
+                      setCategories(prev =>
+                        prev.map(p => (p.id === c.id ? { ...p, name: e.target.value } : p))
+                      )
+                    }
+                  />
+                </td>
+                <td style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => update(c.id, c.name)} className="btn btn-primary">Save</button>
+                  <button onClick={() => remove(c.id)} className="btn btn-danger">Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {error && <p className="error">{error}</p>}
+      </div>
+    </div>
   );
 }
