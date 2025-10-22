@@ -96,6 +96,7 @@ public class ProjectAssessmentAnalysisService
         {
             ProjectName = projectName?.Trim() ?? string.Empty,
             TemplateId = requestedTemplateId,
+            TemplateName = template?.TemplateName ?? string.Empty,
             Status = JobStatus.Pending,
             ScopeDocumentPath = storedPath,
             ScopeDocumentMimeType = mimeType,
@@ -135,6 +136,11 @@ public class ProjectAssessmentAnalysisService
     public Task<AssessmentJob?> GetJobAsync(int jobId, CancellationToken cancellationToken)
     {
         return _jobStore.GetAsync(jobId, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<AssessmentJobSummary>> ListJobsAsync(CancellationToken cancellationToken)
+    {
+        return _jobStore.ListAsync(cancellationToken);
     }
 
     public async Task<ProjectAssessment?> TryBuildAssessmentAsync(int jobId, CancellationToken cancellationToken)

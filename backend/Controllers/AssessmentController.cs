@@ -87,6 +87,14 @@ public class AssessmentController : ControllerBase
         }
     }
 
+    [HttpGet("jobs")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<IEnumerable<AssessmentJobSummary>>> ListJobs()
+    {
+        var jobs = await _analysisService.ListJobsAsync(HttpContext.RequestAborted);
+        return Ok(jobs);
+    }
+
     [HttpGet("jobs/{jobId}")]
     [UiAuthorize("pre-sales-assessment-workspace")]
     public async Task<ActionResult<AssessmentJob>> GetJob(int jobId)
