@@ -98,7 +98,7 @@ public class AssessmentController : ControllerBase
     }
 
     [HttpDelete("jobs/{jobId}")]
-    [UiAuthorize("pre-sales-assessment-workspace")]
+    [UiAuthorize("pre-sales-assessment-workspace", "admin-presales-history")]
     public async Task<IActionResult> DeleteJob(int jobId)
     {
         var deleted = await _analysisService.DeleteJobAsync(jobId, HttpContext.RequestAborted);
@@ -111,7 +111,7 @@ public class AssessmentController : ControllerBase
     }
 
     [HttpGet("jobs")]
-    [UiAuthorize("pre-sales-assessment-workspace")]
+    [UiAuthorize("pre-sales-assessment-workspace", "admin-presales-history")]
     public async Task<ActionResult<IEnumerable<AssessmentJobSummary>>> ListJobs()
     {
         var jobs = await _analysisService.ListJobsAsync(HttpContext.RequestAborted);
@@ -174,7 +174,7 @@ public class AssessmentController : ControllerBase
     }
 
     [HttpGet("history")]
-    [UiAuthorize("pre-sales-assessment-workspace")]
+    [UiAuthorize("pre-sales-assessment-workspace", "admin-presales-history")]
     public async Task<ActionResult<IEnumerable<ProjectAssessmentSummary>>> History()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
