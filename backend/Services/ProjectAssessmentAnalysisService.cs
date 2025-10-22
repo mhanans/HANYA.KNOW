@@ -211,7 +211,11 @@ ATURAN OUTPUT:
                     {
                         foreach (var column in columns)
                         {
-                            item.Estimates?.TryGetValue(column, out double? value);
+                            double? value = null;
+                            if (item.Estimates != null && item.Estimates.TryGetValue(column, out var foundValue))
+                            {
+                                value = foundValue;
+                            }
                             estimates[column] = value;
                         }
                     }
