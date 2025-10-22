@@ -125,6 +125,19 @@ const failureJobStatuses: AssessmentJobStatus[] = ['FailedGeneration', 'FailedEs
 const isTerminalJobStatus = (status: AssessmentJobStatus) => terminalJobStatuses.includes(status);
 const isFailureJobStatus = (status: AssessmentJobStatus) => failureJobStatuses.includes(status);
 
+const jobStatusStepNumber: Record<AssessmentJobStatus, number> = {
+  Pending: 2,
+  GenerationInProgress: 3,
+  GenerationComplete: 4,
+  FailedGeneration: 5,
+  EstimationInProgress: 6,
+  EstimationComplete: 7,
+  FailedEstimation: 8,
+  Complete: 9,
+};
+
+const highestJobStep = Math.max(...Object.values(jobStatusStepNumber));
+
 interface AssessmentTreeGridProps {
   sections: AssessmentSection[];
   estimationColumns: string[];
@@ -291,32 +304,39 @@ export default function AssessmentWorkspace() {
     (job: AssessmentJob) => {
       setActiveJob(job);
 
-      const steps: string[] = ['Uploading scope document…'];
-      let progressValue = 10;
+      const currentStepNumber = jobStatusStepNumber[job.status];
+      const steps: string[] = [];
+
+      if (currentStepNumber) {
+        steps.push(`Current step: ${currentStepNumber} of ${highestJobStep}`);
+      } else {
+        steps.push('Preparing analysis…');
+      }
+
+      steps.push('Uploading scope document…');
+
+      let progressValue = currentStepNumber
+        ? Math.round((currentStepNumber / highestJobStep) * 100)
+        : 10;
 
       switch (job.status) {
         case 'Pending':
           steps.push('Waiting for background processor to start…');
-          progressValue = 15;
           break;
         case 'GenerationInProgress':
           steps.push('Generating assessment breakdown…');
-          progressValue = 40;
           break;
         case 'GenerationComplete':
           steps.push('Generation complete.');
           steps.push('Queued for effort estimation…');
-          progressValue = 55;
           break;
         case 'EstimationInProgress':
           steps.push('Generation complete.');
           steps.push('Estimating effort and costs…');
-          progressValue = 80;
           break;
         case 'EstimationComplete':
           steps.push('Generation complete.');
           steps.push('Effort estimation completed.');
-          progressValue = 90;
           break;
         case 'Complete':
           steps.push('Generation complete.');
@@ -326,12 +346,10 @@ export default function AssessmentWorkspace() {
           break;
         case 'FailedGeneration':
           steps.push('Generation step failed.');
-          progressValue = 0;
           break;
         case 'FailedEstimation':
           steps.push('Generation complete.');
           steps.push('Estimation step failed.');
-          progressValue = 0;
           break;
         default:
           break;
@@ -342,6 +360,12 @@ export default function AssessmentWorkspace() {
         if (failureMessage) {
           steps.push(`Error: ${failureMessage}`);
         }
+
+        const resumeFromStep = currentStepNumber ?? Math.max(1, highestJobStep - 1);
+        steps.push(`Resolve the issue and resume from step ${resumeFromStep}.`);
+
+        const completedBeforeFailure = Math.max(1, (currentStepNumber ?? 1) - 1);
+        progressValue = Math.round((completedBeforeFailure / highestJobStep) * 100);
       }
 
       setAnalysisLog(steps);

@@ -43,7 +43,7 @@ public class ProjectAssessmentStore
             }
 
             var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            const string sql = @"SELECT status, step FROM assessment_step_definitions";
+            const string sql = @"SELECT status, step FROM assessment_step_definitions ORDER BY step";
 
             try
             {
@@ -85,8 +85,29 @@ public class ProjectAssessmentStore
                 return;
             }
 
+            var orderedSteps = map.Values
+                .Where(step => step > 0)
+                .Distinct()
+                .OrderBy(step => step)
+                .ToList();
+
+            if (orderedSteps.Count == 0)
+            {
+                _logger.LogWarning("Assessment step definitions query returned no positive step values; defaulting to single-step workflow.");
+                _statusStepMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _maxStatusStep = 1;
+                return;
+            }
+
+            var expectedSequence = Enumerable.Range(1, orderedSteps.Count).ToArray();
+            var isSequential = orderedSteps.SequenceEqual(expectedSequence);
+            if (!isSequential)
+            {
+                _logger.LogWarning("Assessment step definitions contain gaps. Expected sequential values {Expected} but found {Actual}.", string.Join(",", expectedSequence), string.Join(",", orderedSteps));
+            }
+
             _statusStepMap = map;
-            _maxStatusStep = map.Values.DefaultIfEmpty(1).Max();
+            _maxStatusStep = orderedSteps.Last();
         }
         finally
         {

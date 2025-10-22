@@ -161,7 +161,8 @@ CREATE TABLE IF NOT EXISTS assessment_step_definitions (
     step_name TEXT NOT NULL,
     description TEXT NOT NULL,
     job_status TEXT,
-    job_outputs TEXT[] NOT NULL DEFAULT '{}'
+    job_outputs TEXT[] NOT NULL DEFAULT '{}',
+    UNIQUE (step)
 );
 
 CREATE INDEX IF NOT EXISTS idx_assessment_step_definitions_step
