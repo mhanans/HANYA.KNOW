@@ -4,6 +4,7 @@ using backend.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace backend.Services;
 
@@ -77,7 +78,7 @@ public class ProjectTemplateStore
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("name", template.TemplateName);
-        cmd.Parameters.AddWithValue("data", payload);
+        cmd.Parameters.AddWithValue("data", NpgsqlDbType.Jsonb, payload);
         cmd.Parameters.AddWithValue("user", (object?)userId ?? DBNull.Value);
         var id = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(id);
@@ -94,7 +95,7 @@ public class ProjectTemplateStore
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", id);
         cmd.Parameters.AddWithValue("name", template.TemplateName);
-        cmd.Parameters.AddWithValue("data", payload);
+        cmd.Parameters.AddWithValue("data", NpgsqlDbType.Jsonb, payload);
         var rows = await cmd.ExecuteNonQueryAsync();
         if (rows == 0)
         {
@@ -123,7 +124,7 @@ public class ProjectTemplateStore
 
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("name", newName);
-        cmd.Parameters.AddWithValue("data", payload);
+        cmd.Parameters.AddWithValue("data", NpgsqlDbType.Jsonb, payload);
         cmd.Parameters.AddWithValue("user", (object?)userId ?? DBNull.Value);
 
         var result = await cmd.ExecuteScalarAsync();

@@ -665,6 +665,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                 <Stack spacing={2}>
                   {template.sections.map((section, sectionIndex) => {
                     const sectionUid = section.uid ?? `${sectionIndex}`;
+                    const isAiGenerated = section.type === 'AI-Generated';
                     const isExpanded = expandedSections.has(sectionUid);
                     const isDragOver = dragSectionOverUid === sectionUid;
                     return (
@@ -734,7 +735,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                 />
                               </Stack>
                               <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: { lg: 300 } }}>
-                              <FormControl fullWidth onClick={stopPropagation}>
+                                <FormControl fullWidth onClick={stopPropagation}>
                                   <InputLabel id={`section-type-${sectionUid}`}>Type</InputLabel>
                                   <Select
                                     labelId={`section-type-${sectionUid}`}
@@ -768,144 +769,153 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                           </AccordionSummary>
                           <AccordionDetails sx={{ px: 0, pb: 3 }}>
                             <Box sx={{ px: 3, pt: 1 }}>
-                              <TableContainer component={Paper} variant="outlined" sx={{ backgroundColor: 'rgba(15,23,42,0.6)' }}>
-                                <Table size="small">
-                                  <TableHead>
-                                    <TableRow>
-                                      <TableCell width={56}></TableCell>
-                                      <TableCell width={160}>Item ID</TableCell>
-                                      <TableCell width="30%">Item Name</TableCell>
-                                      <TableCell>Item Detail</TableCell>
-                                      <TableCell align="right" width={120}>
-                                        Actions
-                                      </TableCell>
-                                    </TableRow>
-                                  </TableHead>
-                                  <TableBody>
-                                    {section.items.length === 0 ? (
-                                      <TableRow>
-                                        <TableCell colSpan={5}>
-                                          <Typography variant="body2" color="text.secondary">
-                                            No items yet. Add items to this section to build your estimation grid.
-                                          </Typography>
-                                        </TableCell>
-                                      </TableRow>
-                                    ) : (
-                                      section.items.map((item, itemIndex) => {
-                                        const itemUid = item.uid ?? `${sectionUid}-${itemIndex}`;
-                                        return (
-                                          <TableRow
-                                            key={itemUid}
-                                            draggable
-                                            onDragStart={handleItemDragStart(sectionUid, itemUid)}
-                                            onDragOver={handleItemDragOver(sectionUid, itemUid)}
-                                            onDrop={handleItemDrop(sectionUid, itemUid)}
-                                            onDragLeave={handleItemDragLeave(sectionUid, itemUid)}
-                                            onDragEnd={handleItemDragEnd}
-                                          >
-                                            <TableCell width={56}>
-                                              <IconButton
-                                                className="item-drag-handle"
-                                                size="small"
-                                                sx={{ color: 'text.secondary', cursor: 'grab' }}
-                                              >
-                                                <DragIndicatorIcon fontSize="small" />
-                                              </IconButton>
-                                            </TableCell>
-                                            <TableCell width={160}>
-                                              <TextField
-                                                variant="outlined"
-                                                size="small"
-                                                value={item.itemId}
-                                                onChange={e =>
-                                                  updateItem(sectionIndex, itemIndex, current => ({
-                                                    ...current,
-                                                    itemId: e.target.value,
-                                                  }))
-                                                }
-                                                placeholder="Item ID"
-                                              />
-                                            </TableCell>
-                                            <TableCell width="30%">
-                                              <TextField
-                                                variant="outlined"
-                                                size="small"
-                                                value={item.itemName}
-                                                onChange={e =>
-                                                  updateItem(sectionIndex, itemIndex, current => ({
-                                                    ...current,
-                                                    itemName: e.target.value,
-                                                  }))
-                                                }
-                                                placeholder="User Authentication"
-                                                fullWidth
-                                              />
-                                            </TableCell>
-                                            <TableCell>
-                                              <TextField
-                                                variant="outlined"
-                                                size="small"
-                                                value={item.itemDetail}
-                                                onChange={e =>
-                                                  updateItem(sectionIndex, itemIndex, current => ({
-                                                    ...current,
-                                                    itemDetail: e.target.value,
-                                                  }))
-                                                }
-                                                placeholder="Implement secure login, JWT, and password reset"
-                                                fullWidth
-                                              />
-                                            </TableCell>
-                                            <TableCell align="right" width={120}>
-                                              <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                                <Tooltip title="Move up">
-                                                  <span>
-                                                    <IconButton
-                                                      size="small"
-                                                      onClick={() => moveItem(sectionIndex, itemIndex, -1)}
-                                                      disabled={itemIndex === 0}
-                                                    >
-                                                      <ArrowUpwardIcon fontSize="inherit" />
-                                                    </IconButton>
-                                                  </span>
-                                                </Tooltip>
-                                                <Tooltip title="Move down">
-                                                  <span>
-                                                    <IconButton
-                                                      size="small"
-                                                      onClick={() => moveItem(sectionIndex, itemIndex, 1)}
-                                                      disabled={itemIndex === section.items.length - 1}
-                                                    >
-                                                      <ArrowDownwardIcon fontSize="inherit" />
-                                                    </IconButton>
-                                                  </span>
-                                                </Tooltip>
-                                                <Tooltip title="Delete item">
-                                                  <IconButton
-                                                    size="small"
-                                                    color="error"
-                                                    onClick={() => removeItem(sectionIndex, itemIndex)}
-                                                  >
-                                                    <DeleteIcon fontSize="small" />
-                                                  </IconButton>
-                                                </Tooltip>
-                                              </Stack>
+                              {isAiGenerated ? (
+                                <Alert severity="info">
+                                  Items in this section are generated automatically when running the AI-assisted assessment.
+                                  Manual editing is disabled.
+                                </Alert>
+                              ) : (
+                                <>
+                                  <TableContainer component={Paper} variant="outlined">
+                                    <Table size="small">
+                                      <TableHead>
+                                        <TableRow>
+                                          <TableCell width={56}></TableCell>
+                                          <TableCell width={160}>Item ID</TableCell>
+                                          <TableCell width="30%">Item Name</TableCell>
+                                          <TableCell>Item Detail</TableCell>
+                                          <TableCell align="right" width={120}>
+                                            Actions
+                                          </TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {section.items.length === 0 ? (
+                                          <TableRow>
+                                            <TableCell colSpan={5}>
+                                              <Typography variant="body2" color="text.secondary">
+                                                No items yet. Add items to this section to build your estimation grid.
+                                              </Typography>
                                             </TableCell>
                                           </TableRow>
-                                        );
-                                      })
-                                    )}
-                                  </TableBody>
-                                </Table>
-                              </TableContainer>
-                              <Button
-                                variant="outlined"
-                                startIcon={<AddIcon />}
-                                onClick={() => addItem(sectionIndex)}
-                                sx={{ mt: 2 }}
-                              >
-                                Add Item
-                              </Button>
+                                        ) : (
+                                          section.items.map((item, itemIndex) => {
+                                            const itemUid = item.uid ?? `${sectionUid}-${itemIndex}`;
+                                            return (
+                                              <TableRow
+                                                key={itemUid}
+                                                draggable
+                                                onDragStart={handleItemDragStart(sectionUid, itemUid)}
+                                                onDragOver={handleItemDragOver(sectionUid, itemUid)}
+                                                onDrop={handleItemDrop(sectionUid, itemUid)}
+                                                onDragLeave={handleItemDragLeave(sectionUid, itemUid)}
+                                                onDragEnd={handleItemDragEnd}
+                                              >
+                                                <TableCell width={56}>
+                                                  <IconButton
+                                                    className="item-drag-handle"
+                                                    size="small"
+                                                    sx={{ color: 'text.secondary', cursor: 'grab' }}
+                                                  >
+                                                    <DragIndicatorIcon fontSize="small" />
+                                                  </IconButton>
+                                                </TableCell>
+                                                <TableCell width={160}>
+                                                  <TextField
+                                                    variant="outlined"
+                                                    size="small"
+                                                    value={item.itemId}
+                                                    onChange={e =>
+                                                      updateItem(sectionIndex, itemIndex, current => ({
+                                                        ...current,
+                                                        itemId: e.target.value,
+                                                      }))
+                                                    }
+                                                    placeholder="Item ID"
+                                                  />
+                                                </TableCell>
+                                                <TableCell width="30%">
+                                                  <TextField
+                                                    variant="outlined"
+                                                    size="small"
+                                                    value={item.itemName}
+                                                    onChange={e =>
+                                                      updateItem(sectionIndex, itemIndex, current => ({
+                                                        ...current,
+                                                        itemName: e.target.value,
+                                                      }))
+                                                    }
+                                                    placeholder="User Authentication"
+                                                    fullWidth
+                                                  />
+                                                </TableCell>
+                                                <TableCell>
+                                                  <TextField
+                                                    variant="outlined"
+                                                    size="small"
+                                                    value={item.itemDetail}
+                                                    onChange={e =>
+                                                      updateItem(sectionIndex, itemIndex, current => ({
+                                                        ...current,
+                                                        itemDetail: e.target.value,
+                                                      }))
+                                                    }
+                                                    placeholder="Implement secure login, JWT, and password reset"
+                                                    fullWidth
+                                                  />
+                                                </TableCell>
+                                                <TableCell align="right" width={120}>
+                                                  <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                                    <Tooltip title="Move up">
+                                                      <span>
+                                                        <IconButton
+                                                          size="small"
+                                                          onClick={() => moveItem(sectionIndex, itemIndex, -1)}
+                                                          disabled={itemIndex === 0}
+                                                        >
+                                                          <ArrowUpwardIcon fontSize="inherit" />
+                                                        </IconButton>
+                                                      </span>
+                                                    </Tooltip>
+                                                    <Tooltip title="Move down">
+                                                      <span>
+                                                        <IconButton
+                                                          size="small"
+                                                          onClick={() => moveItem(sectionIndex, itemIndex, 1)}
+                                                          disabled={itemIndex === section.items.length - 1}
+                                                        >
+                                                          <ArrowDownwardIcon fontSize="inherit" />
+                                                        </IconButton>
+                                                      </span>
+                                                    </Tooltip>
+                                                    <Tooltip title="Delete item">
+                                                      <IconButton
+                                                        size="small"
+                                                        color="error"
+                                                        onClick={() => removeItem(sectionIndex, itemIndex)}
+                                                      >
+                                                        <DeleteIcon fontSize="small" />
+                                                      </IconButton>
+                                                    </Tooltip>
+                                                  </Stack>
+                                                </TableCell>
+                                              </TableRow>
+                                            );
+                                          })
+                                        )}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                  <Button
+                                    variant="outlined"
+                                    startIcon={<AddIcon />}
+                                    onClick={() => addItem(sectionIndex)}
+                                    sx={{ mt: 2 }}
+                                  >
+                                    Add Item
+                                  </Button>
+                                </>
+                              )}
                             </Box>
                           </AccordionDetails>
                         </Accordion>
