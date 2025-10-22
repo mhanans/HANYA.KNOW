@@ -274,11 +274,11 @@ export default function Login() {
             {loading ? <Spinner /> : 'Login'}
           </button>
         </form>
-        {ssoEnabled && (
-          <div className="accelist-sso-section">
-            <div className="login-divider">
-              <span>or</span>
-            </div>
+        <div className="accelist-sso-section">
+          <div className="login-divider">
+            <span>{ssoEnabled ? 'or' : 'Single sign-on'}</span>
+          </div>
+          {ssoEnabled ? (
             <form
               id="accelist-sso-form"
               className={`accelist-sso-form${ssoLoading ? ' loading' : ''}`}
@@ -306,8 +306,14 @@ export default function Login() {
                 )}
               </div>
             </form>
-          </div>
-        )}
+          ) : (
+            <div className="accelist-sso-widget">
+              <button type="button" className="btn secondary accelist-sso-placeholder" disabled>
+                Login with SSO not available
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
