@@ -1,4 +1,4 @@
-import { useState, FormEvent, useEffect, useRef } from 'react';
+import { useState, FormEvent, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '../lib/api';
 
@@ -59,10 +59,70 @@ export default function Login() {
   const [ssoLoading, setSsoLoading] = useState(false);
   const [resolvedRedirectUri, setResolvedRedirectUri] = useState(SSO_REDIRECT_URI);
   const [ssoReady, setSsoReady] = useState(false);
+  const [tamSsoElement, setTamSsoElement] = useState<HTMLElement | null>(null);
   const ssoElementContainerRef = useRef<HTMLDivElement | null>(null);
   const tamSsoElementRef = useRef<HTMLElement | null>(null);
+  const handledSsoTokenRef = useRef<string | null>(null);
   const router = useRouter();
   const ssoEnabled = Boolean(SSO_HOST && SSO_APP_ID && resolvedRedirectUri);
+
+  const markSsoReady = useCallback(() => {
+    setSsoReady(true);
+    setError(prev => (prev === SSO_LOAD_ERROR ? '' : prev));
+  }, [setError]);
+
+  const handleSsoLoadFailure = useCallback(() => {
+    setSsoReady(false);
+    setError(prev => prev || SSO_LOAD_ERROR);
+  }, [setError]);
+
+  const completeSso = useCallback(
+    async (token: string, form?: HTMLFormElement) => {
+      if (!ssoEnabled) return;
+      setError('');
+      setSsoLoading(true);
+      try {
+        const res = await apiFetch('/api/login/sso', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tamSignOnToken: token })
+        });
+        if (!res.ok) {
+          let message = 'SSO authentication failed.';
+          try {
+            const payload = await res.json();
+            if (payload?.message) message = payload.message;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        const body = await res.json();
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('token', body.token);
+          document.cookie = `token=${body.token}; path=/`;
+        }
+        router.push('/');
+      } catch (err) {
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('An unexpected error occurred.');
+        }
+      } finally {
+        if (form) {
+          form.reset();
+        } else if (typeof window !== 'undefined') {
+          const input = document.querySelector<HTMLInputElement>('input[name="TAMSignOnToken"]');
+          if (input) {
+            input.value = '';
+          }
+        }
+        setSsoLoading(false);
+      }
+    },
+    [router, setError, ssoEnabled]
+  );
 
   useEffect(() => {
     if (resolvedRedirectUri || typeof window === 'undefined') {
@@ -85,16 +145,14 @@ export default function Login() {
       if (!active) {
         return;
       }
-      setSsoReady(false);
-      setError(prev => prev || SSO_LOAD_ERROR);
+      handleSsoLoadFailure();
     };
 
     const markReady = () => {
       if (!active) {
         return;
       }
-      setSsoReady(true);
-      setError(prev => (prev === SSO_LOAD_ERROR ? '' : prev));
+      markSsoReady();
     };
 
     const awaitDefinition = () => {
@@ -141,7 +199,7 @@ export default function Login() {
       script.removeEventListener('load', awaitDefinition);
       script.removeEventListener('error', handleError);
     };
-  }, [ssoEnabled, setError]);
+  }, [handleSsoLoadFailure, markSsoReady, ssoEnabled]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -158,6 +216,9 @@ export default function Login() {
         tamSsoElementRef.current.remove();
         tamSsoElementRef.current = null;
       }
+      if (tamSsoElement !== null) {
+        setTamSsoElement(null);
+      }
       return;
     }
 
@@ -165,6 +226,9 @@ export default function Login() {
     if (!element) {
       element = document.createElement('tam-sso');
       tamSsoElementRef.current = element;
+    }
+    if (tamSsoElement !== element) {
+      setTamSsoElement(element);
     }
 
     if (element.parentElement !== container) {
@@ -185,7 +249,88 @@ export default function Login() {
     return () => {
       // no-op cleanup; element persists for reuse
     };
-  }, [ssoEnabled, resolvedRedirectUri]);
+  }, [resolvedRedirectUri, ssoEnabled, tamSsoElement]);
+
+  useEffect(() => {
+    if (!ssoEnabled || !tamSsoElement || typeof window === 'undefined' || ssoReady) {
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: ReturnType<typeof window.setInterval> | undefined;
+    let timeoutId: ReturnType<typeof window.setTimeout> | undefined;
+
+    const checkReady = () => {
+      if (cancelled) {
+        return false;
+      }
+      const element = tamSsoElementRef.current;
+      if (!element) {
+        return false;
+      }
+      const root = element.shadowRoot ?? element;
+      const hasInteractiveChild = root.querySelector('button, [role="button"], input[type="submit"]');
+      if (hasInteractiveChild) {
+        markSsoReady();
+        if (intervalId !== undefined) {
+          window.clearInterval(intervalId);
+        }
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId);
+        }
+        return true;
+      }
+      return false;
+    };
+
+    if (checkReady()) {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      if (checkReady()) {
+        observer.disconnect();
+      }
+    });
+
+    observer.observe(tamSsoElement, { childList: true, subtree: true });
+    if (tamSsoElement.shadowRoot) {
+      observer.observe(tamSsoElement.shadowRoot, { childList: true, subtree: true });
+    }
+
+    const readyListener = () => {
+      checkReady();
+    };
+
+    tamSsoElement.addEventListener('tam-sso-ready', readyListener);
+    tamSsoElement.addEventListener('ready', readyListener);
+    tamSsoElement.addEventListener('load', readyListener);
+
+    intervalId = window.setInterval(() => {
+      checkReady();
+    }, 250);
+
+    timeoutId = window.setTimeout(() => {
+      if (!checkReady()) {
+        observer.disconnect();
+        handleSsoLoadFailure();
+      }
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+      tamSsoElement.removeEventListener('tam-sso-ready', readyListener);
+      tamSsoElement.removeEventListener('ready', readyListener);
+      tamSsoElement.removeEventListener('load', readyListener);
+      if (intervalId !== undefined) {
+        window.clearInterval(intervalId);
+      }
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [handleSsoLoadFailure, markSsoReady, ssoEnabled, ssoReady, tamSsoElement]);
 
   useEffect(() => {
     return () => {
@@ -195,6 +340,51 @@ export default function Login() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!ssoEnabled || typeof window === 'undefined' || !router.isReady) {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    const initialToken = currentUrl.searchParams.get('TAMSignOnToken');
+    let token = initialToken ?? '';
+
+    if (!token && currentUrl.hash.includes('TAMSignOnToken')) {
+      const hashParams = new URLSearchParams(currentUrl.hash.replace(/^#/, ''));
+      token = hashParams.get('TAMSignOnToken') ?? '';
+      if (token) {
+        hashParams.delete('TAMSignOnToken');
+        const newHash = hashParams.toString();
+        currentUrl.hash = newHash ? `#${newHash}` : '';
+      }
+    }
+
+    if (initialToken) {
+      currentUrl.searchParams.delete('TAMSignOnToken');
+    }
+
+    const cleanedUrl = currentUrl.toString();
+    if (cleanedUrl !== window.location.href) {
+      window.history.replaceState({}, document.title, cleanedUrl);
+    }
+
+    if (!token || handledSsoTokenRef.current === token) {
+      return;
+    }
+
+    handledSsoTokenRef.current = token;
+
+    const form = document.getElementById('accelist-sso-form') as HTMLFormElement | null;
+    if (form) {
+      const input = form.querySelector<HTMLInputElement>('input[name="TAMSignOnToken"]');
+      if (input) {
+        input.value = token;
+      }
+    }
+
+    void completeSso(token, form ?? undefined);
+  }, [completeSso, router.isReady, ssoEnabled]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -232,7 +422,6 @@ export default function Login() {
   const submitSso = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!ssoEnabled) return;
-    setError('');
     const form = e.currentTarget;
     const data = new FormData(form);
     const token = data.get('TAMSignOnToken');
@@ -241,40 +430,13 @@ export default function Login() {
       form.reset();
       return;
     }
-
-    setSsoLoading(true);
-    try {
-      const res = await apiFetch('/api/login/sso', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tamSignOnToken: token })
-      });
-      if (!res.ok) {
-        let message = 'SSO authentication failed.';
-        try {
-          const payload = await res.json();
-          if (payload?.message) message = payload.message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
-      }
-      const body = await res.json();
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', body.token);
-        document.cookie = `token=${body.token}; path=/`;
-      }
-      router.push('/');
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('An unexpected error occurred.');
-      }
-    } finally {
-      form.reset();
-      setSsoLoading(false);
+    if (handledSsoTokenRef.current === token) {
+      return;
     }
+
+    handledSsoTokenRef.current = token;
+
+    await completeSso(token, form);
   };
 
   return (
