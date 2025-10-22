@@ -866,6 +866,7 @@ public class ProjectAssessmentAnalysisService
             TemplateName = template.TemplateName,
             ProjectName = projectName,
             Status = "Draft",
+            Step = 1,
             Sections = sections
         };
     }

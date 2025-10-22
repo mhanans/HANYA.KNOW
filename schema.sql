@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS project_assessments (
     template_id INT REFERENCES project_templates(id) ON DELETE CASCADE,
     project_name TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'Draft',
+    step INT NOT NULL DEFAULT 1,
     assessment_data JSONB NOT NULL,
     created_by_user_id INT REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -153,6 +154,19 @@ CREATE INDEX IF NOT EXISTS idx_project_assessments_template
 
 CREATE INDEX IF NOT EXISTS idx_project_assessments_status
     ON project_assessments(status);
+
+CREATE TABLE IF NOT EXISTS assessment_step_definitions (
+    status TEXT PRIMARY KEY,
+    step INT NOT NULL CHECK (step >= 1),
+    step_name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    job_status TEXT,
+    job_outputs TEXT[] NOT NULL DEFAULT '{}',
+    UNIQUE (step)
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_step_definitions_step
+    ON assessment_step_definitions(step);
 
 CREATE TABLE IF NOT EXISTS assessment_jobs (
     id SERIAL PRIMARY KEY,

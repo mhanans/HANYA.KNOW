@@ -12,7 +12,7 @@ export default function PresalesAiHistoryPage() {
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6 }}>
       <Stack spacing={4}>
         <Box>
-          <Typography variant="h1" gutterBottom>Presales AI History</Typography>
+          <Typography variant="h1" gutterBottom>Pre-Sales Assessment History</Typography>
           <Typography variant="body1" color="text.secondary">
             Browse saved assessments and relaunch them in the workspace when you need a fast head start.
           </Typography>
