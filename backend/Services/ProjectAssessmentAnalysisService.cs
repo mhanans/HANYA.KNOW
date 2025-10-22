@@ -28,17 +28,14 @@ public class ProjectAssessmentAnalysisService
     private readonly JsonSerializerOptions _deserializationOptions;
     private readonly JsonSerializerOptions _serializationOptions;
     private readonly string _storageRoot;
-    private readonly IJobQueue _jobQueue;
 
     public ProjectAssessmentAnalysisService(
         IConfiguration configuration,
         ILogger<ProjectAssessmentAnalysisService> logger,
-        AssessmentJobStore jobStore,
-        IJobQueue jobQueue)
+        AssessmentJobStore jobStore)
     {
         _logger = logger;
         _jobStore = jobStore;
-        _jobQueue = jobQueue;
 
         _apiKey = configuration["Gemini:ApiKey"]
                   ?? configuration["GoogleAI:ApiKey"]
@@ -108,13 +105,14 @@ public class ProjectAssessmentAnalysisService
 
         await _jobStore.InsertAsync(job, cancellationToken).ConfigureAwait(false);
 
-        _jobQueue.EnqueueJob(job.Id);
-        _logger.LogInformation("Enqueued assessment job {JobId} for background processing.", job.Id);
+        _logger.LogInformation("Created job {JobId}. Starting synchronous pipeline.", job.Id);
 
-        return job;
+        await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
+
+        return await _jobStore.GetAsync(job.Id, cancellationToken).ConfigureAwait(false) ?? job;
     }
 
-    public async Task ExecuteFullPipelineAsync(int jobId, CancellationToken cancellationToken)
+    private async Task ExecuteFullPipelineAsync(int jobId, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting processing pipeline for assessment job {JobId}.", jobId);
 
@@ -193,8 +191,8 @@ public class ProjectAssessmentAnalysisService
                     job.LastError = null;
                     job.Status = JobStatus.GenerationComplete;
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
-                    _jobQueue.EnqueueJob(job.Id);
-                    _logger.LogInformation("Repaired job {JobId} after generation failure and re-queued for estimation.", job.Id);
+                    await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation("Repaired job {JobId} after generation failure and resumed estimation.", job.Id);
                 }
                 else
                 {
