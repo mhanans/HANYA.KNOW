@@ -19,8 +19,6 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
-public record SsoLoginRequest(string IdToken);
-
 var builder = WebApplication.CreateBuilder(args);
 
 const string CombinedScheme = "Combined";
@@ -328,3 +326,5 @@ app.MapGet("/api/user/profile", (ClaimsPrincipal user) =>
 
 app.MapControllers();
 app.Run();
+
+public record SsoLoginRequest(string IdToken);
