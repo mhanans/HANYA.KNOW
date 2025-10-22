@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using backend.Middleware;
+using backend.Models;
 using backend.Models.Configuration;
 using backend.Services;
 using Microsoft.AspNetCore.Authentication;
