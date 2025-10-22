@@ -33,11 +33,15 @@ import {
   Checkbox,
   ListItemIcon,
   FormHelperText,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import GetAppIcon from '@mui/icons-material/GetApp';
 import { LoadingButton } from '@mui/lab';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import DeleteIcon from '@mui/icons-material/Delete';
 import type { AssessmentJobStatus } from '../../components/pre-sales/AssessmentHistory';
 import { apiFetch } from '../../lib/api';
 import Swal from 'sweetalert2';
@@ -114,6 +118,8 @@ const normalizeAssessment = (assessment: ProjectAssessment): ProjectAssessment =
     ...section,
     items: (section.items ?? []).map(item => ({
       ...item,
+      itemName: item.itemName ?? '',
+      itemDetail: item.itemDetail ?? '',
       isNeeded: true,
       estimates: item.estimates ?? {},
     })),
@@ -139,12 +145,35 @@ const jobStatusStepNumber: Record<AssessmentJobStatus, number> = {
 
 const highestJobStep = Math.max(...Object.values(jobStatusStepNumber));
 
+interface ProjectTemplate {
+  id?: number;
+  templateName: string;
+  estimationColumns: string[];
+  sections: TemplateSection[];
+}
+
+interface TemplateSection {
+  sectionName: string;
+  type: string;
+  items: TemplateItem[];
+}
+
+interface TemplateItem {
+  itemId: string;
+  itemName: string;
+  itemDetail: string;
+}
+
 interface AssessmentTreeGridProps {
   sections: AssessmentSection[];
   estimationColumns: string[];
   expandedSections: Record<string, boolean>;
   onToggleSection: (name: string) => void;
   onEstimateChange: (sectionIndex: number, itemIndex: number, column: string, value: number | null) => void;
+  onItemNameChange: (sectionIndex: number, itemIndex: number, value: string) => void;
+  onItemDetailChange: (sectionIndex: number, itemIndex: number, value: string) => void;
+  onRemoveItem: (sectionIndex: number, itemIndex: number) => void;
+  onAddItem: (sectionIndex: number) => void;
   computeItemTotal: (item: AssessmentItem) => number;
 }
 
@@ -154,6 +183,10 @@ function AssessmentTreeGrid({
   expandedSections,
   onToggleSection,
   onEstimateChange,
+  onItemNameChange,
+  onItemDetailChange,
+  onRemoveItem,
+  onAddItem,
   computeItemTotal,
 }: AssessmentTreeGridProps) {
   return (
@@ -207,6 +240,7 @@ function AssessmentTreeGrid({
                         <TableCell key={column} align="right">{column}</TableCell>
                       ))}
                       <TableCell align="right">Total Hours</TableCell>
+                      <TableCell align="center">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -214,8 +248,26 @@ function AssessmentTreeGrid({
                       const itemTotal = computeItemTotal(item);
                       return (
                         <TableRow key={`${section.sectionName}-${item.itemId}-${itemIndex}`}>
-                          <TableCell>{item.itemName}</TableCell>
-                          <TableCell>{item.itemDetail}</TableCell>
+                          <TableCell sx={{ minWidth: 220 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={item.itemName}
+                              onChange={event => onItemNameChange(sectionIndex, itemIndex, event.target.value)}
+                              placeholder="Item name"
+                            />
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 260 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={item.itemDetail ?? ''}
+                              onChange={event => onItemDetailChange(sectionIndex, itemIndex, event.target.value)}
+                              placeholder="Additional details"
+                              multiline
+                              minRows={1}
+                            />
+                          </TableCell>
                           {estimationColumns.map(column => (
                             <TableCell key={column} align="right">
                               <TextField
@@ -239,9 +291,33 @@ function AssessmentTreeGrid({
                             </TableCell>
                           ))}
                           <TableCell align="right">{formatHours(itemTotal)}</TableCell>
+                          <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                            <Tooltip title="Remove item">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => onRemoveItem(sectionIndex, itemIndex)}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
+                    <TableRow>
+                      <TableCell colSpan={estimationColumns.length + 4}>
+                        <Button
+                          startIcon={<AddCircleOutlineIcon />}
+                          size="small"
+                          onClick={() => onAddItem(sectionIndex)}
+                        >
+                          Add Item
+                        </Button>
+                      </TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               </TableContainer>
@@ -271,16 +347,17 @@ export default function AssessmentWorkspace() {
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState('');
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<number[]>([]);
+  const [templateColumns, setTemplateColumns] = useState<string[]>([]);
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
 
-  const showError = (message: string, title = 'Something went wrong') => {
+  const showError = useCallback((message: string, title = 'Something went wrong') => {
     if (!message) return;
     void Swal.fire({ icon: 'error', title, text: message });
-  };
+  }, []);
 
-  const showSuccess = (title: string, text: string) => {
+  const showSuccess = useCallback((title: string, text: string) => {
     void Swal.fire({
       icon: 'success',
       title,
@@ -288,7 +365,7 @@ export default function AssessmentWorkspace() {
       timer: 2600,
       showConfirmButton: false,
     });
-  };
+  }, []);
 
   const stopJobPolling = useCallback(() => {
     if (jobPollTimer.current) {
@@ -520,6 +597,37 @@ export default function AssessmentWorkspace() {
   }, [similarAssessments]);
 
   useEffect(() => {
+    if (!selectedTemplate || typeof selectedTemplate !== 'number') {
+      setTemplateColumns([]);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchTemplate = async () => {
+      try {
+        const res = await apiFetch(`/api/templates/${selectedTemplate}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data: ProjectTemplate = await res.json();
+        if (!cancelled) {
+          setTemplateColumns(data.estimationColumns ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTemplateColumns([]);
+          const message = err instanceof Error ? err.message : 'Failed to load template details.';
+          showError(message, 'Template load failed');
+        }
+      }
+    };
+
+    void fetchTemplate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTemplate, showError]);
+
+  useEffect(() => {
     const jobParam = router.query.jobId;
     if (jobParam) {
       const jobId = Array.isArray(jobParam) ? Number(jobParam[0]) : Number(jobParam);
@@ -552,9 +660,27 @@ export default function AssessmentWorkspace() {
 
   const estimationColumns = useMemo(() => {
     if (!assessment) return [];
-    const firstItem = assessment.sections.flatMap(section => section.items)[0];
-    return firstItem ? Object.keys(firstItem.estimates) : [];
-  }, [assessment]);
+    const seen = new Set<string>();
+    const collected: string[] = [];
+    assessment.sections.forEach(section => {
+      section.items.forEach(item => {
+        Object.keys(item.estimates ?? {}).forEach(column => {
+          if (!seen.has(column)) {
+            seen.add(column);
+            collected.push(column);
+          }
+        });
+      });
+    });
+
+    if (templateColumns.length === 0) {
+      return collected;
+    }
+
+    const ordered = templateColumns.filter(column => seen.has(column));
+    const extras = collected.filter(column => !templateColumns.includes(column));
+    return [...ordered, ...extras];
+  }, [assessment, templateColumns]);
 
   const computeItemTotal = (item: AssessmentItem) =>
     Object.values(item.estimates).reduce<number>((total, value) => total + (value ?? 0), 0);
@@ -607,6 +733,60 @@ export default function AssessmentWorkspace() {
       ...item,
       estimates: { ...item.estimates, [column]: value },
     }));
+  };
+
+  const onItemNameChange = (sectionIndex: number, itemIndex: number, value: string) => {
+    updateItem(sectionIndex, itemIndex, item => ({
+      ...item,
+      itemName: value,
+    }));
+  };
+
+  const onItemDetailChange = (sectionIndex: number, itemIndex: number, value: string) => {
+    updateItem(sectionIndex, itemIndex, item => ({
+      ...item,
+      itemDetail: value,
+    }));
+  };
+
+  const onRemoveItem = (sectionIndex: number, itemIndex: number) => {
+    updateAssessment(current => ({
+      ...current,
+      sections: current.sections.map((section, index) => {
+        if (index !== sectionIndex) return section;
+        return {
+          ...section,
+          items: section.items.filter((_, idx) => idx !== itemIndex),
+        };
+      }),
+    }));
+  };
+
+  const onAddItem = (sectionIndex: number) => {
+    updateAssessment(current => {
+      const columns = estimationColumns;
+      const newItem: AssessmentItem = {
+        itemId: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        itemName: '',
+        itemDetail: '',
+        isNeeded: true,
+        estimates: columns.reduce<Record<string, number | null>>((acc, column) => {
+          acc[column] = null;
+          return acc;
+        }, {}),
+      };
+
+      return {
+        ...current,
+        sections: current.sections.map((section, index) => {
+          if (index !== sectionIndex) return section;
+          return {
+            ...section,
+            items: [...section.items, newItem],
+          };
+        }),
+      };
+    });
   };
 
   const startAnalysis = async () => {
@@ -933,6 +1113,10 @@ export default function AssessmentWorkspace() {
                 expandedSections={expandedSections}
                 onToggleSection={toggleSection}
                 onEstimateChange={onEstimateChange}
+                onItemNameChange={onItemNameChange}
+                onItemDetailChange={onItemDetailChange}
+                onRemoveItem={onRemoveItem}
+                onAddItem={onAddItem}
                 computeItemTotal={computeItemTotal}
               />
 
