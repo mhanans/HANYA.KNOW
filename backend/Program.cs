@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using backend.Middleware;
+using backend.Models;
 using backend.Models.Configuration;
 using backend.Services;
 using Microsoft.AspNetCore.Authentication;
@@ -228,8 +229,6 @@ app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<ApiKeyMiddleware>();
-
-public record SsoLoginRequest(string IdToken);
 
 app.MapPost("/api/auth/sso-login", async (
     SsoLoginRequest request,
