@@ -1,4 +1,6 @@
 using System;
+using System.Text.Json.Serialization;
+using backend.Models.Serialization;
 
 namespace backend.Models;
 
@@ -41,6 +43,7 @@ public class AssessmentJobSummary
     public DateTime LastModifiedAt { get; set; } = DateTime.UtcNow;
 }
 
+[JsonConverter(typeof(JobStatusJsonConverter))]
 public enum JobStatus
 {
     Pending,
