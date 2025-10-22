@@ -1,10 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-// Proxy the backend's Server-Sent Events stream so the browser can
-// connect without exposing the API key. We avoid `Readable.fromWeb`
-// because it buffers chunks and breaks live streaming; instead we
-// manually read and forward each chunk as it arrives.
-
 export const config = { api: { bodyParser: false } };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,14 +17,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   const auth = req.headers.authorization || (req.cookies.token ? `Bearer ${req.cookies.token}` : undefined);
+  const headers: Record<string, string> = {
+    'X-API-KEY': apiKey,
+    ...(auth ? { Authorization: auth } : {}),
+  };
+  if (req.headers.cookie) {
+    headers['Cookie'] = req.headers.cookie;
+  }
+
   const controller = new AbortController();
   req.on('close', () => controller.abort());
 
   const upstream = await fetch(`${base}/api/chat/stream?${params.toString()}`, {
-    headers: {
-      'X-API-KEY': apiKey,
-      ...(auth ? { Authorization: auth } : {}),
-    },
+    headers,
     signal: controller.signal,
   });
 
@@ -54,7 +54,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.write(decoder.decode(value));
     }
   } catch {
-    // ignore errors from aborted requests
   } finally {
     res.end();
   }
