@@ -138,12 +138,16 @@ public class ProjectAssessmentStore
         const string sql = @"SELECT pa.template_id,
                                      pa.project_name,
                                      pa.status,
-                                     pa.step,
+                                     COALESCE(
+                                         NULLIF(pa.assessment_data->>'step', '')::INT,
+                                         NULLIF(pa.assessment_data->>'Step', '')::INT,
+                                         1
+                                     ) AS step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at,
                                      COALESCE(pt.template_name, '')
-                               FROM project_assessments pa
+                              FROM project_assessments pa
                                LEFT JOIN project_templates pt ON pt.id = pa.template_id
                                WHERE pa.id=@id AND (@userId IS NULL OR pa.created_by_user_id=@userId)";
         await using var conn = new NpgsqlConnection(_connectionString);
@@ -209,13 +213,12 @@ public class ProjectAssessmentStore
 
         if (assessment.Id is null)
         {
-            const string insertSql = @"INSERT INTO project_assessments (template_id, project_name, status, step, assessment_data, created_by_user_id, created_at, last_modified_at)
-                                       VALUES (@templateId, @projectName, @status, @step, @data, @user, NOW(), NOW()) RETURNING id";
+            const string insertSql = @"INSERT INTO project_assessments (template_id, project_name, status, assessment_data, created_by_user_id, created_at, last_modified_at)
+                                       VALUES (@templateId, @projectName, @status, @data, @user, NOW(), NOW()) RETURNING id";
             await using var cmd = new NpgsqlCommand(insertSql, conn);
             cmd.Parameters.AddWithValue("templateId", assessment.TemplateId);
             cmd.Parameters.AddWithValue("projectName", projectName);
             cmd.Parameters.AddWithValue("status", status);
-            cmd.Parameters.AddWithValue("step", step);
             cmd.Parameters.Add("data", NpgsqlDbType.Jsonb).Value = payload;
             cmd.Parameters.AddWithValue("user", (object?)userId ?? DBNull.Value);
             var result = await cmd.ExecuteScalarAsync();
@@ -226,14 +229,12 @@ public class ProjectAssessmentStore
             const string updateSql = @"UPDATE project_assessments
                                          SET project_name=@projectName,
                                              status=@status,
-                                             step=@step,
                                              assessment_data=@data,
                                              last_modified_at=NOW()
                                          WHERE id=@id";
             await using var cmd = new NpgsqlCommand(updateSql, conn);
             cmd.Parameters.AddWithValue("projectName", projectName);
             cmd.Parameters.AddWithValue("status", status);
-            cmd.Parameters.AddWithValue("step", step);
             cmd.Parameters.Add("data", NpgsqlDbType.Jsonb).Value = payload;
             cmd.Parameters.AddWithValue("id", assessment.Id.Value);
             var rows = await cmd.ExecuteNonQueryAsync();
@@ -252,7 +253,11 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
-                                     pa.step,
+                                     COALESCE(
+                                         NULLIF(pa.assessment_data->>'step', '')::INT,
+                                         NULLIF(pa.assessment_data->>'Step', '')::INT,
+                                         1
+                                     ) AS step,
                                      pa.created_at,
                                      pa.last_modified_at
                               FROM project_assessments pa
@@ -291,7 +296,11 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
-                                     pa.step,
+                                     COALESCE(
+                                         NULLIF(pa.assessment_data->>'step', '')::INT,
+                                         NULLIF(pa.assessment_data->>'Step', '')::INT,
+                                         1
+                                     ) AS step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at
@@ -361,7 +370,11 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
-                                     pa.step,
+                                     COALESCE(
+                                         NULLIF(pa.assessment_data->>'step', '')::INT,
+                                         NULLIF(pa.assessment_data->>'Step', '')::INT,
+                                         1
+                                     ) AS step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at
@@ -422,7 +435,11 @@ public class ProjectAssessmentStore
                                      COALESCE(pt.template_name, '') AS template_name,
                                      COALESCE(pa.project_name, '') AS project_name,
                                      COALESCE(pa.status, 'Draft') AS status,
-                                     pa.step,
+                                     COALESCE(
+                                         NULLIF(pa.assessment_data->>'step', '')::INT,
+                                         NULLIF(pa.assessment_data->>'Step', '')::INT,
+                                         1
+                                     ) AS step,
                                      pa.assessment_data,
                                      pa.created_at,
                                      pa.last_modified_at

@@ -90,6 +90,7 @@ interface AssessmentJob {
   templateId: number;
   templateName: string;
   status: AssessmentJobStatus;
+  step?: number;
   lastError?: string | null;
   createdAt?: string;
   lastModifiedAt?: string;
