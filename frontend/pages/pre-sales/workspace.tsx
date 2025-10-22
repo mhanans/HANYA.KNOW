@@ -1017,53 +1017,6 @@ export default function AssessmentWorkspace() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader
-          title="Reference Assessments"
-        />
-        {similarLoading && <LinearProgress />}
-        <CardContent>
-          <Stack spacing={2}>
-            {similarError && <Alert severity="error">{similarError}</Alert>}
-            {similarAssessments.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No reference assessments found yet. Save assessments to build the AI's estimation knowledge base.
-              </Typography>
-            ) : (
-              <List disablePadding>
-                {similarAssessments.map(reference => (
-                  <ListItem
-                    key={reference.id}
-                    divider
-                    secondaryAction={(
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Chip
-                          label={`${formatHours(reference.totalHours)} hrs`}
-                          color="primary"
-                          variant="outlined"
-                          size="small"
-                        />
-                        <Chip
-                          label={reference.status}
-                          color={reference.status === 'Completed' ? 'success' : 'default'}
-                          variant="outlined"
-                          size="small"
-                        />
-                      </Stack>
-                    )}
-                  >
-                    <ListItemText
-                      primary={reference.projectName || 'Untitled Assessment'}
-                      secondary={`${reference.templateName} • Updated ${formatTimestamp(reference.lastModifiedAt)}`}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Stack>
-        </CardContent>
-      </Card>
-
       {assessment && (
         <Card>
           <CardHeader
