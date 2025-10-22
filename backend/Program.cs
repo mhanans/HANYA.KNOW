@@ -92,6 +92,7 @@ builder.Services.AddSingleton<TicketAssignmentService>();
 builder.Services.AddSingleton<InvoiceVerificationService>();
 builder.Services.AddSingleton<ProjectTemplateStore>();
 builder.Services.AddSingleton<ProjectAssessmentStore>();
+builder.Services.AddSingleton<AssessmentJobStore>();
 builder.Services.AddSingleton<ProjectAssessmentAnalysisService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<KnowledgeBaseIngestionService>());
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));

@@ -37,7 +37,7 @@ public class AssessmentController : ControllerBase
     [UiAuthorize("pre-sales-assessment-workspace")]
     [RequestFormLimits(MultipartBodyLengthLimit = 50 * 1024 * 1024)]
     [RequestSizeLimit(50 * 1024 * 1024)]
-    public async Task<ActionResult<ProjectAssessment>> Analyze([FromForm] AssessmentAnalyzeRequest request)
+    public async Task<ActionResult<AssessmentJob>> Analyze([FromForm] AssessmentAnalyzeRequest request)
     {
         if (request.TemplateId <= 0)
         {
@@ -61,7 +61,7 @@ public class AssessmentController : ControllerBase
 
         try
         {
-            var assessment = await _analysisService.AnalyzeAsync(
+            var job = await _analysisService.AnalyzeAsync(
                 template,
                 request.TemplateId,
                 request.ProjectName ?? string.Empty,
@@ -69,7 +69,7 @@ public class AssessmentController : ControllerBase
                 referenceAssessments,
                 HttpContext.RequestAborted);
 
-            return Ok(assessment);
+            return Ok(job);
         }
         catch (OperationCanceledException)
         {
@@ -85,6 +85,45 @@ public class AssessmentController : ControllerBase
             _logger.LogError(ex, "Unexpected error running AI analysis for template {TemplateId}", request.TemplateId);
             return StatusCode(StatusCodes.Status500InternalServerError, "Failed to analyze the scope document due to an unexpected server error.");
         }
+    }
+
+    [HttpGet("jobs/{jobId}")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<AssessmentJob>> GetJob(int jobId)
+    {
+        var job = await _analysisService.GetJobAsync(jobId, HttpContext.RequestAborted);
+        if (job == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(job);
+    }
+
+    [HttpPost("jobs/{jobId}/resume")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<AssessmentJob>> ResumeJob(int jobId)
+    {
+        var job = await _analysisService.RepairAndResumeFailedStepAsync(jobId, HttpContext.RequestAborted);
+        if (job == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(job);
+    }
+
+    [HttpGet("jobs/{jobId}/assessment")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<ProjectAssessment>> GetAssessmentForJob(int jobId)
+    {
+        var assessment = await _analysisService.TryBuildAssessmentAsync(jobId, HttpContext.RequestAborted);
+        if (assessment == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(assessment);
     }
 
     [HttpPost("save")]
