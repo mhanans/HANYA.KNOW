@@ -102,6 +102,62 @@ public class ProjectTemplateStore
         }
     }
 
+    public async Task<ProjectTemplate> DuplicateAsync(int id, int? userId)
+    {
+        var source = await GetAsync(id);
+        if (source is null)
+        {
+            throw new KeyNotFoundException($"Template {id} not found");
+        }
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        var newName = await GenerateCopyNameAsync(source.TemplateName, conn);
+        source.Id = null;
+        source.TemplateName = newName;
+
+        const string sql = @"INSERT INTO project_templates (template_name, template_data, created_by_user_id, created_at, last_modified_at)
+                             VALUES (@name, @data, @user, NOW(), NOW()) RETURNING id";
+        var payload = JsonSerializer.Serialize(source, JsonOptions);
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("name", newName);
+        cmd.Parameters.AddWithValue("data", payload);
+        cmd.Parameters.AddWithValue("user", (object?)userId ?? DBNull.Value);
+
+        var result = await cmd.ExecuteScalarAsync();
+        var newId = Convert.ToInt32(result);
+        source.Id = newId;
+        return source;
+    }
+
+    private static async Task<string> GenerateCopyNameAsync(string originalName, NpgsqlConnection conn)
+    {
+        var baseName = string.IsNullOrWhiteSpace(originalName)
+            ? "Template (Copy)"
+            : $"{originalName} (Copy)";
+
+        var candidate = baseName;
+        var counter = 2;
+        while (await NameExistsAsync(candidate, conn))
+        {
+            candidate = $"{baseName} {counter}";
+            counter++;
+        }
+
+        return candidate;
+    }
+
+    private static async Task<bool> NameExistsAsync(string name, NpgsqlConnection conn)
+    {
+        const string sql = "SELECT 1 FROM project_templates WHERE template_name = @name LIMIT 1";
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("name", name);
+        var result = await cmd.ExecuteScalarAsync();
+        return result != null && result != DBNull.Value;
+    }
+
     public async Task DeleteAsync(int id)
     {
         const string sql = "DELETE FROM project_templates WHERE id=@id";

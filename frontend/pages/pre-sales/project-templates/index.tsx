@@ -13,10 +13,12 @@ export default function ProjectTemplates() {
   const [templates, setTemplates] = useState<ProjectTemplateMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const load = async () => {
     setLoading(true);
     setError('');
+    setNotice('');
     try {
       const res = await apiFetch('/api/templates');
       if (!res.ok) {
@@ -38,14 +40,32 @@ export default function ProjectTemplates() {
   const remove = async (id: number) => {
     if (!confirm('Delete this template? This action cannot be undone.')) return;
     setError('');
+    setNotice('');
     try {
       const res = await apiFetch(`/api/templates/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         throw new Error(await res.text());
       }
       await load();
+      setNotice('Template deleted.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete template');
+    }
+  };
+
+  const duplicate = async (id: number) => {
+    setError('');
+    setNotice('');
+    try {
+      const res = await apiFetch(`/api/templates/${id}/duplicate`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const created: { templateName: string } = await res.json();
+      await load();
+      setNotice(`Template "${created.templateName}" duplicated successfully.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to duplicate template');
     }
   };
 
@@ -83,7 +103,7 @@ export default function ProjectTemplates() {
                 <th>Template Name</th>
                 <th>Created By</th>
                 <th>Last Modified</th>
-                <th style={{ width: '160px' }}>Actions</th>
+                <th style={{ width: '240px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -96,6 +116,9 @@ export default function ProjectTemplates() {
                     <Link href={`/pre-sales/project-templates/${t.id}`} legacyBehavior>
                       <a className="btn btn-secondary">Edit</a>
                     </Link>
+                    <button className="btn btn-secondary" onClick={() => duplicate(t.id)}>
+                      Duplicate
+                    </button>
                     <button className="btn btn-danger" onClick={() => remove(t.id)}>Delete</button>
                   </td>
                 </tr>
@@ -104,6 +127,7 @@ export default function ProjectTemplates() {
           </table>
         )}
         {error && <p className="error">{error}</p>}
+        {notice && <p className="notice">{notice}</p>}
       </div>
     </div>
   );

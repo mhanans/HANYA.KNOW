@@ -749,6 +749,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                   >
                                     <MenuItem value="Project-Level">Project-Level</MenuItem>
                                     <MenuItem value="App-Level">App-Level</MenuItem>
+                                    <MenuItem value="AI-Generated">AI-Generated</MenuItem>
                                   </Select>
                                 </FormControl>
                                 <Tooltip title="Delete section">
