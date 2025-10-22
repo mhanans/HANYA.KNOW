@@ -18,6 +18,8 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
+public record SsoLoginRequest(string IdToken);
+
 var builder = WebApplication.CreateBuilder(args);
 
 const string CombinedScheme = "Combined";
@@ -228,8 +230,6 @@ app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<ApiKeyMiddleware>();
-
-public record SsoLoginRequest(string IdToken);
 
 app.MapPost("/api/auth/sso-login", async (
     SsoLoginRequest request,
