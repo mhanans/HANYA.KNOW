@@ -252,13 +252,20 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
     }));
   };
 
+  const generateItemId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `item-${generateUid()}`;
+  };
+
   const addItem = (sectionIndex: number) => {
     updateSection(sectionIndex, section => ({
       ...section,
       items: [
         ...section.items,
         {
-          itemId: `ITEM-${section.items.length + 1}`,
+          itemId: generateItemId(),
           itemName: 'New Item',
           itemDetail: '',
           uid: generateUid(),
@@ -820,7 +827,6 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                       <TableHead>
                                         <TableRow>
                                           <TableCell width={56}></TableCell>
-                                          <TableCell width={160}>Item ID</TableCell>
                                           <TableCell width="30%">Item Name</TableCell>
                                           <TableCell>Item Detail</TableCell>
                                           <TableCell align="right" width={120}>
@@ -831,7 +837,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                       <TableBody>
                                         {section.items.length === 0 ? (
                                           <TableRow>
-                                            <TableCell colSpan={5}>
+                                            <TableCell colSpan={4}>
                                               <Typography variant="body2" color="text.secondary">
                                                 No items yet. Add items to this section to build your estimation grid.
                                               </Typography>
@@ -858,20 +864,6 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                                   >
                                                     <DragIndicatorIcon fontSize="small" />
                                                   </IconButton>
-                                                </TableCell>
-                                                <TableCell width={160}>
-                                                  <TextField
-                                                    variant="outlined"
-                                                    size="small"
-                                                    value={item.itemId}
-                                                    onChange={e =>
-                                                      updateItem(sectionIndex, itemIndex, current => ({
-                                                        ...current,
-                                                        itemId: e.target.value,
-                                                      }))
-                                                    }
-                                                    placeholder="Item ID"
-                                                  />
                                                 </TableCell>
                                                 <TableCell width="30%">
                                                   <TextField

@@ -844,7 +844,7 @@ public class ProjectAssessmentAnalysisService
                     ItemId = templateItem.ItemId,
                     ItemName = templateItem.ItemName,
                     ItemDetail = templateItem.ItemDetail,
-                    IsNeeded = analyzedItem?.IsNeeded ?? false,
+                    IsNeeded = true,
                     Estimates = estimates
                 };
 
@@ -914,7 +914,7 @@ public class ProjectAssessmentAnalysisService
                         ItemId = item.ItemId ?? string.Empty,
                         ItemName = item.ItemName ?? string.Empty,
                         ItemDetail = item.ItemDetail ?? string.Empty,
-                        IsNeeded = item.IsNeeded,
+                        IsNeeded = true,
                         Estimates = estimates
                     });
                 }
@@ -935,7 +935,7 @@ public class ProjectAssessmentAnalysisService
         {
             foreach (var item in section.Items ?? new List<AssessmentItem>())
             {
-                if (!item.IsNeeded || item.Estimates == null)
+                if (item.Estimates == null)
                 {
                     continue;
                 }

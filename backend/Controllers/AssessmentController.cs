@@ -57,7 +57,7 @@ public class AssessmentController : ControllerBase
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
-        var referenceAssessments = await _assessments.GetRecentByTemplateAsync(request.TemplateId, userIdValue, limit: 3);
+        var referenceAssessments = await _assessments.GetRecentAsync(userIdValue, limit: 3);
 
         try
         {
@@ -172,22 +172,17 @@ public class AssessmentController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
         var assessments = await _assessments.GetRecentByTemplateAsync(templateId, userIdValue, limit: 5);
+        return Ok(BuildReferenceSummaries(assessments));
+    }
 
-        var references = assessments
-            .Where(a => a.Id.HasValue)
-            .Select(a => new SimilarAssessmentReference
-            {
-                Id = a.Id!.Value,
-                TemplateId = a.TemplateId,
-                TemplateName = a.TemplateName,
-                ProjectName = a.ProjectName,
-                Status = a.Status,
-                TotalHours = CalculateTotalHours(a),
-                LastModifiedAt = a.LastModifiedAt
-            })
-            .ToList();
-
-        return Ok(references);
+    [HttpGet("references")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<IEnumerable<SimilarAssessmentReference>>> References()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var assessments = await _assessments.GetRecentAsync(userIdValue, limit: 5);
+        return Ok(BuildReferenceSummaries(assessments));
     }
 
     [HttpGet("{id}")]
@@ -246,25 +241,58 @@ public class AssessmentController : ControllerBase
                 .Distinct()
                 .ToList();
 
+        IDictionary<string, object?> CreateRow()
+        {
+            var row = new Dictionary<string, object?>
+            {
+                ["Section"] = string.Empty,
+                ["Item"] = string.Empty,
+                ["Detail"] = string.Empty
+            };
+
+            foreach (var column in columns)
+            {
+                row[column] = string.Empty;
+            }
+
+            row["Total Manhours"] = string.Empty;
+            return row;
+        }
+
         var rows = new List<IDictionary<string, object?>>();
         var grandTotals = columns.ToDictionary(col => col, _ => 0.0);
         double grandTotalHours = 0;
 
+        var metadataRow = CreateRow();
+        metadataRow["Section"] = "Assessment Project Name";
+        metadataRow["Item"] = assessment.ProjectName;
+        rows.Add(metadataRow);
+
+        var assessedOn = assessment.LastModifiedAt ?? assessment.CreatedAt;
+        if (assessedOn.HasValue)
+        {
+            var dateRow = CreateRow();
+            dateRow["Section"] = "Date Assessed";
+            dateRow["Item"] = assessedOn.Value.ToString("yyyy-MM-dd");
+            rows.Add(dateRow);
+        }
+
+        rows.Add(CreateRow());
+
         foreach (var section in assessment.Sections)
         {
+            var sectionHeader = CreateRow();
+            sectionHeader["Section"] = section.SectionName;
+            rows.Add(sectionHeader);
+
             var sectionTotals = columns.ToDictionary(col => col, _ => 0.0);
             double sectionTotalHours = 0;
 
             foreach (var item in section.Items)
             {
-                var row = new Dictionary<string, object?>
-                {
-                    ["Section"] = section.SectionName,
-                    ["Item ID"] = item.ItemId,
-                    ["Item Name"] = item.ItemName,
-                    ["Item Detail"] = item.ItemDetail,
-                    ["Needed?"] = item.IsNeeded ? "Yes" : "No"
-                };
+                var row = CreateRow();
+                row["Item"] = item.ItemName;
+                row["Detail"] = item.ItemDetail;
 
                 double itemTotal = 0;
                 foreach (var column in columns)
@@ -272,49 +300,32 @@ public class AssessmentController : ControllerBase
                     item.Estimates.TryGetValue(column, out var value);
                     var hours = value ?? 0;
                     row[column] = value;
-                    if (item.IsNeeded)
-                    {
-                        sectionTotals[column] += hours;
-                        grandTotals[column] += hours;
-                        itemTotal += hours;
-                    }
+                    sectionTotals[column] += hours;
+                    grandTotals[column] += hours;
+                    itemTotal += hours;
                 }
 
-                row["Total Manhours"] = item.IsNeeded ? itemTotal : 0;
-                if (item.IsNeeded)
-                {
-                    sectionTotalHours += itemTotal;
-                    grandTotalHours += itemTotal;
-                }
+                row["Total Manhours"] = itemTotal;
+                sectionTotalHours += itemTotal;
+                grandTotalHours += itemTotal;
 
                 rows.Add(row);
             }
 
-            var sectionRow = new Dictionary<string, object?>
-            {
-                ["Section"] = $"{section.SectionName} · Total",
-                ["Item ID"] = string.Empty,
-                ["Item Name"] = string.Empty,
-                ["Item Detail"] = string.Empty,
-                ["Needed?"] = string.Empty
-            };
-
+            var sectionTotalRow = CreateRow();
+            sectionTotalRow["Section"] = $"{section.SectionName} · Total";
             foreach (var column in columns)
             {
-                sectionRow[column] = sectionTotals[column];
+                sectionTotalRow[column] = sectionTotals[column];
             }
-            sectionRow["Total Manhours"] = sectionTotalHours;
-            rows.Add(sectionRow);
+            sectionTotalRow["Total Manhours"] = sectionTotalHours;
+            rows.Add(sectionTotalRow);
+
+            rows.Add(CreateRow());
         }
 
-        var grandRow = new Dictionary<string, object?>
-        {
-            ["Section"] = "Grand Total",
-            ["Item ID"] = string.Empty,
-            ["Item Name"] = string.Empty,
-            ["Item Detail"] = string.Empty,
-            ["Needed?"] = string.Empty
-        };
+        var grandRow = CreateRow();
+        grandRow["Section"] = "Grand Total";
         foreach (var column in columns)
         {
             grandRow[column] = grandTotals[column];
@@ -327,6 +338,23 @@ public class AssessmentController : ControllerBase
         return stream.ToArray();
     }
 
+    private static List<SimilarAssessmentReference> BuildReferenceSummaries(IEnumerable<ProjectAssessment> assessments)
+    {
+        return assessments
+            .Where(a => a.Id.HasValue)
+            .Select(a => new SimilarAssessmentReference
+            {
+                Id = a.Id!.Value,
+                TemplateId = a.TemplateId,
+                TemplateName = a.TemplateName,
+                ProjectName = a.ProjectName,
+                Status = a.Status,
+                TotalHours = CalculateTotalHours(a),
+                LastModifiedAt = a.LastModifiedAt
+            })
+            .ToList();
+    }
+
     private static double CalculateTotalHours(ProjectAssessment assessment)
     {
         double total = 0;
@@ -334,7 +362,7 @@ public class AssessmentController : ControllerBase
         {
             foreach (var item in section.Items ?? new List<AssessmentItem>())
             {
-                if (!item.IsNeeded || item.Estimates == null)
+                if (item.Estimates == null)
                 {
                     continue;
                 }
