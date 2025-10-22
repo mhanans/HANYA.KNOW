@@ -589,8 +589,10 @@ public class ProjectAssessmentAnalysisService
             Sections = sections
         };
 
-        var instructions = "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
-        var outputRules = "Return ONLY a valid JSON array using the schema [{\\"itemName\\":\\"...\\",\\"itemDetail\\":\\"...\\"}]. Each itemName must be a concise feature title and itemDetail should be a short sentence describing the expected work. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.";
+        var instructions =
+            "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
+        var outputRules =
+            """Return ONLY a valid JSON array using the schema [{"itemName":"...","itemDetail":"..."}]. Each itemName must be a concise feature title and itemDetail should be a short sentence describing the expected work. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.""";
 
         return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(context, _serializationOptions)}\\n\\n{outputRules}";
     }
@@ -614,9 +616,12 @@ public class ProjectAssessmentAnalysisService
             SimilarAssessments = BuildPromptReferences(references, template.EstimationColumns ?? new List<string>())
         };
 
-        var instructions = "You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.";
-        var outputRules = "Respond ONLY with a JSON object using the schema {\\"items\\":[{\\"itemId\\":string,\\"isNeeded\\":bool,\\"estimates\\":{\\"<column>\\":number|null}}]}.";
-        var estimationGuidance = "Set isNeeded to true when the scope clearly requires the capability. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items.";
+        var instructions =
+            "You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.";
+        var outputRules =
+            """Respond ONLY with a JSON object using the schema {"items":[{"itemId":string,"isNeeded":bool,"estimates":{"<column>":number|null}}]}.""";
+        var estimationGuidance =
+            "Set isNeeded to true when the scope clearly requires the capability. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items.";
 
         return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(payload, _serializationOptions)}\\n\\n{outputRules}\\n{estimationGuidance}";
     }

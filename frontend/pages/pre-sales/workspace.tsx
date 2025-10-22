@@ -90,6 +90,18 @@ const formatTimestamp = (value?: string) => {
   return date.toLocaleString();
 };
 
+const normalizeAssessment = (assessment: ProjectAssessment): ProjectAssessment => ({
+  ...assessment,
+  sections: (assessment.sections ?? []).map(section => ({
+    ...section,
+    items: (section.items ?? []).map(item => ({
+      ...item,
+      isNeeded: item.isNeeded ?? true,
+      estimates: item.estimates ?? {},
+    })),
+  })),
+});
+
 interface AssessmentTreeGridProps {
   sections: AssessmentSection[];
   estimationColumns: string[];
@@ -360,7 +372,7 @@ export default function AssessmentWorkspace() {
   };
 
   const updateAssessment = (updater: (current: ProjectAssessment) => ProjectAssessment) => {
-    setAssessment(prev => (prev ? updater(prev) : prev));
+    setAssessment(prev => (prev ? normalizeAssessment(updater(prev)) : prev));
   };
 
   const updateItem = (sectionIndex: number, itemIndex: number, updater: (item: AssessmentItem) => AssessmentItem) => {
@@ -411,7 +423,7 @@ export default function AssessmentWorkspace() {
         projectName: projectTitle.trim(),
         status: 'Draft',
       };
-      setAssessment(enriched);
+      setAssessment(normalizeAssessment(enriched));
       setAnalysisLog(['Uploading scope document…', 'Running AI estimation…', 'Analysis complete.']);
       setProgress(100);
       showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
@@ -436,7 +448,7 @@ export default function AssessmentWorkspace() {
       });
       if (!res.ok) throw new Error(await res.text());
       const saved: ProjectAssessment = await res.json();
-      setAssessment(saved);
+      setAssessment(normalizeAssessment(saved));
       setProjectTitle(saved.projectName);
       showSuccess('Assessment saved', 'Assessment saved successfully.');
       setHistoryRefresh(token => token + 1);
@@ -475,7 +487,7 @@ export default function AssessmentWorkspace() {
       const res = await apiFetch(`/api/assessment/${id}`);
       if (!res.ok) throw new Error(await res.text());
       const data: ProjectAssessment = await res.json();
-      setAssessment(data);
+      setAssessment(normalizeAssessment(data));
       setSelectedTemplate(data.templateId);
       setProjectTitle(data.projectName);
     } catch (err) {
@@ -623,7 +635,7 @@ export default function AssessmentWorkspace() {
                   label="Project Name"
                   value={assessment.projectName}
                   onChange={event =>
-                    setAssessment(prev => (prev ? { ...prev, projectName: event.target.value } : prev))
+                    setAssessment(prev => (prev ? normalizeAssessment({ ...prev, projectName: event.target.value }) : prev))
                   }
                 />
                 <FormControl sx={{ minWidth: 200 }}>
@@ -633,7 +645,11 @@ export default function AssessmentWorkspace() {
                     label="Status"
                     value={assessment.status}
                     onChange={event =>
-                      setAssessment(prev => (prev ? { ...prev, status: event.target.value as AssessmentStatus } : prev))
+                      setAssessment(prev =>
+                        prev
+                          ? normalizeAssessment({ ...prev, status: event.target.value as AssessmentStatus })
+                          : prev
+                      )
                     }
                   >
                     {statusOptions.map(status => (
