@@ -1,4 +1,19 @@
 import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { apiFetch } from '../lib/api';
 
 interface Category {
@@ -70,45 +85,87 @@ export default function Upload() {
   };
 
   return (
-    <div className="page-container">
-      <h1>Upload Document</h1>
-      <div className="card">
-        <p className="hint">Upload new PDF documents.</p>
-        <div className="form-grid">
-          <label>Files</label>
-          <input className="form-input" type="file" multiple accept="application/pdf" onChange={e => {
-            const f = Array.from(e.target.files ?? []);
-            setFiles(f);
-            if (f.length > 0) setTitle(f[0].name.replace(/\.pdf$/i, ''));
-          }} />
-          <label>Title</label>
-          <input
-            className="form-input"
-            placeholder="Document title (optional)"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-          />
-          <label>Text</label>
-          <textarea
-            className="form-textarea"
-            placeholder="Text content (optional)"
-            value={text}
-            onChange={e => setText(e.target.value)}
-          />
-          <label>Category</label>
-          <select className="form-select" value={category} onChange={e => setCategory(e.target.value)}>
-            <option value="">No category</option>
-            {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="actions">
-          <button className="btn btn-primary" onClick={upload} disabled={loading}>{loading ? 'Uploading...' : 'Upload'}</button>
-        </div>
-        {status && <p className={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>{status}</p>}
-      </div>
-    </div>
+    <Box sx={{ maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <Typography variant="h1">Upload Document</Typography>
+      <Card>
+        <CardContent>
+          <Stack spacing={3}>
+            <Typography color="text.secondary">Upload new PDF documents.</Typography>
+            <Stack spacing={2}>
+              <Button
+                component="label"
+                variant="outlined"
+                color="primary"
+                startIcon={<CloudUploadIcon />}
+              >
+                Choose PDF files
+                <input
+                  hidden
+                  type="file"
+                  multiple
+                  accept="application/pdf"
+                  onChange={e => {
+                    const f = Array.from(e.target.files ?? []);
+                    setFiles(f);
+                    if (f.length > 0) setTitle(f[0].name.replace(/\.pdf$/i, ''));
+                  }}
+                />
+              </Button>
+              {files.length > 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  Selected: {files.map(f => f.name).join(', ')}
+                </Typography>
+              )}
+              <TextField
+                label="Title"
+                placeholder="Document title (optional)"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Text"
+                placeholder="Text content (optional)"
+                value={text}
+                onChange={e => setText(e.target.value)}
+                fullWidth
+                multiline
+                minRows={4}
+              />
+              <FormControl fullWidth>
+                <InputLabel id="upload-category">Category</InputLabel>
+                <Select
+                  labelId="upload-category"
+                  label="Category"
+                  value={category}
+                  onChange={e => setCategory(e.target.value)}
+                >
+                  <MenuItem value="">No category</MenuItem>
+                  {categories.map(c => (
+                    <MenuItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={upload}
+              disabled={loading}
+            >
+              {loading ? 'Uploading...' : 'Upload'}
+            </Button>
+            {status && (
+              <Alert severity={status.startsWith('Upload failed') || status.startsWith('Error') ? 'error' : 'success'}>
+                {status}
+              </Alert>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+    </Box>
   );
 }
 

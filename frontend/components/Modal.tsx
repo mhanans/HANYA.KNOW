@@ -1,4 +1,13 @@
 import { ReactNode } from 'react';
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+} from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 interface ModalProps {
   isOpen: boolean;
@@ -9,27 +18,22 @@ interface ModalProps {
 }
 
 export default function Modal({ isOpen, onClose, title, children, footer }: ModalProps) {
-  if (!isOpen) return null;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{title}</h2>
-          <button className="close-button" onClick={onClose} aria-label="Close">
-            &times;
-          </button>
-        </div>
-        <div className="modal-body">{children}</div>
-        <div className="modal-footer">
-          {footer !== undefined ? (
-            footer
-          ) : (
-            <button className="btn btn-secondary" onClick={onClose}>
-              Close
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    <Dialog open={isOpen} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {title}
+        <IconButton onClick={onClose} edge="end" size="small">
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>{children}</DialogContent>
+      <DialogActions>
+        {footer ?? (
+          <Button onClick={onClose} color="primary">
+            Close
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
   );
 }

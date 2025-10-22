@@ -72,6 +72,22 @@ public class ProjectTemplatesController : ControllerBase
         }
     }
 
+    [HttpPost("{id}/duplicate")]
+    [UiAuthorize("pre-sales-project-templates")]
+    public async Task<ActionResult<ProjectTemplate>> Duplicate(int id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        try
+        {
+            var duplicated = await _templates.DuplicateAsync(id, int.TryParse(userId, out var uid) ? uid : null);
+            return CreatedAtAction(nameof(Get), new { id = duplicated.Id }, duplicated);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     [HttpDelete("{id}")]
     [UiAuthorize("pre-sales-project-templates")]
     public async Task<IActionResult> Delete(int id)

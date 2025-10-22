@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import {
   Alert,
@@ -10,11 +10,16 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Chip,
   Checkbox,
   Divider,
   FormControl,
   InputLabel,
   LinearProgress,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
   MenuItem,
   Paper,
   Select,
@@ -34,6 +39,7 @@ import GetAppIcon from '@mui/icons-material/GetApp';
 import { LoadingButton } from '@mui/lab';
 import AssessmentHistory, { AssessmentStatus } from '../../components/pre-sales/AssessmentHistory';
 import { apiFetch } from '../../lib/api';
+import Swal from 'sweetalert2';
 
 interface ProjectTemplateMetadata {
   id: number;
@@ -64,9 +70,25 @@ interface ProjectAssessment {
   lastModifiedAt?: string;
 }
 
+interface SimilarAssessmentReference {
+  id: number;
+  projectName: string;
+  templateName: string;
+  status: AssessmentStatus;
+  totalHours: number;
+  lastModifiedAt?: string;
+}
+
 const statusOptions: AssessmentStatus[] = ['Draft', 'Completed'];
 
 const formatHours = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+const formatTimestamp = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
 
 interface AssessmentTreeGridProps {
   sections: AssessmentSection[];
@@ -209,10 +231,60 @@ export default function AssessmentWorkspace() {
   const [loadingAssessment, setLoadingAssessment] = useState(false);
   const [assessment, setAssessment] = useState<ProjectAssessment | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [similarAssessments, setSimilarAssessments] = useState<SimilarAssessmentReference[]>([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarError, setSimilarError] = useState('');
+  const similarRequestId = useRef(0);
+
+  const showError = (message: string, title = 'Something went wrong') => {
+    if (!message) return;
+    void Swal.fire({ icon: 'error', title, text: message });
+  };
+
+  const showSuccess = (title: string, text: string) => {
+    void Swal.fire({
+      icon: 'success',
+      title,
+      text,
+      timer: 2600,
+      showConfirmButton: false,
+    });
+  };
+
+  const refreshSimilarAssessments = useCallback(async (templateId: number) => {
+    if (!templateId) {
+      similarRequestId.current += 1;
+      setSimilarAssessments([]);
+      setSimilarError('');
+      setSimilarLoading(false);
+      return;
+    }
+
+    const requestToken = ++similarRequestId.current;
+    setSimilarLoading(true);
+    setSimilarError('');
+
+    try {
+      const res = await apiFetch(`/api/assessment/template/${templateId}/similar`);
+      if (!res.ok) throw new Error(await res.text());
+      const data: SimilarAssessmentReference[] = await res.json();
+      if (similarRequestId.current === requestToken) {
+        setSimilarAssessments(data);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load reference assessments.';
+      if (similarRequestId.current === requestToken) {
+        setSimilarAssessments([]);
+        setSimilarError(message);
+      }
+    } finally {
+      if (similarRequestId.current === requestToken) {
+        setSimilarLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -222,11 +294,20 @@ export default function AssessmentWorkspace() {
         const data: ProjectTemplateMetadata[] = await res.json();
         setTemplates(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load templates.');
+        const message = err instanceof Error ? err.message : 'Failed to load templates.';
+        showError(message, 'Unable to load templates');
       }
     };
     loadTemplates();
   }, []);
+
+  useEffect(() => {
+    if (typeof selectedTemplate === 'number') {
+      void refreshSimilarAssessments(selectedTemplate);
+    } else {
+      void refreshSimilarAssessments(0);
+    }
+  }, [refreshSimilarAssessments, selectedTemplate]);
 
   useEffect(() => {
     const idParam = router.query.assessmentId;
@@ -311,11 +392,9 @@ export default function AssessmentWorkspace() {
 
   const startAnalysis = async () => {
     if (!selectedTemplate || !file) {
-      setError('Select a template and upload a scope document first.');
+      showError('Select a template and upload a scope document first.', 'Missing information');
       return;
     }
-    setError('');
-    setNotice('');
     setIsAnalyzing(true);
     setAnalysisLog(['Uploading scope document…']);
     setProgress(10);
@@ -335,10 +414,11 @@ export default function AssessmentWorkspace() {
       setAssessment(enriched);
       setAnalysisLog(['Uploading scope document…', 'Running AI estimation…', 'Analysis complete.']);
       setProgress(100);
-      setNotice('AI analysis is complete. Review the results and adjust the estimates before saving.');
+      showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
     } catch (err) {
       setAnalysisLog(prev => [...prev, 'Analysis failed.']);
-      setError(err instanceof Error ? err.message : 'Failed to analyze the scope document.');
+      const message = err instanceof Error ? err.message : 'Failed to analyze the scope document.';
+      showError(message, 'Analysis failed');
       setProgress(0);
     } finally {
       setIsAnalyzing(false);
@@ -348,8 +428,6 @@ export default function AssessmentWorkspace() {
   const saveAssessment = async () => {
     if (!assessment) return;
     setSaving(true);
-    setError('');
-    setNotice('');
     try {
       const res = await apiFetch('/api/assessment/save', {
         method: 'POST',
@@ -360,10 +438,12 @@ export default function AssessmentWorkspace() {
       const saved: ProjectAssessment = await res.json();
       setAssessment(saved);
       setProjectTitle(saved.projectName);
-      setNotice('Assessment saved successfully.');
+      showSuccess('Assessment saved', 'Assessment saved successfully.');
       setHistoryRefresh(token => token + 1);
+      void refreshSimilarAssessments(saved.templateId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save the assessment.');
+      const message = err instanceof Error ? err.message : 'Failed to save the assessment.';
+      showError(message, 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -384,14 +464,13 @@ export default function AssessmentWorkspace() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to export the assessment.');
+      const message = err instanceof Error ? err.message : 'Failed to export the assessment.';
+      showError(message, 'Export failed');
     }
   };
 
   const loadAssessment = async (id: number) => {
     setLoadingAssessment(true);
-    setError('');
-    setNotice('');
     try {
       const res = await apiFetch(`/api/assessment/${id}`);
       if (!res.ok) throw new Error(await res.text());
@@ -400,7 +479,8 @@ export default function AssessmentWorkspace() {
       setSelectedTemplate(data.templateId);
       setProjectTitle(data.projectName);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load the assessment.');
+      const message = err instanceof Error ? err.message : 'Failed to load the assessment.';
+      showError(message, 'Unable to load assessment');
     } finally {
       setLoadingAssessment(false);
     }
@@ -476,11 +556,57 @@ export default function AssessmentWorkspace() {
               </Stack>
             )}
           </Stack>
-        </CardContent>
-      </Card>
+      </CardContent>
+    </Card>
 
-      {error && <Alert severity="error">{error}</Alert>}
-      {notice && <Alert severity="success">{notice}</Alert>}
+    <Card>
+      <CardHeader
+        title="Reference Assessments"
+        subheader="Reuse insights from past estimates that share this template."
+      />
+      {similarLoading && <LinearProgress />}
+      <CardContent>
+        <Stack spacing={2}>
+          {similarError && <Alert severity="error">{similarError}</Alert>}
+          {typeof selectedTemplate !== 'number' ? (
+            <Typography variant="body2" color="text.secondary">
+              Select a project template to see previously saved assessments that can guide the AI.
+            </Typography>
+          ) : similarAssessments.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No reference assessments found for this template yet. Save an assessment to build a knowledge base.
+            </Typography>
+          ) : (
+            <List disablePadding>
+              {similarAssessments.map(reference => (
+                <ListItem key={reference.id} disablePadding divider>
+                  <ListItemButton onClick={() => loadAssessment(reference.id)}>
+                    <ListItemText
+                      primary={reference.projectName || 'Untitled Assessment'}
+                      secondary={`${reference.templateName} • Updated ${formatTimestamp(reference.lastModifiedAt)}`}
+                    />
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Chip
+                        label={`${formatHours(reference.totalHours)} hrs`}
+                        color="primary"
+                        variant="outlined"
+                        size="small"
+                      />
+                      <Chip
+                        label={reference.status}
+                        color={reference.status === 'Completed' ? 'success' : 'default'}
+                        variant="outlined"
+                        size="small"
+                      />
+                    </Stack>
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
 
       {assessment && (
         <Card>

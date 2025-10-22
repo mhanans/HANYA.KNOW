@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import Swal from 'sweetalert2';
 import { apiFetch } from '../../../lib/api';
 
 interface ProjectTemplateMetadata {
@@ -25,7 +26,13 @@ export default function ProjectTemplates() {
       const data: ProjectTemplateMetadata[] = await res.json();
       setTemplates(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load templates');
+      const message = err instanceof Error ? err.message : 'Failed to load templates';
+      setError(message);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Unable to load templates',
+        text: message,
+      });
     } finally {
       setLoading(false);
     }
@@ -36,7 +43,18 @@ export default function ProjectTemplates() {
   }, []);
 
   const remove = async (id: number) => {
-    if (!confirm('Delete this template? This action cannot be undone.')) return;
+    const confirmation = await Swal.fire({
+      title: 'Delete this template?',
+      text: 'This action cannot be undone.',
+      icon: 'warning',
+      confirmButtonText: 'Delete',
+      confirmButtonColor: '#ef4444',
+      cancelButtonText: 'Cancel',
+      showCancelButton: true,
+      reverseButtons: true,
+    });
+    if (!confirmation.isConfirmed) return;
+
     setError('');
     try {
       const res = await apiFetch(`/api/templates/${id}`, { method: 'DELETE' });
@@ -44,8 +62,44 @@ export default function ProjectTemplates() {
         throw new Error(await res.text());
       }
       await load();
+      await Swal.fire({
+        icon: 'success',
+        title: 'Template deleted',
+        text: 'The project template was removed successfully.',
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete template');
+      const message = err instanceof Error ? err.message : 'Failed to delete template';
+      setError(message);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Delete failed',
+        text: message,
+      });
+    }
+  };
+
+  const duplicate = async (id: number) => {
+    setError('');
+    try {
+      const res = await apiFetch(`/api/templates/${id}/duplicate`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const created: { templateName: string } = await res.json();
+      await load();
+      await Swal.fire({
+        icon: 'success',
+        title: 'Template duplicated',
+        text: `Template "${created.templateName}" duplicated successfully.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to duplicate template';
+      setError(message);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Duplicate failed',
+        text: message,
+      });
     }
   };
 
@@ -83,7 +137,7 @@ export default function ProjectTemplates() {
                 <th>Template Name</th>
                 <th>Created By</th>
                 <th>Last Modified</th>
-                <th style={{ width: '160px' }}>Actions</th>
+                <th style={{ width: '240px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -96,6 +150,9 @@ export default function ProjectTemplates() {
                     <Link href={`/pre-sales/project-templates/${t.id}`} legacyBehavior>
                       <a className="btn btn-secondary">Edit</a>
                     </Link>
+                    <button className="btn btn-secondary" onClick={() => duplicate(t.id)}>
+                      Duplicate
+                    </button>
                     <button className="btn btn-danger" onClick={() => remove(t.id)}>Delete</button>
                   </td>
                 </tr>
