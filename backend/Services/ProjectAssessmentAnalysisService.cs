@@ -800,8 +800,14 @@ public class ProjectAssessmentAnalysisService
         var payload = JsonSerializer.Serialize(body, _serializationOptions);
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
+        // DEBUG: Presales AI request logging - remove when debugging is complete.
+        _logger.LogInformation("[Presales AI] Request to {Path}: {Payload}", path, payload);
+
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        // DEBUG: Presales AI response logging - remove when debugging is complete.
+        _logger.LogInformation("[Presales AI] Response from {Path}: {Content}", path, content);
 
         if (!response.IsSuccessStatusCode)
         {
