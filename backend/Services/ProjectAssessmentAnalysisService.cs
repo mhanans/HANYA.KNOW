@@ -224,6 +224,11 @@ public class ProjectAssessmentAnalysisService
 
         return await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);
     }
+
+    public Task<bool> DeleteJobAsync(int jobId, CancellationToken cancellationToken)
+    {
+        return _jobStore.DeleteAsync(jobId, cancellationToken);
+    }
     private async Task ExecuteItemGenerationStepAsync(int jobId, CancellationToken cancellationToken)
     {
         var job = await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);

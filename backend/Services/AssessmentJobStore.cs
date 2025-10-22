@@ -208,6 +208,19 @@ public class AssessmentJobStore
         return results;
     }
 
+    public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken)
+    {
+        const string sql = "DELETE FROM assessment_jobs WHERE id=@id";
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", id);
+
+        var rows = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return rows > 0;
+    }
+
     private static AssessmentJob Map(NpgsqlDataReader reader)
     {
         var status = ParseStatus(reader.IsDBNull(3) ? null : reader.GetString(3));

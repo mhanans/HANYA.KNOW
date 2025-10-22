@@ -57,7 +57,17 @@ public class AssessmentController : ControllerBase
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
-        var referenceAssessments = await _assessments.GetRecentAsync(userIdValue, limit: 3);
+        IReadOnlyList<ProjectAssessment>? referenceAssessments = null;
+
+        if (request.ReferenceAssessmentIds.Count > 0)
+        {
+            referenceAssessments = await _assessments.GetByIdsAsync(request.ReferenceAssessmentIds, userIdValue);
+        }
+
+        if (referenceAssessments == null || referenceAssessments.Count == 0)
+        {
+            referenceAssessments = await _assessments.GetRecentAsync(userIdValue, limit: 3);
+        }
 
         try
         {
@@ -85,6 +95,19 @@ public class AssessmentController : ControllerBase
             _logger.LogError(ex, "Unexpected error running AI analysis for template {TemplateId}", request.TemplateId);
             return StatusCode(StatusCodes.Status500InternalServerError, "Failed to analyze the scope document due to an unexpected server error.");
         }
+    }
+
+    [HttpDelete("jobs/{jobId}")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<IActionResult> DeleteJob(int jobId)
+    {
+        var deleted = await _analysisService.DeleteJobAsync(jobId, HttpContext.RequestAborted);
+        if (!deleted)
+        {
+            return NotFound();
+        }
+
+        return NoContent();
     }
 
     [HttpGet("jobs")]
@@ -386,4 +409,5 @@ public class AssessmentAnalyzeRequest
     public int TemplateId { get; set; }
     public IFormFile? File { get; set; }
     public string? ProjectName { get; set; }
+    public List<int> ReferenceAssessmentIds { get; set; } = new();
 }

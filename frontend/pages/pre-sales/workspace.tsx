@@ -30,14 +30,18 @@ import {
   TableRow,
   TextField,
   Typography,
+  Checkbox,
+  ListItemIcon,
+  FormHelperText,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import GetAppIcon from '@mui/icons-material/GetApp';
 import { LoadingButton } from '@mui/lab';
-import AssessmentHistory, { AssessmentJobStatus } from '../../components/pre-sales/AssessmentHistory';
+import type { AssessmentJobStatus } from '../../components/pre-sales/AssessmentHistory';
 import { apiFetch } from '../../lib/api';
 import Swal from 'sweetalert2';
+import { SelectChangeEvent } from '@mui/material/Select';
 
 interface ProjectTemplateMetadata {
   id: number;
@@ -247,10 +251,10 @@ export default function AssessmentWorkspace() {
   const [activeJob, setActiveJob] = useState<AssessmentJob | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
-  const [historyRefresh, setHistoryRefresh] = useState(0);
   const [similarAssessments, setSimilarAssessments] = useState<SimilarAssessmentReference[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState('');
+  const [selectedReferenceIds, setSelectedReferenceIds] = useState<number[]>([]);
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
@@ -352,14 +356,10 @@ export default function AssessmentWorkspace() {
         showError(message, 'Analysis failed');
       }
 
-      if (statusChanged) {
-        setHistoryRefresh(token => token + 1);
-      }
-
       lastJobStatusRef.current = job.status;
       return { previousStatus, statusChanged };
     },
-    [setHistoryRefresh, showError, showSuccess]
+    [showError, showSuccess]
   );
 
   const refreshSimilarAssessments = useCallback(async () => {
@@ -489,6 +489,10 @@ export default function AssessmentWorkspace() {
   }, [refreshSimilarAssessments]);
 
   useEffect(() => {
+    setSelectedReferenceIds(prev => prev.filter(id => similarAssessments.some(reference => reference.id === id)));
+  }, [similarAssessments]);
+
+  useEffect(() => {
     const jobParam = router.query.jobId;
     if (jobParam) {
       const jobId = Array.isArray(jobParam) ? Number(jobParam[0]) : Number(jobParam);
@@ -541,6 +545,12 @@ export default function AssessmentWorkspace() {
     setFile(nextFile);
   };
 
+  const handleReferenceChange = (event: SelectChangeEvent<string[]>) => {
+    const value = event.target.value;
+    const ids = (typeof value === 'string' ? value.split(',') : value).map(item => Number(item));
+    setSelectedReferenceIds(ids.filter(id => Number.isFinite(id)));
+  };
+
   const toggleSection = (sectionName: string) => {
     setExpandedSections(prev => ({
       ...prev,
@@ -588,6 +598,9 @@ export default function AssessmentWorkspace() {
       formData.append('templateId', String(selectedTemplate));
       formData.append('projectName', projectTitle.trim());
       formData.append('file', file);
+      selectedReferenceIds.forEach(id => {
+        formData.append('referenceAssessmentIds', String(id));
+      });
       const res = await apiFetch('/api/assessment/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(await res.text());
       const job: AssessmentJob = await res.json();
@@ -629,7 +642,6 @@ export default function AssessmentWorkspace() {
       setAssessment(normalizeAssessment(saved));
       setProjectTitle(saved.projectName);
       showSuccess('Assessment saved', 'Assessment saved successfully.');
-      setHistoryRefresh(token => token + 1);
       void refreshSimilarAssessments();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save the assessment.';
@@ -721,6 +733,49 @@ export default function AssessmentWorkspace() {
                 onChange={event => setProjectTitle(event.target.value)}
               />
             </Stack>
+
+            <FormControl
+              fullWidth
+              disabled={similarAssessments.length === 0}
+            >
+              <InputLabel id="reference-select-label">Reference Assessments</InputLabel>
+              <Select
+                labelId="reference-select-label"
+                multiple
+                value={selectedReferenceIds.map(id => String(id))}
+                onChange={handleReferenceChange}
+                label="Reference Assessments"
+                displayEmpty
+                renderValue={selected => {
+                  const values = Array.isArray(selected) ? selected : [];
+                  if (values.length === 0) {
+                    return 'No reference selected';
+                  }
+                  const names = values
+                    .map(value => {
+                      const reference = similarAssessments.find(item => item.id === Number(value));
+                      return reference?.projectName || `Assessment ${value}`;
+                    })
+                    .filter(Boolean);
+                  return names.join(', ');
+                }}
+              >
+                {similarAssessments.map(reference => (
+                  <MenuItem key={reference.id} value={String(reference.id)}>
+                    <ListItemIcon>
+                      <Checkbox edge="start" checked={selectedReferenceIds.includes(reference.id)} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={reference.projectName || 'Untitled Assessment'}
+                      secondary={`${reference.templateName} • ${formatHours(reference.totalHours)} hrs`}
+                    />
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                Choose saved assessments to include as context for the AI estimation.
+              </FormHelperText>
+            </FormControl>
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
               <Button
@@ -888,10 +943,6 @@ export default function AssessmentWorkspace() {
         </Card>
       )}
 
-      <AssessmentHistory
-        refreshToken={historyRefresh}
-        onSelect={loadJob}
-      />
     </Box>
   );
 }
