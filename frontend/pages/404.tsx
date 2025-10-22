@@ -1,13 +1,22 @@
 import Link from 'next/link';
+import { Box, Button, Card, CardContent, Stack, Typography } from '@mui/material';
 
 export default function NotFound() {
   return (
-    <div className="page-container">
-      <div className="card" style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <h1>Page Not Found</h1>
-        <p>Sorry, we couldn't find the page you're looking for.</p>
-        <Link href="/" className="btn btn-primary">Go Home</Link>
-      </div>
-    </div>
+    <Box sx={{ maxWidth: 720, mx: 'auto' }}>
+      <Card>
+        <CardContent>
+          <Stack spacing={3} textAlign="center">
+            <Typography variant="h1">Page Not Found</Typography>
+            <Typography color="text.secondary">
+              Sorry, we couldn't find the page you're looking for.
+            </Typography>
+            <Button component={Link} href="/" variant="contained" color="primary">
+              Go Home
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+    </Box>
   );
 }
