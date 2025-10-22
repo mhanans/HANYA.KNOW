@@ -125,18 +125,6 @@ export default function Login() {
     };
   }, [ssoEnabled, setError, SSO_HOST]);
 
-  useEffect(() => {
-    if (!SSO_ENABLED) return;
-    if (typeof window === 'undefined') return;
-    const existing = document.querySelector('script[data-accelist-sso]');
-    if (existing) return;
-    const script = document.createElement('script');
-    script.src = `${SSO_HOST}/js/tam-sso.js`;
-    script.async = true;
-    script.dataset.accelistSso = 'true';
-    document.body.appendChild(script);
-  }, [SSO_ENABLED, SSO_HOST]);
-
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
