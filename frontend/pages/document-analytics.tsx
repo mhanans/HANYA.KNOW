@@ -1,5 +1,21 @@
 import { useEffect, useState } from 'react';
-import { apiFetch } from '../lib/api';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material';
+import ArticleIcon from '@mui/icons-material/Article';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SummarizeIcon from '@mui/icons-material/Summarize';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import Modal from '../components/Modal';
 
 interface Doc { source: string; hasSummary: boolean; }
@@ -78,42 +94,70 @@ export default function DocumentAnalytics() {
   };
 
   return (
-    <div className="page-container">
-      <h1>Document Analytics</h1>
-      <div className="card table-wrapper">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Document</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {docs.map(d => (
-              <tr key={d.source}>
-                <td>{d.source}</td>
-                <td style={{ display: 'flex', gap: '8px' }}>
-                  {d.hasSummary ? (
-                    <>
-                      <button className="btn btn-secondary" onClick={() => viewSummary(d.source)}>View Summary</button>
-                      <button className="btn btn-primary" onClick={() => regenerateSummary(d.source)}>Retry Summary</button>
-                    </>
-                  ) : (
-                    <button className="btn btn-primary" onClick={() => generateSummary(d.source)}>Generate Summary</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <Modal
-        isOpen={summary !== null}
-        onClose={() => setSummary(null)}
-        title="Document Summary"
-      >
-        <pre className="summary">{summary}</pre>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <Typography variant="h1">Document Analytics</Typography>
+      <Card>
+        <CardContent>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Document</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {docs.map(d => (
+                <TableRow key={d.source} hover>
+                  <TableCell>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <ArticleIcon />
+                      <Typography>{d.source}</Typography>
+                    </Stack>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      {d.hasSummary ? (
+                        <>
+                          <Button
+                            variant="outlined"
+                            color="secondary"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => viewSummary(d.source)}
+                          >
+                            View Summary
+                          </Button>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            startIcon={<RefreshIcon />}
+                            onClick={() => regenerateSummary(d.source)}
+                          >
+                            Retry Summary
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          startIcon={<SummarizeIcon />}
+                          onClick={() => generateSummary(d.source)}
+                        >
+                          Generate Summary
+                        </Button>
+                      )}
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+      <Modal isOpen={summary !== null} onClose={() => setSummary(null)} title="Document Summary">
+        <Box component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+          {summary}
+        </Box>
       </Modal>
-    </div>
+    </Box>
   );
 }

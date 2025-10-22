@@ -1,4 +1,26 @@
 import { useEffect, useState } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Select,
+  SelectChangeEvent,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import SaveIcon from '@mui/icons-material/Save';
 import { apiFetch } from '../lib/api';
 
 interface Category {
@@ -80,91 +102,108 @@ export default function Documents() {
   });
 
   return (
-    <div className="page-container">
-      <h1>All Documents</h1>
-      <div className="filters">
-        <input
-          className="form-input"
-          placeholder="Search"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-        />
-        <select
-          className="form-select"
-          value={catFilter}
-          onChange={e => setCatFilter(e.target.value)}
-        >
-          <option value="">All categories</option>
-          {categories.map(c => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="card table-wrapper">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Document</th>
-              <th>Category</th>
-              <th>Pages</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(d => (
-              <tr key={d.source}>
-                <td>{d.source}</td>
-                <td>
-                  <select
-                    className="form-select"
-                    value={d.categoryId ?? ''}
-                    onChange={e =>
-                      setDocs(prev =>
-                        prev.map(p =>
-                          p.source === d.source
-                            ? {
-                                ...p,
-                                categoryId: e.target.value
-                                  ? Number(e.target.value)
-                                  : null
-                              }
-                            : p
-                        )
-                      )
-                    }
-                  >
-                    <option value="">No category</option>
-                    {categories.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>{d.pages}</td>
-                <td style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => save(d)}
-                  >
-                    Save
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => remove(d.source)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <Typography variant="h1">All Documents</Typography>
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={6} lg={4}>
+          <TextField
+            fullWidth
+            label="Search"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+          />
+        </Grid>
+        <Grid item xs={12} md={6} lg={4}>
+          <FormControl fullWidth>
+            <InputLabel id="category-filter-label">Category</InputLabel>
+            <Select
+              labelId="category-filter-label"
+              label="Category"
+              value={catFilter}
+              onChange={e => setCatFilter(e.target.value)}
+            >
+              <MenuItem value="">All categories</MenuItem>
+              {categories.map(c => (
+                <MenuItem key={c.id} value={String(c.id)}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+      </Grid>
+      <Card>
+        <CardContent>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Document</TableCell>
+                <TableCell>Category</TableCell>
+                <TableCell>Pages</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filtered.map(d => (
+                <TableRow key={d.source} hover>
+                  <TableCell>{d.source}</TableCell>
+                  <TableCell>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id={`category-${d.source}`}>Category</InputLabel>
+                      <Select
+                        labelId={`category-${d.source}`}
+                        label="Category"
+                        value={d.categoryId !== null ? String(d.categoryId) : ''}
+                        onChange={(event: SelectChangeEvent<string>) =>
+                          setDocs(prev =>
+                            prev.map(p =>
+                              p.source === d.source
+                                ? {
+                                    ...p,
+                                    categoryId: event.target.value ? Number(event.target.value) : null,
+                                  }
+                                : p
+                            )
+                          )
+                        }
+                      >
+                        <MenuItem value="">No category</MenuItem>
+                        {categories.map(c => (
+                          <MenuItem key={c.id} value={String(c.id)}>
+                            {c.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </TableCell>
+                  <TableCell>{d.pages}</TableCell>
+                  <TableCell align="right">
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        startIcon={<SaveIcon />}
+                        onClick={() => save(d)}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={<DeleteIcon />}
+                        onClick={() => remove(d.source)}
+                      >
+                        Delete
+                      </Button>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </Box>
   );
 }
 

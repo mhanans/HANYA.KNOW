@@ -1,5 +1,15 @@
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Grid,
+  Stack,
+  Typography,
+} from '@mui/material';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { apiFetch } from '../lib/api';
 
 interface Stats {
@@ -19,24 +29,61 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="page-container">
-      <h1>Dashboard</h1>
-      <div className="stats-grid">
-        <div className="card stat-card"><span className="stat-icon">💬</span><div><h3 className="stat-title">Chats</h3><p className="stat-value">{stats?.chats ?? 0}</p></div></div>
-        <div className="card stat-card"><span className="stat-icon">📄</span><div><h3 className="stat-title">Documents</h3><p className="stat-value">{stats?.documents ?? 0}</p></div></div>
-        <div className="card stat-card"><span className="stat-icon">🗂</span><div><h3 className="stat-title">Categories</h3><p className="stat-value">{stats?.categories ?? 0}</p></div></div>
-        <div className="card stat-card"><span className="stat-icon">👤</span><div><h3 className="stat-title">Users</h3><p className="stat-value">{stats?.users ?? 0}</p></div></div>
-      </div>
-      <div className="card">
-        <h2>Quick Links</h2>
-        <div className="quick-links">
-          <Link href="/upload" className="btn btn-primary">Upload Document</Link>
-          <Link href="/chat" className="btn btn-secondary">New Chat</Link>
-          <Link href="/source-code" className="btn btn-secondary">Source Code Q&amp;A</Link>
-          <Link href="/cv" className="btn btn-secondary">Job Vacancy Analysis</Link>
-          <Link href="/data-sources" className="btn btn-secondary">Data Sources</Link>
-        </div>
-      </div>
-    </div>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <Typography variant="h1">Dashboard</Typography>
+      <Grid container spacing={3}>
+        {[
+          { icon: '💬', label: 'Chats', value: stats?.chats ?? 0 },
+          { icon: '📄', label: 'Documents', value: stats?.documents ?? 0 },
+          { icon: '🗂', label: 'Categories', value: stats?.categories ?? 0 },
+          { icon: '👤', label: 'Users', value: stats?.users ?? 0 },
+        ].map(item => (
+          <Grid item xs={12} sm={6} md={3} key={item.label}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent>
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <Typography component="span" fontSize={36}>
+                    {item.icon}
+                  </Typography>
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      {item.label}
+                    </Typography>
+                    <Typography variant="h3">{item.value}</Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+      <Card>
+        <CardContent>
+          <Stack spacing={3}>
+            <Typography variant="h2">Quick Links</Typography>
+            <Stack direction="row" spacing={2} flexWrap="wrap">
+              {[ 
+                { href: '/upload', label: 'Upload Document', color: 'primary' as const },
+                { href: '/chat', label: 'New Chat', color: 'secondary' as const },
+                { href: '/source-code', label: 'Source Code Q&A', color: 'secondary' as const },
+                { href: '/cv', label: 'Job Vacancy Analysis', color: 'secondary' as const },
+                { href: '/data-sources', label: 'Data Sources', color: 'secondary' as const },
+              ].map(link => (
+                <Button
+                  key={link.href}
+                  component={Link}
+                  href={link.href}
+                  variant="contained"
+                  color={link.color}
+                  endIcon={<ArrowForwardIcon />}
+                >
+                  {link.label}
+                </Button>
+              ))}
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
+    </Box>
   );
 }
