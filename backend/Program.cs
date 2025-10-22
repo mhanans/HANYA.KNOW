@@ -301,7 +301,9 @@ app.MapPost("/api/auth/sso-login", async (
     catch (SecurityTokenException ex)
     {
         logger.LogWarning(ex, "Invalid SSO token received");
-        return Results.Unauthorized(new { message = "Invalid token.", details = ex.Message });
+        return Results.Json(
+            new { message = "Invalid token.", details = ex.Message },
+            statusCode: StatusCodes.Status401Unauthorized);
     }
     catch (Exception ex)
     {
