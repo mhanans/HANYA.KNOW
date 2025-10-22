@@ -11,14 +11,12 @@ import {
   CardContent,
   CardHeader,
   Chip,
-  Checkbox,
   Divider,
   FormControl,
   InputLabel,
   LinearProgress,
   List,
   ListItem,
-  ListItemButton,
   ListItemText,
   MenuItem,
   Paper,
@@ -109,7 +107,7 @@ const normalizeAssessment = (assessment: ProjectAssessment): ProjectAssessment =
     ...section,
     items: (section.items ?? []).map(item => ({
       ...item,
-      isNeeded: item.isNeeded ?? true,
+      isNeeded: true,
       estimates: item.estimates ?? {},
     })),
   })),
@@ -126,7 +124,6 @@ interface AssessmentTreeGridProps {
   estimationColumns: string[];
   expandedSections: Record<string, boolean>;
   onToggleSection: (name: string) => void;
-  onToggleNeeded: (sectionIndex: number, itemIndex: number, value: boolean) => void;
   onEstimateChange: (sectionIndex: number, itemIndex: number, column: string, value: number | null) => void;
   computeItemTotal: (item: AssessmentItem) => number;
 }
@@ -136,7 +133,6 @@ function AssessmentTreeGrid({
   estimationColumns,
   expandedSections,
   onToggleSection,
-  onToggleNeeded,
   onEstimateChange,
   computeItemTotal,
 }: AssessmentTreeGridProps) {
@@ -145,10 +141,7 @@ function AssessmentTreeGrid({
       {sections.map((section, sectionIndex) => {
         const isExpanded = expandedSections[section.sectionName] !== false;
         const columnTotals = estimationColumns.reduce<Record<string, number>>((acc, column) => {
-          acc[column] = section.items.reduce((sum, item) => {
-            if (!item.isNeeded) return sum;
-            return sum + (item.estimates[column] ?? 0);
-          }, 0);
+          acc[column] = section.items.reduce((sum, item) => sum + (item.estimates[column] ?? 0), 0);
           return acc;
         }, {});
         const sectionTotal = Object.values(columnTotals).reduce((sum, value) => sum + value, 0);
@@ -188,8 +181,6 @@ function AssessmentTreeGrid({
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell padding="checkbox">Needed</TableCell>
-                      <TableCell>Item ID</TableCell>
                       <TableCell>Item Name</TableCell>
                       <TableCell>Detail</TableCell>
                       {estimationColumns.map(column => (
@@ -203,13 +194,6 @@ function AssessmentTreeGrid({
                       const itemTotal = computeItemTotal(item);
                       return (
                         <TableRow key={`${section.sectionName}-${item.itemId}-${itemIndex}`}>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              checked={item.isNeeded}
-                              onChange={event => onToggleNeeded(sectionIndex, itemIndex, event.target.checked)}
-                            />
-                          </TableCell>
-                          <TableCell>{item.itemId}</TableCell>
                           <TableCell>{item.itemName}</TableCell>
                           <TableCell>{item.itemDetail}</TableCell>
                           {estimationColumns.map(column => (
@@ -218,7 +202,6 @@ function AssessmentTreeGrid({
                                 size="small"
                                 type="number"
                                 inputProps={{ min: 0, step: 0.25 }}
-                                disabled={!item.isNeeded}
                                 value={item.estimates[column] ?? ''}
                                 onChange={(event: ChangeEvent<HTMLInputElement>) => {
                                   const raw = event.target.value;
@@ -379,21 +362,13 @@ export default function AssessmentWorkspace() {
     [setHistoryRefresh, showError, showSuccess]
   );
 
-  const refreshSimilarAssessments = useCallback(async (templateId: number) => {
-    if (!templateId) {
-      similarRequestId.current += 1;
-      setSimilarAssessments([]);
-      setSimilarError('');
-      setSimilarLoading(false);
-      return;
-    }
-
+  const refreshSimilarAssessments = useCallback(async () => {
     const requestToken = ++similarRequestId.current;
     setSimilarLoading(true);
     setSimilarError('');
 
     try {
-      const res = await apiFetch(`/api/assessment/template/${templateId}/similar`);
+      const res = await apiFetch('/api/assessment/references');
       if (!res.ok) throw new Error(await res.text());
       const data: SimilarAssessmentReference[] = await res.json();
       if (similarRequestId.current === requestToken) {
@@ -425,7 +400,7 @@ export default function AssessmentWorkspace() {
         setAssessment(normalizeAssessment(data));
         setSelectedTemplate(data.templateId);
         setProjectTitle(data.projectName);
-        void refreshSimilarAssessments(data.templateId);
+        void refreshSimilarAssessments();
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load assessment results.';
         showError(message, 'Unable to load assessment');
@@ -475,7 +450,7 @@ export default function AssessmentWorkspace() {
         applyJobStatus(job);
         setSelectedTemplate(job.templateId);
         setProjectTitle(job.projectName);
-        void refreshSimilarAssessments(job.templateId);
+        void refreshSimilarAssessments();
         if (job.status === 'Complete') {
           await loadAssessmentFromJob(jobId);
         } else if (!isFailureJobStatus(job.status)) {
@@ -510,12 +485,8 @@ export default function AssessmentWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (typeof selectedTemplate === 'number') {
-      void refreshSimilarAssessments(selectedTemplate);
-    } else {
-      void refreshSimilarAssessments(0);
-    }
-  }, [refreshSimilarAssessments, selectedTemplate]);
+    void refreshSimilarAssessments();
+  }, [refreshSimilarAssessments]);
 
   useEffect(() => {
     const jobParam = router.query.jobId;
@@ -554,10 +525,8 @@ export default function AssessmentWorkspace() {
     return firstItem ? Object.keys(firstItem.estimates) : [];
   }, [assessment]);
 
-  const computeItemTotal = (item: AssessmentItem) => {
-    if (!item.isNeeded) return 0;
-    return Object.values(item.estimates).reduce<number>((total, value) => total + (value ?? 0), 0);
-  };
+  const computeItemTotal = (item: AssessmentItem) =>
+    Object.values(item.estimates).reduce<number>((total, value) => total + (value ?? 0), 0);
 
   const grandTotal = useMemo(() => {
     if (!assessment) return 0;
@@ -593,13 +562,6 @@ export default function AssessmentWorkspace() {
           items: section.items.map((item, idx) => (idx === itemIndex ? updater(item) : item)),
         };
       }),
-    }));
-  };
-
-  const onToggleNeeded = (sectionIndex: number, itemIndex: number, value: boolean) => {
-    updateItem(sectionIndex, itemIndex, item => ({
-      ...item,
-      isNeeded: value,
     }));
   };
 
@@ -668,7 +630,7 @@ export default function AssessmentWorkspace() {
       setProjectTitle(saved.projectName);
       showSuccess('Assessment saved', 'Assessment saved successfully.');
       setHistoryRefresh(token => token + 1);
-      void refreshSimilarAssessments(saved.templateId);
+      void refreshSimilarAssessments();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save the assessment.';
       showError(message, 'Save failed');
@@ -796,29 +758,23 @@ export default function AssessmentWorkspace() {
     <Card>
       <CardHeader
         title="Reference Assessments"
-        subheader="Reuse insights from past estimates that share this template."
+        subheader="Recent assessments provide man-hour context that the AI reuses during estimation."
       />
       {similarLoading && <LinearProgress />}
       <CardContent>
         <Stack spacing={2}>
           {similarError && <Alert severity="error">{similarError}</Alert>}
-          {typeof selectedTemplate !== 'number' ? (
+          {similarAssessments.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              Select a project template to see previously saved assessments that can guide the AI.
-            </Typography>
-          ) : similarAssessments.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              No reference assessments found for this template yet. Save an assessment to build a knowledge base.
+              No reference assessments found yet. Save assessments to build the AI's estimation knowledge base.
             </Typography>
           ) : (
             <List disablePadding>
               {similarAssessments.map(reference => (
-                <ListItem key={reference.id} disablePadding divider>
-                  <ListItemButton onClick={() => loadAssessment(reference.id)}>
-                    <ListItemText
-                      primary={reference.projectName || 'Untitled Assessment'}
-                      secondary={`${reference.templateName} • Updated ${formatTimestamp(reference.lastModifiedAt)}`}
-                    />
+                <ListItem
+                  key={reference.id}
+                  divider
+                  secondaryAction={(
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Chip
                         label={`${formatHours(reference.totalHours)} hrs`}
@@ -833,7 +789,12 @@ export default function AssessmentWorkspace() {
                         size="small"
                       />
                     </Stack>
-                  </ListItemButton>
+                  )}
+                >
+                  <ListItemText
+                    primary={reference.projectName || 'Untitled Assessment'}
+                    secondary={`${reference.templateName} • Updated ${formatTimestamp(reference.lastModifiedAt)}`}
+                  />
                 </ListItem>
               ))}
             </List>
@@ -890,7 +851,6 @@ export default function AssessmentWorkspace() {
                 estimationColumns={estimationColumns}
                 expandedSections={expandedSections}
                 onToggleSection={toggleSection}
-                onToggleNeeded={onToggleNeeded}
                 onEstimateChange={onEstimateChange}
                 computeItemTotal={computeItemTotal}
               />

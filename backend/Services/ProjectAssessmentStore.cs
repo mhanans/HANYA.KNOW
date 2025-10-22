@@ -223,6 +223,66 @@ public class ProjectAssessmentStore
         return results;
     }
 
+    public async Task<IReadOnlyList<ProjectAssessment>> GetRecentAsync(int? userId, int limit)
+    {
+        const string sql = @"SELECT pa.id,
+                                     pa.template_id,
+                                     COALESCE(pt.template_name, '') AS template_name,
+                                     COALESCE(pa.project_name, '') AS project_name,
+                                     COALESCE(pa.status, 'Draft') AS status,
+                                     pa.assessment_data,
+                                     pa.created_at,
+                                     pa.last_modified_at
+                              FROM project_assessments pa
+                              LEFT JOIN project_templates pt ON pt.id = pa.template_id
+                              WHERE (@userId IS NULL OR pa.created_by_user_id=@userId)
+                              ORDER BY COALESCE(pa.last_modified_at, pa.created_at) DESC, pa.id DESC
+                              LIMIT @limit";
+
+        var results = new List<ProjectAssessment>();
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var id = reader.GetInt32(0);
+            var templateId = reader.GetInt32(1);
+            var templateName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+            var projectName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+            var status = reader.IsDBNull(4) ? "Draft" : reader.GetString(4);
+            var json = reader.GetFieldValue<string>(5);
+            var createdAt = reader.GetDateTime(6);
+            var lastModifiedAt = reader.IsDBNull(7) ? (DateTime?)null : reader.GetDateTime(7);
+
+            try
+            {
+                var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
+                if (assessment != null)
+                {
+                    assessment.Id = id;
+                    assessment.TemplateId = templateId;
+                    assessment.TemplateName = templateName;
+                    assessment.ProjectName = projectName;
+                    assessment.Status = string.IsNullOrWhiteSpace(status) ? "Draft" : status;
+                    assessment.CreatedAt = createdAt;
+                    assessment.LastModifiedAt = lastModifiedAt ?? createdAt;
+                    results.Add(assessment);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize assessment {AssessmentId}", id);
+            }
+        }
+
+        return results;
+    }
+
     public async Task<bool> DeleteAsync(int id, int? userId)
     {
         const string sql = "DELETE FROM project_assessments WHERE id=@id AND (@userId IS NULL OR created_by_user_id=@userId)";
