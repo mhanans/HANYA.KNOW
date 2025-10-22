@@ -1,4 +1,4 @@
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '../lib/api';
 
@@ -59,6 +59,8 @@ export default function Login() {
   const [ssoLoading, setSsoLoading] = useState(false);
   const [resolvedRedirectUri, setResolvedRedirectUri] = useState(SSO_REDIRECT_URI);
   const [ssoReady, setSsoReady] = useState(false);
+  const ssoElementContainerRef = useRef<HTMLDivElement | null>(null);
+  const tamSsoElementRef = useRef<HTMLElement | null>(null);
   const router = useRouter();
   const ssoEnabled = Boolean(SSO_HOST && SSO_APP_ID && resolvedRedirectUri);
 
@@ -79,12 +81,6 @@ export default function Login() {
     }
 
     let active = true;
-    const markReady = () => {
-      if (active) {
-        setSsoReady(true);
-        setError(prev => (prev === SSO_LOAD_ERROR ? '' : prev));
-      }
-    };
     const handleError = () => {
       if (!active) {
         return;
@@ -93,19 +89,41 @@ export default function Login() {
       setError(prev => prev || SSO_LOAD_ERROR);
     };
 
+    const markReady = () => {
+      if (!active) {
+        return;
+      }
+      setSsoReady(true);
+      setError(prev => (prev === SSO_LOAD_ERROR ? '' : prev));
+    };
+
+    const awaitDefinition = () => {
+      if (!window.customElements) {
+        markReady();
+        return;
+      }
+      if (window.customElements.get('tam-sso')) {
+        markReady();
+        return;
+      }
+      try {
+        window.customElements
+          .whenDefined('tam-sso')
+          .then(() => {
+            markReady();
+          })
+          .catch(handleError);
+      } catch (err) {
+        markReady();
+      }
+    };
+
     const existing = document.querySelector<HTMLScriptElement>('script[data-accelist-sso]');
     if (existing) {
-      if (window.customElements?.get('tam-sso')) {
-        markReady();
-        return () => {
-          active = false;
-        };
-      }
-      existing.addEventListener('load', markReady);
+      awaitDefinition();
       existing.addEventListener('error', handleError);
       return () => {
         active = false;
-        existing.removeEventListener('load', markReady);
         existing.removeEventListener('error', handleError);
       };
     }
@@ -114,16 +132,69 @@ export default function Login() {
     script.src = `${SSO_HOST}/js/tam-sso.js`;
     script.async = true;
     script.dataset.accelistSso = 'true';
-    script.onload = markReady;
-    script.onerror = handleError;
+    script.addEventListener('load', awaitDefinition);
+    script.addEventListener('error', handleError);
     document.body.appendChild(script);
 
     return () => {
       active = false;
-      script.onload = null;
-      script.onerror = null;
+      script.removeEventListener('load', awaitDefinition);
+      script.removeEventListener('error', handleError);
     };
-  }, [ssoEnabled, setError, SSO_HOST]);
+  }, [ssoEnabled, setError]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const container = ssoElementContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    if (!ssoEnabled) {
+      if (tamSsoElementRef.current) {
+        tamSsoElementRef.current.remove();
+        tamSsoElementRef.current = null;
+      }
+      return;
+    }
+
+    let element = tamSsoElementRef.current;
+    if (!element) {
+      element = document.createElement('tam-sso');
+      tamSsoElementRef.current = element;
+    }
+
+    if (element.parentElement !== container) {
+      container.innerHTML = '';
+      container.appendChild(element);
+    }
+
+    element.setAttribute('app', SSO_APP_ID);
+    element.setAttribute('server', SSO_HOST);
+    element.setAttribute('scope', SSO_SCOPE);
+    if (resolvedRedirectUri) {
+      element.setAttribute('redirect-uri', resolvedRedirectUri);
+    } else {
+      element.removeAttribute('redirect-uri');
+    }
+    element.setAttribute('auto-submit', 'accelist-sso-form');
+
+    return () => {
+      // no-op cleanup; element persists for reuse
+    };
+  }, [ssoEnabled, resolvedRedirectUri]);
+
+  useEffect(() => {
+    return () => {
+      if (tamSsoElementRef.current) {
+        tamSsoElementRef.current.remove();
+        tamSsoElementRef.current = null;
+      }
+    };
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -291,14 +362,10 @@ export default function Login() {
                     Loading Accelist SSO…
                   </button>
                 )}
-                <tam-sso
+                <div
+                  ref={ssoElementContainerRef}
                   className={`accelist-sso-element ${ssoReady ? 'ready' : 'pending'}`}
-                  app={SSO_APP_ID}
-                  server={SSO_HOST}
-                  scope={SSO_SCOPE}
-                  redirect-uri={resolvedRedirectUri}
-                  auto-submit="accelist-sso-form"
-                ></tam-sso>
+                />
                 {ssoLoading && (
                   <div className="accelist-sso-overlay">
                     <Spinner />
