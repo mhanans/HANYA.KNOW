@@ -776,7 +776,7 @@ export default function AssessmentWorkspace() {
                 renderValue={selected => {
                   const values = Array.isArray(selected) ? selected : [];
                   if (values.length === 0) {
-                    return 'No reference selected';
+                    return '';
                   }
                   const names = values
                     .map(value => {
