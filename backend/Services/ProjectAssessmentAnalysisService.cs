@@ -152,7 +152,7 @@ public class ProjectAssessmentAnalysisService
         return $@"Anda adalah estimator pengiriman perangkat lunak ahli yang membantu tim pra-penjualan. Analisis dokumen lingkup proyek yang disediakan terhadap item template proyek. Dokumen lingkup terlampir sebagai data inline.
 
 ATURAN OUTPUT:
-- Tanggapi HANYA dengan JSON ringkas yang cocok dengan skema: {{{{""items"": [ {{{""itemId"": string, ""isNeeded"": bool, ""estimates"": {{{{<column>: number|null}}}} }} ] }}}}.
+- Tanggapi HANYA dengan JSON ringkas yang cocok dengan skema: {{""items"": [ {{""itemId"": string, ""isNeeded"": bool, ""estimates"": {{""<column>"": number|null}} }} ] }}.
 - Sertakan setiap item template tepat satu kali menggunakan itemId-nya.
 - Jika informasi tidak ada untuk estimasi, atur nilainya menjadi null.
 - Gunakan angka untuk estimasi jam kerja tanpa unit.{columnInstructionLine}
