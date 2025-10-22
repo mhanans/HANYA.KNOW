@@ -1,5 +1,6 @@
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
+import Swal from 'sweetalert2';
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react';
 import {
   Accordion,
@@ -90,7 +91,6 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
   const [loading, setLoading] = useState(!isCreate);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [dirty, setDirty] = useState(false);
   const [columnInput, setColumnInput] = useState('');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
@@ -128,7 +128,13 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
         setTemplate(next);
         setDirty(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load template');
+        const message = err instanceof Error ? err.message : 'Failed to load template';
+        setError(message);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Unable to load template',
+          text: message,
+        });
       } finally {
         setLoading(false);
       }
@@ -177,7 +183,6 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
       if (normalised !== prev) setDirty(true);
       return normalised;
     });
-    setNotice('');
   };
 
   const addColumn = () => {
@@ -436,7 +441,6 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
     if (!canSave) return;
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       const payload = JSON.stringify(preparePayload(template));
       const url = isCreate ? '/api/templates' : `/api/templates/${templateId}`;
@@ -453,21 +457,46 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
         const created = await res.json();
         setTemplate(withGeneratedIds(created));
         setDirty(false);
-        setNotice('Template created successfully.');
+        await Swal.fire({
+          icon: 'success',
+          title: 'Template created',
+          text: 'Template created successfully.',
+        });
         router.replace(`/pre-sales/project-templates/${created.id}`);
       } else {
         setDirty(false);
-        setNotice('Template saved successfully.');
+        await Swal.fire({
+          icon: 'success',
+          title: 'Template saved',
+          text: 'Template saved successfully.',
+        });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save template');
+      const message = err instanceof Error ? err.message : 'Failed to save template';
+      setError(message);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Save failed',
+        text: message,
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const cancel = () => {
-    if (dirty && !confirm('Discard unsaved changes?')) return;
+  const cancel = async () => {
+    if (dirty) {
+      const confirmation = await Swal.fire({
+        title: 'Discard unsaved changes?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Discard',
+        cancelButtonText: 'Keep editing',
+        reverseButtons: true,
+        confirmButtonColor: '#ef4444',
+      });
+      if (!confirmation.isConfirmed) return;
+    }
     router.push('/pre-sales/project-templates');
   };
 
@@ -538,7 +567,15 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                     </Typography>
                   )}
                 </Stack>
-                <Stack direction="row" flexWrap="wrap" gap={1.5}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 1.5,
+                    overflowX: 'auto',
+                    pb: 1,
+                    pr: 1,
+                  }}
+                >
                   {template.estimationColumns.map((column, index) => (
                     <Paper
                       key={`${column}-${index}`}
@@ -551,6 +588,8 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                         borderRadius: 999,
                         bgcolor: 'rgba(59,130,246,0.15)',
                         border: '1px solid rgba(59,130,246,0.35)',
+                        flexShrink: 0,
+                        minWidth: 160,
                       }}
                       elevation={0}
                     >
@@ -594,7 +633,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                       </Stack>
                     </Paper>
                   ))}
-                </Stack>
+                </Box>
                 <Stack
                   direction={{ xs: 'column', sm: 'row' }}
                   spacing={2}
@@ -928,7 +967,6 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
           </Paper>
 
           {error && <Alert severity="error">{error}</Alert>}
-          {notice && <Alert severity="success">{notice}</Alert>}
         </Stack>
       )}
     </Box>

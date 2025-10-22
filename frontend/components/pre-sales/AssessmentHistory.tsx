@@ -19,6 +19,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import LaunchIcon from '@mui/icons-material/Launch';
 import { apiFetch } from '../../lib/api';
+import Swal from 'sweetalert2';
 
 export type AssessmentStatus = 'Draft' | 'Completed';
 
@@ -61,7 +62,13 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
       const data: AssessmentSummary[] = await response.json();
       setRows(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load assessment history.');
+      const message = err instanceof Error ? err.message : 'Unable to load assessment history.';
+      setError(message);
+      await Swal.fire({
+        icon: 'error',
+        title: 'Unable to load history',
+        text: message,
+      });
     } finally {
       setLoading(false);
     }
@@ -73,16 +80,42 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
 
   const handleDelete = useCallback(
     async (id: number) => {
-      setDeletingId(id);
       setError('');
+      const confirmation = await Swal.fire({
+        title: 'Delete this assessment?',
+        text: 'This action cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Delete',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        confirmButtonColor: '#ef4444',
+      });
+
+      if (!confirmation.isConfirmed) {
+        return;
+      }
+
+      setDeletingId(id);
       try {
         const response = await apiFetch(`/api/assessment/${id}`, { method: 'DELETE' });
         if (!response.ok) {
           throw new Error(await response.text());
         }
         await loadHistory();
+        await Swal.fire({
+          icon: 'success',
+          title: 'Assessment deleted',
+          text: 'The assessment entry has been removed.',
+        });
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to delete assessment.');
+        const message = err instanceof Error ? err.message : 'Failed to delete assessment.';
+        setError(message);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Delete failed',
+          text: message,
+        });
       } finally {
         setDeletingId(null);
       }

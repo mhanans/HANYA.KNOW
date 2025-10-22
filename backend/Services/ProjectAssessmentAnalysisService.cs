@@ -34,7 +34,7 @@ public class ProjectAssessmentAnalysisService
         _logger = logger;
     }
 
-    public async Task<ProjectAssessment> AnalyzeAsync(ProjectTemplate template, int requestedTemplateId, string projectName, IFormFile scopeDocument, CancellationToken cancellationToken)
+    public async Task<ProjectAssessment> AnalyzeAsync(ProjectTemplate template, int requestedTemplateId, string projectName, IFormFile scopeDocument, IReadOnlyList<ProjectAssessment>? referenceAssessments, CancellationToken cancellationToken)
     {
         if (scopeDocument == null)
         {
@@ -55,7 +55,7 @@ public class ProjectAssessmentAnalysisService
             scopeText = scopeText[..MaxScopeCharacters];
         }
 
-        var promptPayload = BuildPromptPayload(template, sanitizedProjectName, scopeText);
+        var promptPayload = BuildPromptPayload(template, sanitizedProjectName, scopeText, referenceAssessments);
         var messages = new[]
         {
             new ChatMessage("system", BuildSystemPrompt(template.EstimationColumns)),
@@ -106,15 +106,21 @@ OUTPUT RULES:
 - Include every template item exactly once using its itemId.
 - If information is missing, set the estimate value to null.
 - Use numbers for man-hour estimates without units.{columnInstructionLine}
+- Use the provided similar assessments as inspiration for estimate ranges, but tailor the final estimates to the uploaded scope document.
 - Do not include additional text or explanations outside the JSON.";
     }
 
-    private static string BuildPromptPayload(ProjectTemplate template, string projectName, string scopeText)
+    private static string BuildPromptPayload(
+        ProjectTemplate template,
+        string projectName,
+        string scopeText,
+        IReadOnlyList<ProjectAssessment>? referenceAssessments)
     {
+        var columns = template.EstimationColumns ?? new List<string>();
         var payload = new PromptPayload
         {
             ProjectName = projectName,
-            EstimationColumns = template.EstimationColumns ?? new List<string>(),
+            EstimationColumns = columns,
             Sections = template.Sections.Select(section => new PromptSection
             {
                 SectionName = section.SectionName,
@@ -125,10 +131,101 @@ OUTPUT RULES:
                     ItemDetail = item.ItemDetail
                 }).ToList()
             }).ToList(),
-            ScopeDocument = scopeText
+            ScopeDocument = scopeText,
+            SimilarAssessments = BuildPromptReferences(referenceAssessments, columns)
         };
 
         return JsonSerializer.Serialize(payload, JsonOptions);
+    }
+
+    private static List<PromptReference> BuildPromptReferences(IReadOnlyList<ProjectAssessment>? references, IReadOnlyList<string> estimationColumns)
+    {
+        if (references == null || references.Count == 0)
+        {
+            return new List<PromptReference>();
+        }
+
+        var columns = estimationColumns ?? Array.Empty<string>();
+        var result = new List<PromptReference>(references.Count);
+
+        foreach (var assessment in references)
+        {
+            var reference = new PromptReference
+            {
+                ProjectName = assessment.ProjectName ?? string.Empty,
+                Status = string.IsNullOrWhiteSpace(assessment.Status) ? "Draft" : assessment.Status,
+                TotalHours = CalculateTotalHours(assessment)
+            };
+
+            foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
+            {
+                var referenceSection = new PromptReferenceSection
+                {
+                    SectionName = section.SectionName ?? string.Empty
+                };
+
+                foreach (var item in section.Items ?? new List<AssessmentItem>())
+                {
+                    var estimates = new Dictionary<string, double?>();
+
+                    if (columns.Count > 0)
+                    {
+                        foreach (var column in columns)
+                        {
+                            item.Estimates?.TryGetValue(column, out var value);
+                            estimates[column] = value;
+                        }
+                    }
+                    else if (item.Estimates != null)
+                    {
+                        foreach (var kvp in item.Estimates)
+                        {
+                            estimates[kvp.Key] = kvp.Value;
+                        }
+                    }
+
+                    referenceSection.Items.Add(new PromptReferenceItem
+                    {
+                        ItemId = item.ItemId ?? string.Empty,
+                        ItemName = item.ItemName ?? string.Empty,
+                        ItemDetail = item.ItemDetail ?? string.Empty,
+                        IsNeeded = item.IsNeeded,
+                        Estimates = estimates
+                    });
+                }
+
+                reference.Sections.Add(referenceSection);
+            }
+
+            result.Add(reference);
+        }
+
+        return result;
+    }
+
+    private static double CalculateTotalHours(ProjectAssessment assessment)
+    {
+        double total = 0;
+        foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
+        {
+            foreach (var item in section.Items ?? new List<AssessmentItem>())
+            {
+                if (!item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
+
+                foreach (var value in item.Estimates.Values)
+                {
+                    if (value.HasValue)
+                    {
+                        total += value.Value;
+                    }
+                }
+            }
+        }
+
+        return total;
     }
 
     private static string CleanResponse(string response)
@@ -287,6 +384,7 @@ OUTPUT RULES:
         public List<string> EstimationColumns { get; set; } = new();
         public List<PromptSection> Sections { get; set; } = new();
         public string ScopeDocument { get; set; } = string.Empty;
+        public List<PromptReference> SimilarAssessments { get; set; } = new();
     }
 
     private sealed class PromptSection
@@ -300,6 +398,29 @@ OUTPUT RULES:
         public string ItemId { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
         public string ItemDetail { get; set; } = string.Empty;
+    }
+
+    private sealed class PromptReference
+    {
+        public string ProjectName { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public double TotalHours { get; set; }
+        public List<PromptReferenceSection> Sections { get; set; } = new();
+    }
+
+    private sealed class PromptReferenceSection
+    {
+        public string SectionName { get; set; } = string.Empty;
+        public List<PromptReferenceItem> Items { get; set; } = new();
+    }
+
+    private sealed class PromptReferenceItem
+    {
+        public string ItemId { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string ItemDetail { get; set; } = string.Empty;
+        public bool IsNeeded { get; set; }
+        public Dictionary<string, double?> Estimates { get; set; } = new();
     }
 
     private sealed class AnalysisResult
