@@ -172,7 +172,8 @@ OUTPUT RULES:
                     {
                         foreach (var column in columns)
                         {
-                            item.Estimates?.TryGetValue(column, out var value);
+                            double? value = null;
+                            item.Estimates?.TryGetValue(column, out value);
                             estimates[column] = value;
                         }
                     }

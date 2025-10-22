@@ -157,11 +157,13 @@ public class SourceCodeSyncService
             _logger.LogWarning("Source code directory {Root} did not exist. Created the directory but there are no files to ingest.", root);
         }
 
-        var includeExtensions = (_options.IncludeExtensions?.Length ?? 0) > 0
-            ? new HashSet<string>(_options.IncludeExtensions.Select(e => e.StartsWith('.') ? e : "." + e), StringComparer.OrdinalIgnoreCase)
+        var includeExtensionsConfig = _options.IncludeExtensions;
+        var includeExtensions = (includeExtensionsConfig != null && includeExtensionsConfig.Length > 0)
+            ? new HashSet<string>(includeExtensionsConfig.Select(e => e.StartsWith('.') ? e : "." + e), StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(new[] { ".cs", ".cshtml", ".ts", ".tsx", ".js", ".jsx", ".py", ".java" }, StringComparer.OrdinalIgnoreCase);
-        var excludeDirectories = (_options.ExcludeDirectories?.Length ?? 0) > 0
-            ? new HashSet<string>(_options.ExcludeDirectories, StringComparer.OrdinalIgnoreCase)
+        var excludeDirectoriesConfig = _options.ExcludeDirectories;
+        var excludeDirectories = (excludeDirectoriesConfig != null && excludeDirectoriesConfig.Length > 0)
+            ? new HashSet<string>(excludeDirectoriesConfig, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(new[] { ".git", "node_modules", "bin", "obj", "dist", "build" }, StringComparer.OrdinalIgnoreCase);
 
         var files = EnumerateFiles(root, includeExtensions, excludeDirectories).ToList();
