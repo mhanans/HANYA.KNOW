@@ -5,6 +5,7 @@ import {
   CardContent,
   CardHeader,
   Chip,
+  IconButton,
   LinearProgress,
   Stack,
   Table,
@@ -15,9 +16,10 @@ import {
   TableRow,
   Tooltip,
   Typography,
-  IconButton,
 } from '@mui/material';
 import LaunchIcon from '@mui/icons-material/Launch';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { apiFetch } from '../../lib/api';
 
 export type AssessmentJobStatus =
@@ -40,9 +42,20 @@ export interface AssessmentJobSummary {
   lastModifiedAt?: string;
 }
 
+interface ProjectAssessmentSummary {
+  id: number;
+  templateId: number;
+  templateName: string;
+  projectName: string;
+  status: string;
+  createdAt?: string;
+  lastModifiedAt?: string;
+}
+
 interface AssessmentHistoryProps {
   refreshToken: number;
-  onSelect: (jobId: number) => void;
+  onOpenJob?: (jobId: number) => void;
+  onOpenAssessment?: (assessmentId: number) => void;
 }
 
 const formatTimestamp = (value?: string) => {
@@ -63,7 +76,7 @@ const statusColors: Record<AssessmentJobStatus, 'default' | 'warning' | 'success
   FailedEstimation: 'error',
 };
 
-const formatStatusLabel = (status: AssessmentJobSummary['status']) => {
+const formatStatusLabel = (status: string) => {
   if (typeof status !== 'string') {
     return 'Unknown';
   }
@@ -79,39 +92,109 @@ const getStatusColor = (status: AssessmentJobSummary['status']) => {
   return 'default';
 };
 
-export default function AssessmentHistory({ refreshToken, onSelect }: AssessmentHistoryProps) {
-  const [rows, setRows] = useState<AssessmentJobSummary[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAssessment }: AssessmentHistoryProps) {
+  const [jobs, setJobs] = useState<AssessmentJobSummary[]>([]);
+  const [savedAssessments, setSavedAssessments] = useState<ProjectAssessmentSummary[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [assessmentsLoading, setAssessmentsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState('');
+  const [assessmentsError, setAssessmentsError] = useState('');
+  const [jobDeleting, setJobDeleting] = useState<number | null>(null);
+  const [assessmentDeleting, setAssessmentDeleting] = useState<number | null>(null);
 
-  const loadHistory = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const loadJobs = useCallback(async () => {
+    setJobsLoading(true);
+    setJobsError('');
     try {
       const response = await apiFetch('/api/assessment/jobs');
       if (!response.ok) {
         throw new Error(await response.text());
       }
       const data: AssessmentJobSummary[] = await response.json();
-      setRows(data);
+      setJobs(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to load assessment jobs.';
-      setError(message);
+      setJobsError(message);
+      setJobs([]);
     } finally {
-      setLoading(false);
+      setJobsLoading(false);
+    }
+  }, []);
+
+  const loadSavedAssessments = useCallback(async () => {
+    setAssessmentsLoading(true);
+    setAssessmentsError('');
+    try {
+      const response = await apiFetch('/api/assessment/history');
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data: ProjectAssessmentSummary[] = await response.json();
+      setSavedAssessments(data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to load saved assessments.';
+      setAssessmentsError(message);
+      setSavedAssessments([]);
+    } finally {
+      setAssessmentsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory, refreshToken]);
+    loadJobs();
+    loadSavedAssessments();
+  }, [loadJobs, loadSavedAssessments, refreshToken]);
 
-  const content = useMemo(() => {
-    if (rows.length === 0) {
+  const deleteJob = useCallback(
+    async (id: number) => {
+      if (!window.confirm('Remove this assessment job from history?')) {
+        return;
+      }
+      setJobDeleting(id);
+      try {
+        const response = await apiFetch(`/api/assessment/jobs/${id}`, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) {
+          throw new Error(await response.text());
+        }
+        setJobs(current => current.filter(job => job.id !== id));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to delete assessment job.';
+        setJobsError(message);
+      } finally {
+        setJobDeleting(current => (current === id ? null : current));
+      }
+    },
+    []
+  );
+
+  const deleteAssessment = useCallback(
+    async (id: number) => {
+      if (!window.confirm('Delete this saved assessment? This action cannot be undone.')) {
+        return;
+      }
+      setAssessmentDeleting(id);
+      try {
+        const response = await apiFetch(`/api/assessment/${id}`, { method: 'DELETE' });
+        if (!response.ok && response.status !== 404) {
+          throw new Error(await response.text());
+        }
+        setSavedAssessments(current => current.filter(item => item.id !== id));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to delete saved assessment.';
+        setAssessmentsError(message);
+      } finally {
+        setAssessmentDeleting(current => (current === id ? null : current));
+      }
+    },
+    []
+  );
+
+  const jobsContent = useMemo(() => {
+    if (jobs.length === 0) {
       return (
         <Stack spacing={1.5} alignItems="center" py={4}>
           <Typography variant="subtitle1" color="text.secondary">
-            No assessments yet. Jobs launched from the workspace will appear here.
+            No assessment jobs yet. Jobs launched from the workspace will appear here.
           </Typography>
         </Stack>
       );
@@ -131,7 +214,7 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map(row => (
+            {jobs.map(row => (
               <TableRow key={row.id} hover>
                 <TableCell>{row.projectName || 'Untitled Assessment'}</TableCell>
                 <TableCell>{row.templateName || '—'}</TableCell>
@@ -142,10 +225,25 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
                 <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Tooltip title="Open in workspace">
-                      <IconButton color="primary" onClick={() => onSelect(row.id)}>
-                        <LaunchIcon fontSize="small" />
-                      </IconButton>
+                    {onOpenJob && (
+                      <Tooltip title="Open in workspace">
+                        <span>
+                          <IconButton color="primary" onClick={() => onOpenJob(row.id)}>
+                            <LaunchIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
+                    <Tooltip title="Remove job">
+                      <span>
+                        <IconButton
+                          color="error"
+                          onClick={() => deleteJob(row.id)}
+                          disabled={jobDeleting === row.id}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   </Stack>
                 </TableCell>
@@ -155,21 +253,103 @@ export default function AssessmentHistory({ refreshToken, onSelect }: Assessment
         </Table>
       </TableContainer>
     );
-  }, [rows, onSelect]);
+  }, [deleteJob, jobDeleting, jobs, onOpenJob]);
+
+  const savedContent = useMemo(() => {
+    if (savedAssessments.length === 0) {
+      return (
+        <Stack spacing={1.5} alignItems="center" py={4}>
+          <Typography variant="subtitle1" color="text.secondary">
+            No saved assessments yet. Save workspace results to reuse them during estimation.
+          </Typography>
+        </Stack>
+      );
+    }
+
+    return (
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Project Name</TableCell>
+              <TableCell>Template</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Created</TableCell>
+              <TableCell>Last Updated</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {savedAssessments.map(row => (
+              <TableRow key={row.id} hover>
+                <TableCell>{row.projectName || 'Untitled Assessment'}</TableCell>
+                <TableCell>{row.templateName || '—'}</TableCell>
+                <TableCell>
+                  <Chip label={formatStatusLabel(row.status)} size="small" color={row.status === 'Completed' ? 'success' : 'default'} />
+                </TableCell>
+                <TableCell>{formatTimestamp(row.createdAt)}</TableCell>
+                <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
+                <TableCell align="right">
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    {onOpenAssessment && (
+                      <Tooltip title="Open for editing">
+                        <span>
+                          <IconButton color="primary" onClick={() => onOpenAssessment(row.id)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
+                    <Tooltip title="Delete assessment">
+                      <span>
+                        <IconButton
+                          color="error"
+                          onClick={() => deleteAssessment(row.id)}
+                          disabled={assessmentDeleting === row.id}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Stack>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  }, [assessmentDeleting, deleteAssessment, onOpenAssessment, savedAssessments]);
 
   return (
-    <Card>
-      <CardHeader
-        title="Recent Assessment Jobs"
-        subheader="Monitor processing progress and reopen results in the workspace."
-      />
-      {loading && <LinearProgress />}
-      <CardContent>
-        <Stack spacing={2}>
-          {error && <Alert severity="error">{error}</Alert>}
-          {content}
-        </Stack>
-      </CardContent>
-    </Card>
+    <Stack spacing={3}>
+      <Card>
+        <CardHeader
+          title="Assessment Jobs"
+          subheader="Monitor processing progress and reopen results in the workspace."
+        />
+        {jobsLoading && <LinearProgress />}
+        <CardContent>
+          <Stack spacing={2}>
+            {jobsError && <Alert severity="error">{jobsError}</Alert>}
+            {jobsContent}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Saved Project Assessments"
+          subheader="Reuse completed assessments as reference material or edit them in the workspace."
+        />
+        {assessmentsLoading && <LinearProgress />}
+        <CardContent>
+          <Stack spacing={2}>
+            {assessmentsError && <Alert severity="error">{assessmentsError}</Alert>}
+            {savedContent}
+          </Stack>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 }

@@ -28,8 +28,11 @@ export default function PresalesAiHistoryPage() {
         </Box>
         <AssessmentHistory
           refreshToken={refreshToken}
-          onSelect={id =>
+          onOpenJob={id =>
             router.push({ pathname: '/pre-sales/workspace', query: { jobId: id } })
+          }
+          onOpenAssessment={id =>
+            router.push({ pathname: '/pre-sales/workspace', query: { assessmentId: id } })
           }
         />
       </Stack>
