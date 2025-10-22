@@ -116,6 +116,9 @@ public class ProjectAssessmentAnalysisService
         try
         {
             _logger.LogInformation("Mengirim permintaan analisis proyek ke model {Model}.", _model);
+            _logger.LogInformation(
+                "Payload permintaan analisis proyek: {Request}",
+                JsonSerializer.Serialize(CreateLoggableRequestSnapshot(request), _serializationOptions));
             var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
             rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
         }
@@ -129,8 +132,14 @@ public class ProjectAssessmentAnalysisService
         {
             throw new InvalidOperationException("AI mengembalikan respons kosong setelah menganalisis dokumen lingkup.");
         }
-        
+
+        _logger.LogInformation("Respons AI mentah untuk analisis proyek: {Response}", rawResponse);
+
         var cleanedResponse = CleanResponse(rawResponse);
+        if (!cleanedResponse.TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("AI tidak mengembalikan JSON yang valid untuk analisis dokumen lingkup.");
+        }
         AnalysisResult? analysis;
         try
         {
@@ -283,7 +292,10 @@ ATURAN OUTPUT:
 
     private static ProjectAssessment BuildAssessmentFromAnalysis(ProjectTemplate template, int requestedTemplateId, string projectName, IReadOnlyCollection<AnalyzedItem> items)
     {
-        var itemLookup = items.Where(i => !string.IsNullOrWhiteSpace(i.ItemId)).ToDictionary(i => i.ItemId, i => i, StringComparer.OrdinalIgnoreCase);
+        var itemLookup = items
+            .Where(i => !string.IsNullOrWhiteSpace(i.ItemId))
+            .GroupBy(i => i.ItemId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Last(), StringComparer.OrdinalIgnoreCase);
         var columns = template.EstimationColumns ?? new List<string>();
         var sections = new List<AssessmentSection>();
         foreach (var section in template.Sections)
@@ -337,6 +349,28 @@ ATURAN OUTPUT:
             ProjectName = projectName,
             Status = "Draft",
             Sections = sections
+        };
+    }
+
+    private static object CreateLoggableRequestSnapshot(GenerateContentPayload request)
+    {
+        return new
+        {
+            request.GenerationConfig,
+            Contents = request.Contents?.Select(content => new
+            {
+                Parts = content.Parts?.Select(part => new
+                {
+                    part.Text,
+                    InlineData = part.InlineData == null
+                        ? null
+                        : new
+                        {
+                            part.InlineData.MimeType,
+                            DataLength = part.InlineData.Data?.Length ?? 0
+                        }
+                }).ToList()
+            }).ToList()
         };
     }
 
