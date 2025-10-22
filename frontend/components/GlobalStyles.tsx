@@ -205,12 +205,12 @@ const globalCss = `
     .accelist-sso-widget { position: relative; }
     .accelist-sso-element { display: block; width: 100%; }
     .accelist-sso-element.pending { display: none; }
-    .accelist-sso-form tam-sso { display: block; }
-    .accelist-sso-form tam-sso button { width: 100%; padding: 12px; border-radius: var(--border-radius-md); font-size: 1rem; background: var(--primary-accent); border: none; color: #fff; cursor: pointer; transition: background 0.2s ease; }
-    .accelist-sso-form tam-sso button:hover { background: var(--primary-accent-hover); }
-    .accelist-sso-form tam-sso img { display: inline-block !important; width: auto !important; margin-bottom: 0 !important; }
+    .accelist-sso-element tam-sso { display: block; width: 100%; }
+    .accelist-sso-element tam-sso button { width: 100%; padding: 12px; border-radius: var(--border-radius-md); font-size: 1rem; background: var(--primary-accent); border: none; color: #fff; cursor: pointer; transition: background 0.2s ease; }
+    .accelist-sso-element tam-sso button:hover { background: var(--primary-accent-hover); }
+    .accelist-sso-element tam-sso img { display: inline-block !important; width: auto !important; margin-bottom: 0 !important; }
     .accelist-sso-placeholder { width: 100%; padding: 12px; border-radius: var(--border-radius-md); font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-    .accelist-sso-form.loading tam-sso button { pointer-events: none; opacity: 0.6; }
+    .accelist-sso-form.loading .accelist-sso-element tam-sso button { pointer-events: none; opacity: 0.6; }
     .accelist-sso-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.7); border-radius: var(--border-radius-md); }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `;
