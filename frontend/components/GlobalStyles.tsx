@@ -212,6 +212,56 @@ const globalCss = `
     .accelist-sso-placeholder { width: 100%; padding: 12px; border-radius: var(--border-radius-md); font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
     .accelist-sso-form.loading .accelist-sso-element tam-sso button { pointer-events: none; opacity: 0.6; }
     .accelist-sso-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.7); border-radius: var(--border-radius-md); }
+
+    /*
+     * =================================================================
+     * E. PROJECT TIMELINE GANTT STYLES (timeline.css)
+     * =================================================================
+     */
+    .timeline-card { background-color: #ffffff; color: #000000; box-shadow: none; border-radius: 12px; }
+    .timeline-card .MuiCardHeader-root { background-color: #f5f5f5; border-bottom: 1px solid #e0e0e0; }
+    .timeline-card .MuiCardHeader-title, .timeline-card .MuiCardHeader-subheader { color: #000000; }
+    .timeline-content { background-color: #ffffff; color: #000000; }
+    .timeline-content .MuiTypography-root { color: inherit; }
+    .timeline-divider { border-color: #e0e0e0; }
+    .gantt-area { overflow-x: auto; background-color: #ffffff; border-radius: 8px; }
+
+    /* --- Core Gantt Chart Structure --- */
+    .timeline-matrix { display: grid; border: 1px solid #e0e0e0; background-color: #ffffff; color: #000000; }
+    .timeline-header-left, .timeline-left-row { display: grid; grid-template-columns: inherit; border-right: 1px solid #d3d3d3; }
+    .timeline-header-right { display: grid; grid-auto-rows: auto; position: relative; }
+    .timeline-month-row, .timeline-week-row, .timeline-day-row { display: grid; grid-template-columns: repeat(var(--day-count, 1), minmax(32px, 1fr)); }
+    .timeline-right-row { display: grid; position: relative; grid-template-columns: repeat(var(--day-count, 1), minmax(32px, 1fr)); border-bottom: 1px solid #e0e0e0; }
+    .timeline-grid-lines { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: repeating-linear-gradient(to right, transparent, transparent calc(100% / var(--day-count) - 1px), #e0e0e0 calc(100% / var(--day-count) - 1px), #e0e0e0 calc(100% / var(--day-count))); pointer-events: none; z-index: 1; }
+    .timeline-bar { grid-column: var(--start) / span var(--duration); background-color: #5cb85c; border: 1px solid #4cae4c; border-radius: 4px; margin: 4px 0; display: flex; align-items: center; justify-content: flex-start; overflow: hidden; white-space: nowrap; padding: 2px 0; z-index: 2; }
+    .timeline-bar-label { padding: 0 8px; font-size: 12px; color: #ffffff; font-weight: 500; }
+
+    /* --- Visual Styling for Gridlines and Headers --- */
+    .timeline-header-left { background-color: #f5f5f5; }
+    .timeline-header-cell, .timeline-month-cell, .timeline-week-cell, .timeline-day-cell { background-color: #f5f5f5; border-bottom: 1px solid #d3d3d3; border-right: 1px solid #d3d3d3; text-align: center; font-weight: bold; padding: 4px; font-size: 12px; color: #000000; }
+    .timeline-month-cell { background-color: #007bff; color: #ffffff; display: flex; align-items: center; justify-content: center; }
+    .timeline-week-cell { background-color: #f0f8ff; }
+    .timeline-day-cell { display: flex; flex-direction: column; gap: 2px; align-items: center; justify-content: center; }
+    .timeline-day-cell .day-label { font-size: 11px; text-transform: uppercase; color: #555555; }
+    .timeline-day-cell .day-number { font-size: 12px; font-weight: 600; color: #000000; }
+
+    /* Styling for Left Pane Cells (Activity, Detail) */
+    .timeline-activity-cell, .timeline-detail-cell, .timeline-mandays-cell { padding: 8px; display: flex; align-items: center; font-size: 14px; border-bottom: 1px solid #e0e0e0; border-right: 1px solid #e0e0e0; background-color: #ffffff; color: #000000; }
+    .timeline-activity-cell { font-weight: bold; }
+    .timeline-mandays-cell { justify-content: center; font-weight: bold; }
+
+    /* --- Resource Allocation Grid Styling --- */
+    .resource-allocation { background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 8px; padding: 16px; }
+    .resource-grid { display: grid; grid-template-columns: 210px 1fr; border: 1px solid #d3d3d3; font-size: 12px; background-color: #ffffff; color: #000000; }
+    .resource-header-left, .resource-left-row { background-color: #f5f5f5; font-weight: bold; padding: 6px; border-right: 1px solid #d3d3d3; border-bottom: 1px solid #d3d3d3; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; align-items: center; }
+    .resource-left-row { background-color: #ffffff; font-weight: 500; }
+    .resource-header-right, .resource-right-row { display: grid; border-bottom: 1px solid #d3d3d3; grid-template-columns: repeat(var(--day-count, 1), minmax(32px, 1fr)); }
+    .resource-day-header, .resource-cell { text-align: center; padding: 4px 0; border-right: 1px solid #e0e0e0; }
+    .resource-day-header { background-color: #f5f5f5; font-weight: bold; }
+    .resource-cell { min-height: 28px; display: flex; align-items: center; justify-content: center; }
+    .resource-cell:not(:empty) { background-color: #e6f7ff; font-weight: 500; }
+    .resource-empty { border: 1px dashed #d3d3d3; border-radius: 8px; padding: 24px; background: #fafafa; color: #555555; text-align: center; }
+
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `;
 

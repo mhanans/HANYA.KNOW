@@ -226,7 +226,10 @@ export default function ProjectTimelineDetailPage() {
                     <div className="timeline-header-cell">Detail</div>
                     <div className="timeline-header-cell">Man-days</div>
                   </div>
-                  <div className="timeline-header-right" style={{ gridTemplateColumns: rightGridTemplate }}>
+                  <div
+                    className="timeline-header-right"
+                    style={{ gridTemplateColumns: rightGridTemplate, ['--day-count' as any]: Math.max(dayCount, 1) }}
+                  >
                     <div className="timeline-month-row">
                       {months.map(month => (
                         <div
@@ -279,7 +282,7 @@ export default function ProjectTimelineDetailPage() {
                         <div
                           className="timeline-bar"
                           style={{
-                            ['--start' as any]: row.detail.startDayIndex,
+                            ['--start' as any]: row.detail.startDayIndex + 1,
                             ['--duration' as any]: row.detail.durationDays,
                           }}
                         >
@@ -350,8 +353,14 @@ export default function ProjectTimelineDetailPage() {
                     </Box>
                   ) : (
                     <div className="resource-grid">
-                      <div className="resource-header-left">Role</div>
-                      <div className="resource-header-right" style={{ gridTemplateColumns: rightGridTemplate }}>
+                      <div className="resource-header-left">
+                        <span>Role</span>
+                        <span>Level</span>
+                      </div>
+                      <div
+                        className="resource-header-right"
+                        style={{ gridTemplateColumns: rightGridTemplate, ['--day-count' as any]: Math.max(dayCount, 1) }}
+                      >
                         {timeline.workingDays.map((day, idx) => {
                           const date = new Date(day);
                           return (
@@ -367,7 +376,10 @@ export default function ProjectTimelineDetailPage() {
                             <span className="resource-role-name">{role.roleName}</span>
                             <span className="resource-role-level">{role.expectedLevel || '—'}</span>
                           </div>
-                          <div className="resource-right-row" style={{ gridTemplateColumns: rightGridTemplate }}>
+                          <div
+                            className="resource-right-row"
+                            style={{ gridTemplateColumns: rightGridTemplate, ['--day-count' as any]: Math.max(dayCount, 1) }}
+                          >
                             {role.dailyAllocation.map((value, idx) => (
                               <div key={idx} className="resource-cell">
                                 {value > 0 ? formatNumber(value, value >= 1 ? 1 : 2) : ''}
