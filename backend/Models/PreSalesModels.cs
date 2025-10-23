@@ -18,6 +18,7 @@ public class AssessmentJob
     public string ProjectName { get; set; } = string.Empty;
     public int TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
+    public AssessmentAnalysisMode AnalysisMode { get; set; } = AssessmentAnalysisMode.Interpretive;
     public JobStatus Status { get; set; } = JobStatus.Pending;
     public int Step { get; set; } = 1;
     public string ScopeDocumentPath { get; set; } = string.Empty;
@@ -78,6 +79,12 @@ public enum JobStatus
     Complete,
     FailedGeneration,
     FailedEstimation
+}
+
+public enum AssessmentAnalysisMode
+{
+    Interpretive,
+    Strict
 }
 
 public class TemplateSection

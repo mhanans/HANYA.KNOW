@@ -90,6 +90,7 @@ public class ProjectAssessmentAnalysisService
         int requestedTemplateId,
         string projectName,
         IFormFile scopeDocument,
+        AssessmentAnalysisMode analysisMode,
         IReadOnlyList<ProjectAssessment>? referenceAssessments,
         IReadOnlyList<AssessmentReferenceDocument>? referenceDocuments,
         CancellationToken cancellationToken)
@@ -106,6 +107,7 @@ public class ProjectAssessmentAnalysisService
             ProjectName = projectName?.Trim() ?? string.Empty,
             TemplateId = requestedTemplateId,
             TemplateName = template?.TemplateName ?? string.Empty,
+            AnalysisMode = analysisMode,
             Status = JobStatus.Pending,
             ScopeDocumentPath = storedPath,
             ScopeDocumentMimeType = mimeType,
@@ -351,7 +353,7 @@ public class ProjectAssessmentAnalysisService
             var template = JsonSerializer.Deserialize<ProjectTemplate>(job.OriginalTemplateJson, _deserializationOptions) ?? new ProjectTemplate();
             var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
-            var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, documentPart);
+            var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, job.AnalysisMode, documentPart);
 
             _logger.LogInformation("Starting item generation step for job {JobId}", jobId);
             var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
@@ -420,7 +422,7 @@ public class ProjectAssessmentAnalysisService
             var references = DeserializeReferences(job.ReferenceAssessmentsJson, _deserializationOptions);
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
             var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
-            var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, documentPart);
+            var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, documentPart);
 
             _logger.LogInformation("Starting effort estimation step for job {JobId}", jobId);
             var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
@@ -718,9 +720,10 @@ public class ProjectAssessmentAnalysisService
         ProjectTemplate template,
         string projectName,
         IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
+        AssessmentAnalysisMode analysisMode,
         GeminiPart documentPart)
     {
-        var prompt = BuildItemGenerationPrompt(template, projectName, referenceDocuments);
+        var prompt = BuildItemGenerationPrompt(template, projectName, referenceDocuments, analysisMode);
         return new GenerateContentPayload
         {
             Contents = new List<GeminiContent>
@@ -746,9 +749,10 @@ public class ProjectAssessmentAnalysisService
         string projectName,
         IReadOnlyList<ProjectAssessment> references,
         IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
+        AssessmentAnalysisMode analysisMode,
         GeminiPart documentPart)
     {
-        var prompt = BuildEffortEstimationPrompt(template, projectName, references, referenceDocuments);
+        var prompt = BuildEffortEstimationPrompt(template, projectName, references, referenceDocuments, analysisMode);
         return new GenerateContentPayload
         {
             Contents = new List<GeminiContent>
@@ -772,7 +776,8 @@ public class ProjectAssessmentAnalysisService
     private string BuildItemGenerationPrompt(
         ProjectTemplate template,
         string projectName,
-        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments)
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
+        AssessmentAnalysisMode analysisMode)
     {
         var sections = template.Sections
             .Where(s => string.Equals(s.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
@@ -795,11 +800,14 @@ public class ProjectAssessmentAnalysisService
             ReferenceDocuments = BuildGenerationPromptDocuments(referenceDocuments)
         };
 
-        var instructions =
-            "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
+        var instructions = analysisMode == AssessmentAnalysisMode.Strict
+            ? "You are a meticulous business analyst reviewing the attached scope document. Translate every explicitly described requirement into backlog items for the sections marked as AI-Generated. Do not invent new scope beyond what the document states."
+            : "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
         if (context.ReferenceDocuments.Count > 0)
         {
-            instructions += " Leverage the provided knowledge base summaries when they clarify requirements or provide helpful precedents.";
+            instructions += analysisMode == AssessmentAnalysisMode.Strict
+                ? " Use the provided knowledge base summaries only to clarify terminology; never introduce functionality that is absent from the scope document."
+                : " Leverage the provided knowledge base summaries when they clarify requirements or provide helpful precedents.";
         }
         var categoryGuidance = string.Join(", ", AllowedCategories);
         var outputRules = $$"""
@@ -849,7 +857,8 @@ public class ProjectAssessmentAnalysisService
         ProjectTemplate template,
         string projectName,
         IReadOnlyList<ProjectAssessment> references,
-        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments)
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
+        AssessmentAnalysisMode analysisMode)
     {
         var payload = new PromptPayload
         {
@@ -870,11 +879,14 @@ public class ProjectAssessmentAnalysisService
             ReferenceDocuments = BuildPromptDocuments(referenceDocuments)
         };
 
-        var instructions =
-            "You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.";
+        var instructions = analysisMode == AssessmentAnalysisMode.Strict
+            ? "You are an experienced software project estimator. The backlog items were transcribed directly from the uploaded scope document. Evaluate each item exactly as written and determine whether it remains in scope for this project."
+            : "You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.";
         if (payload.ReferenceDocuments.Count > 0)
         {
-            instructions += " Consider the supplied knowledge base summaries when they add relevant background or precedent.";
+            instructions += analysisMode == AssessmentAnalysisMode.Strict
+                ? " Use the supplied knowledge base summaries only for clarification; do not broaden the scope beyond the document."
+                : " Consider the supplied knowledge base summaries when they add relevant background or precedent.";
         }
         if (payload.SimilarAssessments.Count > 0)
         {
@@ -882,8 +894,9 @@ public class ProjectAssessmentAnalysisService
         }
         var outputRules =
             """Respond ONLY with a JSON object using the schema {"items":[{"itemId":string,"isNeeded":bool,"estimates":{"<column>":number|null}}]}.""";
-        var estimationGuidance =
-            "Set isNeeded to true when the scope clearly requires the capability. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items.";
+        var estimationGuidance = analysisMode == AssessmentAnalysisMode.Strict
+            ? "Set isNeeded to true when the scope explicitly includes the capability. Only mark false when the scope clearly excludes it. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items."
+            : "Set isNeeded to true when the scope clearly requires the capability. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items.";
 
         return $"{instructions}\n\nProject Context:\n{JsonSerializer.Serialize(payload, _serializationOptions)}\n\n{outputRules}\n{estimationGuidance}";
     }
