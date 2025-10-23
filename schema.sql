@@ -268,3 +268,34 @@ CREATE TABLE IF NOT EXISTS ticket_ai_assignments (
     response_json TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS presales_roles (
+    role_name TEXT PRIMARY KEY,
+    expected_level TEXT NOT NULL DEFAULT '',
+    cost_per_day NUMERIC(18,2) NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS presales_activities (
+    activity_name TEXT PRIMARY KEY,
+    display_order INT NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS presales_task_activities (
+    task_key TEXT PRIMARY KEY,
+    activity_name TEXT NOT NULL REFERENCES presales_activities(activity_name) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS presales_task_roles (
+    task_key TEXT NOT NULL,
+    role_name TEXT NOT NULL REFERENCES presales_roles(role_name) ON DELETE CASCADE,
+    allocation_percentage DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (allocation_percentage >= 0),
+    PRIMARY KEY(task_key, role_name)
+);
+
+CREATE TABLE IF NOT EXISTS assessment_timelines (
+    assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    timeline_data JSONB NOT NULL
+);
