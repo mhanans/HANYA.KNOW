@@ -749,7 +749,7 @@ public class ProjectAssessmentAnalysisService
             "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
         var categoryGuidance = string.Join(", ", AllowedCategories);
         var outputRules =
-            $"""Return ONLY a valid JSON array using the schema [{{"itemName":"...","itemDetail":"...","category":"..."}}]. Each itemName must be a concise feature title, itemDetail should be a short sentence describing the expected work, and category must be one of: {categoryGuidance}. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.""";
+            $"""Return ONLY a valid JSON array using the schema [{{"itemName":"...","itemDetail":"...","category":"..."}}]. Each itemName must be a concise feature title, itemDetail should be a detailed feature describing the expected work(can include what feature(CRUD, Upload, Download), data/ field that will be showed/ managed, etc), and category must be one of: {categoryGuidance}. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.""";
 
         return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(context, _serializationOptions)}\\n\\n{outputRules}";
     }
