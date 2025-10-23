@@ -35,6 +35,7 @@ public class AssessmentJobStore
                                     scope_document_mime_type,
                                     original_template_json,
                                     reference_assessments_json,
+                                    reference_documents_json,
                                     raw_generation_response,
                                     generated_items_json,
                                     raw_estimation_response,
@@ -51,6 +52,7 @@ public class AssessmentJobStore
                                     @scopeDocumentMimeType,
                                     @originalTemplateJson,
                                     @referenceAssessmentsJson,
+                                    @referenceDocumentsJson,
                                     @rawGenerationResponse,
                                     @generatedItemsJson,
                                     @rawEstimationResponse,
@@ -71,6 +73,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("scopeDocumentMimeType", job.ScopeDocumentMimeType ?? string.Empty);
         cmd.Parameters.Add("originalTemplateJson", NpgsqlDbType.Text).Value = job.OriginalTemplateJson ?? string.Empty;
         cmd.Parameters.Add("referenceAssessmentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceAssessmentsJson ?? DBNull.Value;
+        cmd.Parameters.Add("referenceDocumentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceDocumentsJson ?? DBNull.Value;
         cmd.Parameters.Add("rawGenerationResponse", NpgsqlDbType.Text).Value = (object?)job.RawGenerationResponse ?? DBNull.Value;
         cmd.Parameters.Add("generatedItemsJson", NpgsqlDbType.Text).Value = (object?)job.GeneratedItemsJson ?? DBNull.Value;
         cmd.Parameters.Add("rawEstimationResponse", NpgsqlDbType.Text).Value = (object?)job.RawEstimationResponse ?? DBNull.Value;
@@ -103,6 +106,7 @@ public class AssessmentJobStore
                                      aj.scope_document_mime_type,
                                      aj.original_template_json,
                                      aj.reference_assessments_json,
+                                     aj.reference_documents_json,
                                      aj.raw_generation_response,
                                      aj.generated_items_json,
                                      aj.raw_estimation_response,
@@ -142,6 +146,7 @@ public class AssessmentJobStore
                                   scope_document_mime_type=@scopeDocumentMimeType,
                                   original_template_json=@originalTemplateJson,
                                   reference_assessments_json=@referenceAssessmentsJson,
+                                  reference_documents_json=@referenceDocumentsJson,
                                   raw_generation_response=@rawGenerationResponse,
                                   generated_items_json=@generatedItemsJson,
                                   raw_estimation_response=@rawEstimationResponse,
@@ -162,6 +167,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("scopeDocumentMimeType", job.ScopeDocumentMimeType ?? string.Empty);
         cmd.Parameters.Add("originalTemplateJson", NpgsqlDbType.Text).Value = job.OriginalTemplateJson ?? string.Empty;
         cmd.Parameters.Add("referenceAssessmentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceAssessmentsJson ?? DBNull.Value;
+        cmd.Parameters.Add("referenceDocumentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceDocumentsJson ?? DBNull.Value;
         cmd.Parameters.Add("rawGenerationResponse", NpgsqlDbType.Text).Value = (object?)job.RawGenerationResponse ?? DBNull.Value;
         cmd.Parameters.Add("generatedItemsJson", NpgsqlDbType.Text).Value = (object?)job.GeneratedItemsJson ?? DBNull.Value;
         cmd.Parameters.Add("rawEstimationResponse", NpgsqlDbType.Text).Value = (object?)job.RawEstimationResponse ?? DBNull.Value;
@@ -248,14 +254,15 @@ public class AssessmentJobStore
             ScopeDocumentMimeType = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
             OriginalTemplateJson = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
             ReferenceAssessmentsJson = reader.IsDBNull(8) ? null : reader.GetString(8),
-            RawGenerationResponse = reader.IsDBNull(9) ? null : reader.GetString(9),
-            GeneratedItemsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
-            RawEstimationResponse = reader.IsDBNull(11) ? null : reader.GetString(11),
-            FinalAnalysisJson = reader.IsDBNull(12) ? null : reader.GetString(12),
-            LastError = reader.IsDBNull(13) ? null : reader.GetString(13),
-            CreatedAt = reader.IsDBNull(14) ? DateTime.UtcNow : reader.GetDateTime(14),
-            LastModifiedAt = reader.IsDBNull(15) ? DateTime.UtcNow : reader.GetDateTime(15),
-            TemplateName = reader.FieldCount > 16 && !reader.IsDBNull(16) ? reader.GetString(16) : string.Empty
+            ReferenceDocumentsJson = reader.IsDBNull(9) ? null : reader.GetString(9),
+            RawGenerationResponse = reader.IsDBNull(10) ? null : reader.GetString(10),
+            GeneratedItemsJson = reader.IsDBNull(11) ? null : reader.GetString(11),
+            RawEstimationResponse = reader.IsDBNull(12) ? null : reader.GetString(12),
+            FinalAnalysisJson = reader.IsDBNull(13) ? null : reader.GetString(13),
+            LastError = reader.IsDBNull(14) ? null : reader.GetString(14),
+            CreatedAt = reader.IsDBNull(15) ? DateTime.UtcNow : reader.GetDateTime(15),
+            LastModifiedAt = reader.IsDBNull(16) ? DateTime.UtcNow : reader.GetDateTime(16),
+            TemplateName = reader.FieldCount > 17 && !reader.IsDBNull(17) ? reader.GetString(17) : string.Empty
         };
     }
 

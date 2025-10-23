@@ -24,6 +24,7 @@ public class AssessmentJob
     public string ScopeDocumentMimeType { get; set; } = string.Empty;
     public string OriginalTemplateJson { get; set; } = string.Empty;
     public string? ReferenceAssessmentsJson { get; set; }
+    public string? ReferenceDocumentsJson { get; set; }
     public string? RawGenerationResponse { get; set; }
     public string? GeneratedItemsJson { get; set; }
     public string? RawEstimationResponse { get; set; }
@@ -152,4 +153,10 @@ public class SimilarAssessmentReference
     public string Status { get; set; } = "Draft";
     public double TotalHours { get; set; }
     public DateTime? LastModifiedAt { get; set; }
+}
+
+public class AssessmentReferenceDocument
+{
+    public string Source { get; set; } = string.Empty;
+    public string? Summary { get; set; }
 }

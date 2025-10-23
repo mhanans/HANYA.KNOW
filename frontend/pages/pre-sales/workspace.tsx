@@ -35,7 +35,9 @@ import {
   FormHelperText,
   IconButton,
   Tooltip,
+  CircularProgress,
 } from '@mui/material';
+import Autocomplete from '@mui/material/Autocomplete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import GetAppIcon from '@mui/icons-material/GetApp';
@@ -108,6 +110,13 @@ interface SimilarAssessmentReference {
   status: AssessmentStatus;
   totalHours: number;
   lastModifiedAt?: string;
+}
+
+interface KnowledgeDocumentOption {
+  source: string;
+  categoryId: number | null;
+  pages: number;
+  hasSummary: boolean;
 }
 
 interface AssessmentJob {
@@ -403,6 +412,10 @@ export default function AssessmentWorkspace() {
   const [similarLoading, setSimilarLoading] = useState(false);
   const [similarError, setSimilarError] = useState('');
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<number[]>([]);
+  const [availableDocuments, setAvailableDocuments] = useState<KnowledgeDocumentOption[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsError, setDocumentsError] = useState('');
+  const [selectedDocumentSources, setSelectedDocumentSources] = useState<string[]>([]);
   const [templateColumns, setTemplateColumns] = useState<string[]>([]);
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -645,12 +658,51 @@ export default function AssessmentWorkspace() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadDocuments = async () => {
+      setDocumentsLoading(true);
+      setDocumentsError('');
+      try {
+        const res = await apiFetch('/api/documents');
+        if (!res.ok) throw new Error(await res.text());
+        const data: KnowledgeDocumentOption[] = await res.json();
+        if (!cancelled) {
+          setAvailableDocuments(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAvailableDocuments([]);
+          const message = err instanceof Error ? err.message : 'Failed to load reference documents.';
+          setDocumentsError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setDocumentsLoading(false);
+        }
+      }
+    };
+
+    void loadDocuments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     void refreshSimilarAssessments();
   }, [refreshSimilarAssessments]);
 
   useEffect(() => {
     setSelectedReferenceIds(prev => prev.filter(id => similarAssessments.some(reference => reference.id === id)));
   }, [similarAssessments]);
+
+  useEffect(() => {
+    setSelectedDocumentSources(prev =>
+      prev.filter(source => availableDocuments.some(document => document.source === source))
+    );
+  }, [availableDocuments]);
 
   useEffect(() => {
     if (!selectedTemplate || typeof selectedTemplate !== 'number') {
@@ -872,6 +924,9 @@ export default function AssessmentWorkspace() {
       selectedReferenceIds.forEach(id => {
         formData.append('referenceAssessmentIds', String(id));
       });
+      selectedDocumentSources.forEach(source => {
+        formData.append('referenceDocumentSources', source);
+      });
       const res = await apiFetch('/api/assessment/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(await res.text());
       const job: AssessmentJob = await res.json();
@@ -1047,6 +1102,57 @@ export default function AssessmentWorkspace() {
                 Choose saved assessments to include as context for the AI estimation.
               </FormHelperText>
             </FormControl>
+
+            <Autocomplete
+              multiple
+              options={availableDocuments}
+              value={availableDocuments.filter(document => selectedDocumentSources.includes(document.source))}
+              onChange={(_, newValue) =>
+                setSelectedDocumentSources(newValue.map(option => option.source))
+              }
+              getOptionLabel={option => option.source}
+              disableCloseOnSelect
+              loading={documentsLoading}
+              isOptionEqualToValue={(option, value) => option.source === value.source}
+              filterSelectedOptions
+              sx={{ width: '100%' }}
+              renderOption={(props, option, { selected }) => (
+                <li {...props}>
+                  <Checkbox
+                    edge="start"
+                    checked={selected}
+                    tabIndex={-1}
+                    disableRipple
+                    sx={{ mr: 1 }}
+                  />
+                  <ListItemText
+                    primary={option.source}
+                    secondary={option.hasSummary ? 'Summary available' : `${option.pages} pages`}
+                  />
+                </li>
+              )}
+              renderInput={params => (
+                <TextField
+                  {...params}
+                  label="Reference Documents"
+                  placeholder="Search documents"
+                  error={Boolean(documentsError)}
+                  helperText={
+                    documentsError ||
+                    'Select knowledge base documents to include as additional AI context.'
+                  }
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {documentsLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
               <Button
