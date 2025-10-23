@@ -582,7 +582,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
             <Stack spacing={3}>
               <TextField
                 label="Template Name"
-                placeholder="AI Discovery Sprint"
+                placeholder="Insert Name Here"
                 value={template.templateName}
                 onChange={e => updateTemplate(prev => ({ ...prev, templateName: e.target.value }))}
                 fullWidth

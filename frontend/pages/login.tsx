@@ -233,7 +233,8 @@ export default function Login() {
 
         {ssoHost ? (
           <>
-            <div className="divider"><span>or</span></div>
+            <p></p>
+            <p className="login-subtitle">or</p>
             <form id="ssoLoginForm" ref={ssoFormRef} className="sso-form" onSubmit={event => event.preventDefault()}>
               <tam-sso
                 app={process.env.NEXT_PUBLIC_ACCELIST_SSO_APP_ID}

@@ -999,7 +999,7 @@ export default function AssessmentWorkspace() {
               <TextField
                 fullWidth
                 label="Project Name"
-                placeholder="AI Discovery Sprint"
+                placeholder="Input Project Name"
                 value={projectTitle}
                 onChange={event => setProjectTitle(event.target.value)}
               />
