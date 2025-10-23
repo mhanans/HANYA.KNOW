@@ -55,15 +55,17 @@ const CATEGORY_OPTIONS = [
   'Adjust Existing Logic',
 ] as const;
 
-type CategoryOption = (typeof CATEGORY_OPTIONS)[number];
-const DEFAULT_CATEGORY: CategoryOption = CATEGORY_OPTIONS[0];
+const EMPTY_CATEGORY = '' as const;
+
+type CategoryOption = typeof EMPTY_CATEGORY | (typeof CATEGORY_OPTIONS)[number];
+const DEFAULT_CATEGORY: CategoryOption = EMPTY_CATEGORY;
 
 const normalizeCategory = (value?: string | null): CategoryOption => {
-  if (!value) return DEFAULT_CATEGORY;
+  if (value === undefined || value === null) return EMPTY_CATEGORY;
   const trimmed = value.trim();
-  if (!trimmed) return DEFAULT_CATEGORY;
+  if (!trimmed) return EMPTY_CATEGORY;
   const match = CATEGORY_OPTIONS.find(option => option.toLowerCase() === trimmed.toLowerCase());
-  return match ?? DEFAULT_CATEGORY;
+  return match ?? EMPTY_CATEGORY;
 };
 
 interface ProjectTemplateMetadata {
@@ -299,10 +301,22 @@ function AssessmentTreeGrid({
                         fullWidth
                         size="small"
                         value={item.category}
+                        SelectProps={{
+                          displayEmpty: true,
+                          renderValue: value => {
+                            if (typeof value !== 'string' || !value) {
+                              return '';
+                            }
+                            return value;
+                          },
+                        }}
                         onChange={event =>
                           onItemCategoryChange(sectionIndex, itemIndex, normalizeCategory(event.target.value))
                         }
                       >
+                        <MenuItem value={EMPTY_CATEGORY}>
+                          <em>Select category</em>
+                        </MenuItem>
                         {CATEGORY_OPTIONS.map(option => (
                           <MenuItem key={option} value={option}>
                             {option}
