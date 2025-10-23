@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Backdrop,
   Card,
   CardContent,
   CardHeader,
   Chip,
+  CircularProgress,
   IconButton,
   LinearProgress,
   Stack,
@@ -56,8 +58,8 @@ interface ProjectAssessmentSummary {
 
 interface AssessmentHistoryProps {
   refreshToken: number;
-  onOpenJob?: (jobId: number) => void;
-  onOpenAssessment?: (assessmentId: number) => void;
+  onOpenJob?: (jobId: number) => void | Promise<void>;
+  onOpenAssessment?: (assessmentId: number) => void | Promise<void>;
 }
 
 const formatTimestamp = (value?: string) => {
@@ -103,6 +105,15 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
   const [assessmentsError, setAssessmentsError] = useState('');
   const [jobDeleting, setJobDeleting] = useState<number | null>(null);
   const [assessmentDeleting, setAssessmentDeleting] = useState<number | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigationError, setNavigationError] = useState('');
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const loadJobs = useCallback(async () => {
     setJobsLoading(true);
@@ -146,6 +157,50 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
     loadJobs();
     loadSavedAssessments();
   }, [loadJobs, loadSavedAssessments, refreshToken]);
+
+  const handleOpenJob = useCallback(
+    async (id: number) => {
+      if (!onOpenJob) return;
+      setNavigationError('');
+      setIsNavigating(true);
+      try {
+        await Promise.resolve(onOpenJob(id));
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Unable to open the workspace. Please try again.';
+        setNavigationError(message);
+      } finally {
+        if (isMountedRef.current) {
+          setIsNavigating(false);
+        }
+      }
+    },
+    [onOpenJob]
+  );
+
+  const handleOpenAssessment = useCallback(
+    async (id: number) => {
+      if (!onOpenAssessment) return;
+      setNavigationError('');
+      setIsNavigating(true);
+      try {
+        await Promise.resolve(onOpenAssessment(id));
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Unable to open the workspace. Please try again.';
+        setNavigationError(message);
+      } finally {
+        if (isMountedRef.current) {
+          setIsNavigating(false);
+        }
+      }
+    },
+    [onOpenAssessment]
+  );
 
   const deleteJob = useCallback(
     async (id: number) => {
@@ -230,7 +285,11 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                     {onOpenJob && (
                       <Tooltip title="Open in workspace">
                         <span>
-                          <IconButton color="primary" onClick={() => onOpenJob(row.id)}>
+                          <IconButton
+                            color="primary"
+                            onClick={() => handleOpenJob(row.id)}
+                            disabled={isNavigating}
+                          >
                             <LaunchIcon fontSize="small" />
                           </IconButton>
                         </span>
@@ -241,7 +300,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                         <IconButton
                           color="error"
                           onClick={() => deleteJob(row.id)}
-                          disabled={jobDeleting === row.id}
+                          disabled={jobDeleting === row.id || isNavigating}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -255,7 +314,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
         </Table>
       </TableContainer>
     );
-  }, [deleteJob, jobDeleting, jobs, onOpenJob]);
+  }, [deleteJob, handleOpenJob, isNavigating, jobDeleting, jobs, onOpenJob]);
 
   const savedContent = useMemo(() => {
     if (savedAssessments.length === 0) {
@@ -298,7 +357,11 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                     {onOpenAssessment && (
                       <Tooltip title="Open for editing">
                         <span>
-                          <IconButton color="primary" onClick={() => onOpenAssessment(row.id)}>
+                          <IconButton
+                            color="primary"
+                            onClick={() => handleOpenAssessment(row.id)}
+                            disabled={isNavigating}
+                          >
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </span>
@@ -309,7 +372,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                         <IconButton
                           color="error"
                           onClick={() => deleteAssessment(row.id)}
-                          disabled={assessmentDeleting === row.id}
+                          disabled={assessmentDeleting === row.id || isNavigating}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -323,37 +386,46 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
         </Table>
       </TableContainer>
     );
-  }, [assessmentDeleting, deleteAssessment, onOpenAssessment, savedAssessments]);
+  }, [assessmentDeleting, deleteAssessment, handleOpenAssessment, isNavigating, onOpenAssessment, savedAssessments]);
 
   return (
-    <Stack spacing={3}>
-      <Card>
-        <CardHeader
-          title="Assessment Jobs"
-          subheader="Monitor processing progress and reopen results in the workspace."
-        />
-        {jobsLoading && <LinearProgress />}
-        <CardContent>
-          <Stack spacing={2}>
-            {jobsError && <Alert severity="error">{jobsError}</Alert>}
-            {jobsContent}
-          </Stack>
-        </CardContent>
-      </Card>
+    <>
+      <Backdrop
+        open={isNavigating}
+        sx={{ color: '#fff', zIndex: theme => theme.zIndex.drawer + 1 }}
+      >
+        <CircularProgress color="inherit" />
+      </Backdrop>
+      <Stack spacing={3}>
+        {navigationError && <Alert severity="error">{navigationError}</Alert>}
+        <Card>
+          <CardHeader
+            title="Assessment Jobs"
+            subheader="Monitor processing progress and reopen results in the workspace."
+          />
+          {jobsLoading && <LinearProgress />}
+          <CardContent>
+            <Stack spacing={2}>
+              {jobsError && <Alert severity="error">{jobsError}</Alert>}
+              {jobsContent}
+            </Stack>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader
-          title="Saved Project Assessments"
-          subheader="Reuse completed assessments as reference material or edit them in the workspace."
-        />
-        {assessmentsLoading && <LinearProgress />}
-        <CardContent>
-          <Stack spacing={2}>
-            {assessmentsError && <Alert severity="error">{assessmentsError}</Alert>}
-            {savedContent}
-          </Stack>
-        </CardContent>
-      </Card>
-    </Stack>
+        <Card>
+          <CardHeader
+            title="Saved Project Assessments"
+            subheader="Reuse completed assessments as reference material or edit them in the workspace."
+          />
+          {assessmentsLoading && <LinearProgress />}
+          <CardContent>
+            <Stack spacing={2}>
+              {assessmentsError && <Alert severity="error">{assessmentsError}</Alert>}
+              {savedContent}
+            </Stack>
+          </CardContent>
+        </Card>
+      </Stack>
+    </>
   );
 }
