@@ -37,10 +37,30 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { apiFetch } from '../../lib/api';
 
+const CATEGORY_OPTIONS = [
+  'New UI',
+  'New Interface',
+  'New Backgrounder',
+  'Adjust Existing UI',
+  'Adjust Existing Logic',
+] as const;
+
+type CategoryOption = (typeof CATEGORY_OPTIONS)[number];
+const DEFAULT_CATEGORY: CategoryOption = CATEGORY_OPTIONS[0];
+
+const normalizeCategory = (value?: string | null): CategoryOption => {
+  if (!value) return DEFAULT_CATEGORY;
+  const trimmed = value.trim();
+  if (!trimmed) return DEFAULT_CATEGORY;
+  const match = CATEGORY_OPTIONS.find(option => option.toLowerCase() === trimmed.toLowerCase());
+  return match ?? DEFAULT_CATEGORY;
+};
+
 interface TemplateItem {
   itemId: string;
   itemName: string;
   itemDetail: string;
+  category: CategoryOption;
   uid?: string;
 }
 
@@ -73,6 +93,7 @@ const withGeneratedIds = (template: ProjectTemplate): ProjectTemplate => ({
     uid: section.uid ?? generateUid(),
     items: (section.items ?? []).map(item => ({
       ...item,
+      category: normalizeCategory(item.category),
       uid: item.uid ?? generateUid(),
     })),
   })),
@@ -268,6 +289,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
           itemId: generateItemId(),
           itemName: 'New Item',
           itemDetail: '',
+          category: DEFAULT_CATEGORY,
           uid: generateUid(),
         },
       ],
@@ -322,6 +344,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
         itemId: item.itemId,
         itemName: item.itemName,
         itemDetail: item.itemDetail,
+        category: item.category,
       })),
     })),
   });
@@ -829,6 +852,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                           <TableCell width={56}></TableCell>
                                           <TableCell width="30%">Item Name</TableCell>
                                           <TableCell>Item Detail</TableCell>
+                                          <TableCell width="20%">Category</TableCell>
                                           <TableCell align="right" width={120}>
                                             Actions
                                           </TableCell>
@@ -837,7 +861,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                       <TableBody>
                                         {section.items.length === 0 ? (
                                           <TableRow>
-                                            <TableCell colSpan={4}>
+                                            <TableCell colSpan={5}>
                                               <Typography variant="body2" color="text.secondary">
                                                 No items yet. Add items to this section to build your estimation grid.
                                               </Typography>
@@ -894,6 +918,27 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                                                     placeholder="Implement secure login, JWT, and password reset"
                                                     fullWidth
                                                   />
+                                                </TableCell>
+                                                <TableCell width="20%">
+                                                  <TextField
+                                                    select
+                                                    variant="outlined"
+                                                    size="small"
+                                                    value={item.category}
+                                                    onChange={e =>
+                                                      updateItem(sectionIndex, itemIndex, current => ({
+                                                        ...current,
+                                                        category: normalizeCategory(e.target.value),
+                                                      }))
+                                                    }
+                                                    fullWidth
+                                                  >
+                                                    {CATEGORY_OPTIONS.map(option => (
+                                                      <MenuItem key={option} value={option}>
+                                                        {option}
+                                                      </MenuItem>
+                                                    ))}
+                                                  </TextField>
                                                 </TableCell>
                                                 <TableCell align="right" width={120}>
                                                   <Stack direction="row" spacing={0.5} justifyContent="flex-end">

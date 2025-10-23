@@ -91,6 +91,7 @@ public class TemplateItem
     public string ItemId { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public string ItemDetail { get; set; } = string.Empty;
+    public string Category { get; set; } = "New UI";
 }
 
 public class ProjectTemplateMetadata
@@ -126,6 +127,7 @@ public class AssessmentItem
     public bool IsNeeded { get; set; }
     public string ItemName { get; set; } = string.Empty;
     public string ItemDetail { get; set; } = string.Empty;
+    public string Category { get; set; } = "New UI";
     public Dictionary<string, double?> Estimates { get; set; } = new();
 }
 
