@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AssessmentHistory from '../../components/pre-sales/AssessmentHistory';
@@ -7,6 +7,19 @@ import AssessmentHistory from '../../components/pre-sales/AssessmentHistory';
 export default function PresalesAiHistoryPage() {
   const router = useRouter();
   const [refreshToken, setRefreshToken] = useState(0);
+  const handleOpenJob = useCallback(
+    async (id: number) => {
+      await router.push({ pathname: '/pre-sales/workspace', query: { jobId: id } });
+    },
+    [router]
+  );
+
+  const handleOpenAssessment = useCallback(
+    async (id: number) => {
+      await router.push({ pathname: '/pre-sales/workspace', query: { assessmentId: id } });
+    },
+    [router]
+  );
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6 }}>
@@ -28,12 +41,8 @@ export default function PresalesAiHistoryPage() {
         </Box>
         <AssessmentHistory
           refreshToken={refreshToken}
-          onOpenJob={id =>
-            router.push({ pathname: '/pre-sales/workspace', query: { jobId: id } })
-          }
-          onOpenAssessment={id =>
-            router.push({ pathname: '/pre-sales/workspace', query: { assessmentId: id } })
-          }
+          onOpenJob={handleOpenJob}
+          onOpenAssessment={handleOpenAssessment}
         />
       </Stack>
     </Box>
