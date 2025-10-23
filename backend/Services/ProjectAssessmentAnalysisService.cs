@@ -19,6 +19,17 @@ namespace backend.Services;
 public class ProjectAssessmentAnalysisService
 {
     private static readonly Uri GeminiBaseUri = new("https://generativelanguage.googleapis.com/");
+    private static readonly string[] AllowedCategories =
+    {
+        "New UI",
+        "New Interface",
+        "New Backgrounder",
+        "Adjust Existing UI",
+        "Adjust Existing Logic"
+    };
+
+    private static readonly Dictionary<string, string> CategoryLookup = AllowedCategories
+        .ToDictionary(category => category, category => category, StringComparer.OrdinalIgnoreCase);
 
     private readonly ILogger<ProjectAssessmentAnalysisService> _logger;
     private readonly AssessmentJobStore _jobStore;
@@ -545,7 +556,8 @@ public class ProjectAssessmentAnalysisService
                 ItemId = $"ai-{Guid.NewGuid():N}",
                 SectionName = section.SectionName,
                 ItemName = response.ItemName.Trim(),
-                ItemDetail = response.ItemDetail?.Trim() ?? string.Empty
+                ItemDetail = response.ItemDetail?.Trim() ?? string.Empty,
+                Category = NormalizeCategory(response.Category)
             });
         }
 
@@ -590,7 +602,8 @@ public class ProjectAssessmentAnalysisService
                 {
                     ItemId = item.ItemId,
                     ItemName = item.ItemName,
-                    ItemDetail = item.ItemDetail
+                    ItemDetail = item.ItemDetail,
+                    Category = NormalizeCategory(item.Category)
                 }).ToList()
             };
 
@@ -606,7 +619,8 @@ public class ProjectAssessmentAnalysisService
                     {
                         ItemId = addition.ItemId,
                         ItemName = addition.ItemName,
-                        ItemDetail = addition.ItemDetail
+                        ItemDetail = addition.ItemDetail,
+                        Category = NormalizeCategory(addition.Category)
                     });
                 }
             }
@@ -719,7 +733,8 @@ public class ProjectAssessmentAnalysisService
                 ExistingItems = s.Items.Select(item => new GenerationPromptItem
                 {
                     ItemName = item.ItemName,
-                    ItemDetail = item.ItemDetail
+                    ItemDetail = item.ItemDetail,
+                    Category = NormalizeCategory(item.Category)
                 }).ToList()
             })
             .ToList();
@@ -732,8 +747,9 @@ public class ProjectAssessmentAnalysisService
 
         var instructions =
             "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
+        var categoryGuidance = string.Join(", ", AllowedCategories);
         var outputRules =
-            """Return ONLY a valid JSON array using the schema [{"itemName":"...","itemDetail":"..."}]. Each itemName must be a concise feature title and itemDetail should be a short sentence describing the expected work. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.""";
+            $"""Return ONLY a valid JSON array using the schema [{{"itemName":"...","itemDetail":"...","category":"..."}}]. Each itemName must be a concise feature title, itemDetail should be a short sentence describing the expected work, and category must be one of: {categoryGuidance}. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.""";
 
         return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(context, _serializationOptions)}\\n\\n{outputRules}";
     }
@@ -751,7 +767,8 @@ public class ProjectAssessmentAnalysisService
                 {
                     ItemId = item.ItemId,
                     ItemName = item.ItemName,
-                    ItemDetail = item.ItemDetail
+                    ItemDetail = item.ItemDetail,
+                    Category = NormalizeCategory(item.Category)
                 }).ToList()
             }).ToList(),
             SimilarAssessments = BuildPromptReferences(references, template.EstimationColumns ?? new List<string>())
@@ -886,6 +903,22 @@ public class ProjectAssessmentAnalysisService
         return trimmed.Trim();
     }
 
+    private static string NormalizeCategory(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return AllowedCategories[0];
+        }
+
+        var trimmed = value.Trim();
+        if (CategoryLookup.TryGetValue(trimmed, out var normalized))
+        {
+            return normalized;
+        }
+
+        return AllowedCategories[0];
+    }
+
     private static ProjectAssessment BuildAssessmentFromAnalysis(
         ProjectTemplate template,
         int requestedTemplateId,
@@ -938,6 +971,7 @@ public class ProjectAssessmentAnalysisService
                     ItemId = templateItem.ItemId,
                     ItemName = templateItem.ItemName,
                     ItemDetail = templateItem.ItemDetail,
+                    Category = NormalizeCategory(templateItem.Category),
                     IsNeeded = true,
                     Estimates = estimates
                 };
@@ -1009,6 +1043,7 @@ public class ProjectAssessmentAnalysisService
                         ItemId = item.ItemId ?? string.Empty,
                         ItemName = item.ItemName ?? string.Empty,
                         ItemDetail = item.ItemDetail ?? string.Empty,
+                        Category = NormalizeCategory(item.Category),
                         IsNeeded = true,
                         Estimates = estimates
                     });
@@ -1065,6 +1100,9 @@ public class ProjectAssessmentAnalysisService
 
         [JsonPropertyName("itemDetail")]
         public string? ItemDetail { get; set; }
+
+        [JsonPropertyName("category")]
+        public string? Category { get; set; }
     }
 
     private sealed class GeneratedAssessmentItem
@@ -1073,6 +1111,7 @@ public class ProjectAssessmentAnalysisService
         public string SectionName { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
         public string ItemDetail { get; set; } = string.Empty;
+        public string Category { get; set; } = AllowedCategories[0];
     }
 
     private sealed class GenerationPromptContext
@@ -1091,6 +1130,7 @@ public class ProjectAssessmentAnalysisService
     {
         public string ItemName { get; set; } = string.Empty;
         public string ItemDetail { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
     }
 
     private sealed class GenerateContentPayload
@@ -1163,6 +1203,7 @@ public class ProjectAssessmentAnalysisService
         public string ItemId { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
         public string ItemDetail { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
     }
 
     private sealed class PromptReference
@@ -1184,6 +1225,7 @@ public class ProjectAssessmentAnalysisService
         public string ItemId { get; set; } = string.Empty;
         public string ItemName { get; set; } = string.Empty;
         public string ItemDetail { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
         public bool IsNeeded { get; set; }
         public Dictionary<string, double?> Estimates { get; set; } = new();
     }

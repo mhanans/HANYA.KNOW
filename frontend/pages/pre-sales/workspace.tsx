@@ -47,6 +47,25 @@ import { apiFetch } from '../../lib/api';
 import Swal from 'sweetalert2';
 import { SelectChangeEvent } from '@mui/material/Select';
 
+const CATEGORY_OPTIONS = [
+  'New UI',
+  'New Interface',
+  'New Backgrounder',
+  'Adjust Existing UI',
+  'Adjust Existing Logic',
+] as const;
+
+type CategoryOption = (typeof CATEGORY_OPTIONS)[number];
+const DEFAULT_CATEGORY: CategoryOption = CATEGORY_OPTIONS[0];
+
+const normalizeCategory = (value?: string | null): CategoryOption => {
+  if (!value) return DEFAULT_CATEGORY;
+  const trimmed = value.trim();
+  if (!trimmed) return DEFAULT_CATEGORY;
+  const match = CATEGORY_OPTIONS.find(option => option.toLowerCase() === trimmed.toLowerCase());
+  return match ?? DEFAULT_CATEGORY;
+};
+
 interface ProjectTemplateMetadata {
   id: number;
   templateName: string;
@@ -56,6 +75,7 @@ interface AssessmentItem {
   itemId: string;
   itemName: string;
   itemDetail?: string;
+  category: CategoryOption;
   isNeeded: boolean;
   estimates: Record<string, number | null>;
 }
@@ -120,6 +140,7 @@ const normalizeAssessment = (assessment: ProjectAssessment): ProjectAssessment =
       ...item,
       itemName: item.itemName ?? '',
       itemDetail: item.itemDetail ?? '',
+      category: normalizeCategory(item.category),
       isNeeded: true,
       estimates: item.estimates ?? {},
     })),
@@ -162,6 +183,7 @@ interface TemplateItem {
   itemId: string;
   itemName: string;
   itemDetail: string;
+  category: CategoryOption;
 }
 
 interface AssessmentTreeGridProps {
@@ -172,6 +194,7 @@ interface AssessmentTreeGridProps {
   onEstimateChange: (sectionIndex: number, itemIndex: number, column: string, value: number | null) => void;
   onItemNameChange: (sectionIndex: number, itemIndex: number, value: string) => void;
   onItemDetailChange: (sectionIndex: number, itemIndex: number, value: string) => void;
+  onItemCategoryChange: (sectionIndex: number, itemIndex: number, value: CategoryOption) => void;
   onRemoveItem: (sectionIndex: number, itemIndex: number) => void;
   onAddItem: (sectionIndex: number) => void;
   computeItemTotal: (item: AssessmentItem) => number;
@@ -185,6 +208,7 @@ function AssessmentTreeGrid({
   onEstimateChange,
   onItemNameChange,
   onItemDetailChange,
+  onItemCategoryChange,
   onRemoveItem,
   onAddItem,
   computeItemTotal,
@@ -232,15 +256,16 @@ function AssessmentTreeGrid({
             <AccordionDetails>
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Item Name</TableCell>
-                      <TableCell>Detail</TableCell>
-                      {estimationColumns.map(column => (
-                        <TableCell key={column} align="right">{column}</TableCell>
-                      ))}
-                      <TableCell align="right">Total Hours</TableCell>
-                      <TableCell align="center">Actions</TableCell>
+          <TableHead>
+            <TableRow>
+              <TableCell>Item Name</TableCell>
+              <TableCell>Detail</TableCell>
+              <TableCell>Category</TableCell>
+              {estimationColumns.map(column => (
+                <TableCell key={column} align="right">{column}</TableCell>
+              ))}
+              <TableCell align="right">Total Hours</TableCell>
+              <TableCell align="center">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -261,18 +286,35 @@ function AssessmentTreeGrid({
                             <TextField
                               fullWidth
                               size="small"
-                              value={item.itemDetail ?? ''}
-                              onChange={event => onItemDetailChange(sectionIndex, itemIndex, event.target.value)}
-                              placeholder="Additional details"
-                              multiline
-                              minRows={1}
-                            />
-                          </TableCell>
-                          {estimationColumns.map(column => (
-                            <TableCell key={column} align="right">
-                              <TextField
-                                size="small"
-                                type="number"
+                        value={item.itemDetail ?? ''}
+                        onChange={event => onItemDetailChange(sectionIndex, itemIndex, event.target.value)}
+                        placeholder="Additional details"
+                        multiline
+                        minRows={1}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 200 }}>
+                      <TextField
+                        select
+                        fullWidth
+                        size="small"
+                        value={item.category}
+                        onChange={event =>
+                          onItemCategoryChange(sectionIndex, itemIndex, normalizeCategory(event.target.value))
+                        }
+                      >
+                        {CATEGORY_OPTIONS.map(option => (
+                          <MenuItem key={option} value={option}>
+                            {option}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </TableCell>
+                    {estimationColumns.map(column => (
+                      <TableCell key={column} align="right">
+                        <TextField
+                          size="small"
+                          type="number"
                                 inputProps={{ min: 0, step: 0.25 }}
                                 value={item.estimates[column] ?? ''}
                                 onChange={(event: ChangeEvent<HTMLInputElement>) => {
@@ -303,17 +345,17 @@ function AssessmentTreeGrid({
                                 </IconButton>
                               </span>
                             </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    <TableRow>
-                      <TableCell colSpan={estimationColumns.length + 4}>
-                        <Button
-                          startIcon={<AddCircleOutlineIcon />}
-                          size="small"
-                          onClick={() => onAddItem(sectionIndex)}
-                        >
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              <TableRow>
+                <TableCell colSpan={estimationColumns.length + 5}>
+                  <Button
+                    startIcon={<AddCircleOutlineIcon />}
+                    size="small"
+                    onClick={() => onAddItem(sectionIndex)}
+                  >
                           Add Item
                         </Button>
                       </TableCell>
@@ -749,6 +791,13 @@ export default function AssessmentWorkspace() {
     }));
   };
 
+  const onItemCategoryChange = (sectionIndex: number, itemIndex: number, value: CategoryOption) => {
+    updateItem(sectionIndex, itemIndex, item => ({
+      ...item,
+      category: value,
+    }));
+  };
+
   const onRemoveItem = (sectionIndex: number, itemIndex: number) => {
     updateAssessment(current => ({
       ...current,
@@ -769,6 +818,7 @@ export default function AssessmentWorkspace() {
         itemId: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         itemName: '',
         itemDetail: '',
+        category: DEFAULT_CATEGORY,
         isNeeded: true,
         estimates: columns.reduce<Record<string, number | null>>((acc, column) => {
           acc[column] = null;
@@ -1068,6 +1118,7 @@ export default function AssessmentWorkspace() {
                 onEstimateChange={onEstimateChange}
                 onItemNameChange={onItemNameChange}
                 onItemDetailChange={onItemDetailChange}
+                onItemCategoryChange={onItemCategoryChange}
                 onRemoveItem={onRemoveItem}
                 onAddItem={onAddItem}
                 computeItemTotal={computeItemTotal}

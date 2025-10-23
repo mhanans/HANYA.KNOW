@@ -280,10 +280,12 @@ public class AssessmentController : ControllerBase
         }
 
         var headerRowNumber = 4;
-        var headers = new List<string> { "Section", "Item", "Detail" };
+        var headers = new List<string> { "Section", "Item", "Detail", "Category" };
         headers.AddRange(columns);
         headers.Add("Total Manhours");
         var totalColumnCount = headers.Count;
+        var categoryColumnIndex = headers.IndexOf("Category") + 1;
+        var firstEstimateColumnIndex = categoryColumnIndex + 1;
 
         for (var index = 0; index < headers.Count; index++)
         {
@@ -302,8 +304,9 @@ public class AssessmentController : ControllerBase
         worksheet.Column(2).Width = 30;
         worksheet.Column(3).Width = 50;
         worksheet.Column(3).Style.Alignment.WrapText = true;
+        worksheet.Column(categoryColumnIndex).Width = 25;
 
-        for (var columnIndex = 4; columnIndex <= totalColumnCount; columnIndex++)
+        for (var columnIndex = firstEstimateColumnIndex; columnIndex <= totalColumnCount; columnIndex++)
         {
             worksheet.Column(columnIndex).Width = 15;
         }
@@ -333,6 +336,7 @@ public class AssessmentController : ControllerBase
             {
                 worksheet.Cell(currentRow, 2).Value = item.ItemName ?? string.Empty;
                 worksheet.Cell(currentRow, 3).Value = item.ItemDetail ?? string.Empty;
+                worksheet.Cell(currentRow, categoryColumnIndex).Value = item.Category ?? string.Empty;
 
                 double itemTotal = 0;
                 var estimates = item.Estimates ?? new Dictionary<string, double?>();
@@ -343,7 +347,7 @@ public class AssessmentController : ControllerBase
                     var hours = value ?? 0;
                     if (value.HasValue)
                     {
-                        worksheet.Cell(currentRow, 4 + index).Value = value.Value;
+                        worksheet.Cell(currentRow, firstEstimateColumnIndex + index).Value = value.Value;
                     }
 
                     sectionTotals[columnName] += hours;
@@ -360,6 +364,7 @@ public class AssessmentController : ControllerBase
                 worksheet.Cell(currentRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
                 worksheet.Cell(currentRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
                 worksheet.Cell(currentRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+                worksheet.Cell(currentRow, categoryColumnIndex).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
                 currentRow++;
             }
@@ -367,10 +372,11 @@ public class AssessmentController : ControllerBase
             worksheet.Cell(currentRow, 1).Value = $"{section.SectionName ?? string.Empty} · Total";
             worksheet.Cell(currentRow, 2).Value = "Totals";
             worksheet.Cell(currentRow, 3).Value = string.Empty;
+            worksheet.Cell(currentRow, categoryColumnIndex).Value = string.Empty;
 
             for (var index = 0; index < columns.Count; index++)
             {
-                worksheet.Cell(currentRow, 4 + index).Value = sectionTotals[columns[index]];
+                worksheet.Cell(currentRow, firstEstimateColumnIndex + index).Value = sectionTotals[columns[index]];
             }
 
             worksheet.Cell(currentRow, totalColumnIndex).Value = sectionTotalHours;
@@ -388,9 +394,10 @@ public class AssessmentController : ControllerBase
         worksheet.Cell(currentRow, 1).Value = "Grand Total";
         worksheet.Cell(currentRow, 2).Value = "Totals";
         worksheet.Cell(currentRow, 3).Value = string.Empty;
+        worksheet.Cell(currentRow, categoryColumnIndex).Value = string.Empty;
         for (var index = 0; index < columns.Count; index++)
         {
-            worksheet.Cell(currentRow, 4 + index).Value = grandTotals[columns[index]];
+            worksheet.Cell(currentRow, firstEstimateColumnIndex + index).Value = grandTotals[columns[index]];
         }
 
         worksheet.Cell(currentRow, totalColumnIndex).Value = grandTotalHours;
