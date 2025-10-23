@@ -91,6 +91,7 @@ public class ProjectAssessmentAnalysisService
         string projectName,
         IFormFile scopeDocument,
         IReadOnlyList<ProjectAssessment>? referenceAssessments,
+        IReadOnlyList<AssessmentReferenceDocument>? referenceDocuments,
         CancellationToken cancellationToken)
     {
         if (scopeDocument == null)
@@ -111,6 +112,9 @@ public class ProjectAssessmentAnalysisService
             OriginalTemplateJson = JsonSerializer.Serialize(template, _serializationOptions),
             ReferenceAssessmentsJson = referenceAssessments?.Count > 0
                 ? JsonSerializer.Serialize(referenceAssessments, _serializationOptions)
+                : null,
+            ReferenceDocumentsJson = referenceDocuments?.Count > 0
+                ? JsonSerializer.Serialize(referenceDocuments, _serializationOptions)
                 : null
         };
 
@@ -346,7 +350,8 @@ public class ProjectAssessmentAnalysisService
 
             var template = JsonSerializer.Deserialize<ProjectTemplate>(job.OriginalTemplateJson, _deserializationOptions) ?? new ProjectTemplate();
             var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
-            var request = BuildItemGenerationRequest(template, job.ProjectName, documentPart);
+            var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
+            var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, documentPart);
 
             _logger.LogInformation("Starting item generation step for job {JobId}", jobId);
             var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
@@ -413,8 +418,9 @@ public class ProjectAssessmentAnalysisService
             var generatedItems = DeserializeGeneratedItems(job.GeneratedItemsJson);
             var augmentedTemplate = BuildAugmentedTemplate(template, generatedItems);
             var references = DeserializeReferences(job.ReferenceAssessmentsJson, _deserializationOptions);
+            var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
             var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
-            var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, documentPart);
+            var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, documentPart);
 
             _logger.LogInformation("Starting effort estimation step for job {JobId}", jobId);
             var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
@@ -648,6 +654,37 @@ public class ProjectAssessmentAnalysisService
         }
     }
 
+    private static List<AssessmentReferenceDocument> DeserializeReferenceDocuments(
+        string? json,
+        JsonSerializerOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new List<AssessmentReferenceDocument>();
+        }
+
+        try
+        {
+            var documents = JsonSerializer.Deserialize<List<AssessmentReferenceDocument>>(json, options)
+                           ?? new List<AssessmentReferenceDocument>();
+            return documents
+                .Where(document =>
+                    document != null &&
+                    !string.IsNullOrWhiteSpace(document.Source) &&
+                    !string.IsNullOrWhiteSpace(document.Summary))
+                .Select(document => new AssessmentReferenceDocument
+                {
+                    Source = document.Source!.Trim(),
+                    Summary = document.Summary!.Trim()
+                })
+                .ToList();
+        }
+        catch
+        {
+            return new List<AssessmentReferenceDocument>();
+        }
+    }
+
     private async Task<(string Path, string MimeType)> StoreDocumentAsync(IFormFile file, CancellationToken cancellationToken)
     {
         var extension = Path.GetExtension(file.FileName);
@@ -677,9 +714,13 @@ public class ProjectAssessmentAnalysisService
         };
     }
 
-    private GenerateContentPayload BuildItemGenerationRequest(ProjectTemplate template, string projectName, GeminiPart documentPart)
+    private GenerateContentPayload BuildItemGenerationRequest(
+        ProjectTemplate template,
+        string projectName,
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
+        GeminiPart documentPart)
     {
-        var prompt = BuildItemGenerationPrompt(template, projectName);
+        var prompt = BuildItemGenerationPrompt(template, projectName, referenceDocuments);
         return new GenerateContentPayload
         {
             Contents = new List<GeminiContent>
@@ -700,9 +741,14 @@ public class ProjectAssessmentAnalysisService
         };
     }
 
-    private GenerateContentPayload BuildEffortEstimationRequest(ProjectTemplate template, string projectName, IReadOnlyList<ProjectAssessment> references, GeminiPart documentPart)
+    private GenerateContentPayload BuildEffortEstimationRequest(
+        ProjectTemplate template,
+        string projectName,
+        IReadOnlyList<ProjectAssessment> references,
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
+        GeminiPart documentPart)
     {
-        var prompt = BuildEffortEstimationPrompt(template, projectName, references);
+        var prompt = BuildEffortEstimationPrompt(template, projectName, references, referenceDocuments);
         return new GenerateContentPayload
         {
             Contents = new List<GeminiContent>
@@ -723,7 +769,10 @@ public class ProjectAssessmentAnalysisService
         };
     }
 
-    private string BuildItemGenerationPrompt(ProjectTemplate template, string projectName)
+    private string BuildItemGenerationPrompt(
+        ProjectTemplate template,
+        string projectName,
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments)
     {
         var sections = template.Sections
             .Where(s => string.Equals(s.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
@@ -742,11 +791,16 @@ public class ProjectAssessmentAnalysisService
         var context = new GenerationPromptContext
         {
             ProjectName = projectName,
-            Sections = sections
+            Sections = sections,
+            ReferenceDocuments = BuildGenerationPromptDocuments(referenceDocuments)
         };
 
         var instructions =
             "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
+        if (context.ReferenceDocuments.Count > 0)
+        {
+            instructions += " Leverage the provided knowledge base summaries when they clarify requirements or provide helpful precedents.";
+        }
         var categoryGuidance = string.Join(", ", AllowedCategories);
         var outputRules =
             $"""Return ONLY a valid JSON array using the schema [{{"itemName":"...","itemDetail":"...","category":"..."}}]. Each itemName must be a concise feature title, itemDetail should be a detailed feature describing the expected work(can include what feature(CRUD, Upload, Download), data/ field that will be showed/ managed, etc), and category must be one of: {categoryGuidance}. Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.""";
@@ -754,7 +808,45 @@ public class ProjectAssessmentAnalysisService
         return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(context, _serializationOptions)}\\n\\n{outputRules}";
     }
 
-    private string BuildEffortEstimationPrompt(ProjectTemplate template, string projectName, IReadOnlyList<ProjectAssessment> references)
+    private static List<GenerationPromptDocument> BuildGenerationPromptDocuments(
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments)
+    {
+        if (referenceDocuments == null || referenceDocuments.Count == 0)
+        {
+            return new List<GenerationPromptDocument>();
+        }
+
+        var results = new List<GenerationPromptDocument>(referenceDocuments.Count);
+        foreach (var document in referenceDocuments)
+        {
+            if (document == null)
+            {
+                continue;
+            }
+
+            var source = document.Source?.Trim();
+            var summary = document.Summary?.Trim();
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(summary))
+            {
+                continue;
+            }
+
+            results.Add(new GenerationPromptDocument
+            {
+                Source = source,
+                Summary = summary
+            });
+        }
+
+        return results;
+    }
+
+
+    private string BuildEffortEstimationPrompt(
+        ProjectTemplate template,
+        string projectName,
+        IReadOnlyList<ProjectAssessment> references,
+        IReadOnlyList<AssessmentReferenceDocument> referenceDocuments)
     {
         var payload = new PromptPayload
         {
@@ -771,18 +863,28 @@ public class ProjectAssessmentAnalysisService
                     Category = NormalizeCategory(item.Category)
                 }).ToList()
             }).ToList(),
-            SimilarAssessments = BuildPromptReferences(references, template.EstimationColumns ?? new List<string>())
+            SimilarAssessments = BuildPromptReferences(references, template.EstimationColumns ?? new List<string>()),
+            ReferenceDocuments = BuildPromptDocuments(referenceDocuments)
         };
 
         var instructions =
             "You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.";
+        if (payload.ReferenceDocuments.Count > 0)
+        {
+            instructions += " Consider the supplied knowledge base summaries when they add relevant background or precedent.";
+        }
+        if (payload.SimilarAssessments.Count > 0)
+        {
+            instructions += " Use the similar assessment history to calibrate whether items are typically in scope and the scale of effort required for comparable projects.";
+        }
         var outputRules =
             """Respond ONLY with a JSON object using the schema {"items":[{"itemId":string,"isNeeded":bool,"estimates":{"<column>":number|null}}]}.""";
         var estimationGuidance =
             "Set isNeeded to true when the scope clearly requires the capability. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items.";
 
-        return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(payload, _serializationOptions)}\\n\\n{outputRules}\\n{estimationGuidance}";
+        return $"{instructions}\n\nProject Context:\n{JsonSerializer.Serialize(payload, _serializationOptions)}\n\n{outputRules}\n{estimationGuidance}";
     }
+
     private async Task<string> RepairJsonAsync(string invalidJson, CancellationToken cancellationToken)
     {
         var prompt = "Correct any syntax errors in the following text to make it a perfectly valid JSON object. Do not alter the data or content within the JSON structure. Respond ONLY with the corrected JSON object.";
@@ -994,6 +1096,38 @@ public class ProjectAssessmentAnalysisService
         };
     }
 
+    private static List<PromptDocumentContext> BuildPromptDocuments(IReadOnlyList<AssessmentReferenceDocument> documents)
+    {
+        if (documents == null || documents.Count == 0)
+        {
+            return new List<PromptDocumentContext>();
+        }
+
+        var results = new List<PromptDocumentContext>(documents.Count);
+        foreach (var document in documents)
+        {
+            if (document == null)
+            {
+                continue;
+            }
+
+            var source = document.Source?.Trim();
+            var summary = document.Summary?.Trim();
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(summary))
+            {
+                continue;
+            }
+
+            results.Add(new PromptDocumentContext
+            {
+                Source = source,
+                Summary = summary
+            });
+        }
+
+        return results;
+    }
+
     private static List<PromptReference> BuildPromptReferences(IReadOnlyList<ProjectAssessment> references, IReadOnlyList<string> estimationColumns)
     {
         if (references == null || references.Count == 0)
@@ -1044,7 +1178,7 @@ public class ProjectAssessmentAnalysisService
                         ItemName = item.ItemName ?? string.Empty,
                         ItemDetail = item.ItemDetail ?? string.Empty,
                         Category = NormalizeCategory(item.Category),
-                        IsNeeded = true,
+                        IsNeeded = item.IsNeeded,
                         Estimates = estimates
                     });
                 }
@@ -1118,12 +1252,19 @@ public class ProjectAssessmentAnalysisService
     {
         public string ProjectName { get; set; } = string.Empty;
         public List<GenerationPromptSection> Sections { get; set; } = new();
+        public List<GenerationPromptDocument> ReferenceDocuments { get; set; } = new();
     }
 
     private sealed class GenerationPromptSection
     {
         public string SectionName { get; set; } = string.Empty;
         public List<GenerationPromptItem> ExistingItems { get; set; } = new();
+    }
+
+    private sealed class GenerationPromptDocument
+    {
+        public string Source { get; set; } = string.Empty;
+        public string Summary { get; set; } = string.Empty;
     }
 
     private sealed class GenerationPromptItem
@@ -1190,6 +1331,7 @@ public class ProjectAssessmentAnalysisService
         public List<string> EstimationColumns { get; set; } = new();
         public List<PromptSection> Sections { get; set; } = new();
         public List<PromptReference> SimilarAssessments { get; set; } = new();
+        public List<PromptDocumentContext> ReferenceDocuments { get; set; } = new();
     }
 
     private sealed class PromptSection
@@ -1212,6 +1354,12 @@ public class ProjectAssessmentAnalysisService
         public string Status { get; set; } = string.Empty;
         public double TotalHours { get; set; }
         public List<PromptReferenceSection> Sections { get; set; } = new();
+    }
+
+    private sealed class PromptDocumentContext
+    {
+        public string Source { get; set; } = string.Empty;
+        public string Summary { get; set; } = string.Empty;
     }
 
     private sealed class PromptReferenceSection

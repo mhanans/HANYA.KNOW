@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
+using System.Threading;
 using backend.Models;
 using backend.Middleware;
 using backend.Services;
@@ -19,17 +20,20 @@ public class AssessmentController : ControllerBase
     private readonly ProjectTemplateStore _templates;
     private readonly ProjectAssessmentStore _assessments;
     private readonly ProjectAssessmentAnalysisService _analysisService;
+    private readonly VectorStore _vectorStore;
     private readonly ILogger<AssessmentController> _logger;
 
     public AssessmentController(
         ProjectTemplateStore templates,
         ProjectAssessmentStore assessments,
         ProjectAssessmentAnalysisService analysisService,
+        VectorStore vectorStore,
         ILogger<AssessmentController> logger)
     {
         _templates = templates;
         _assessments = assessments;
         _analysisService = analysisService;
+        _vectorStore = vectorStore;
         _logger = logger;
     }
 
@@ -69,6 +73,8 @@ public class AssessmentController : ControllerBase
             referenceAssessments = await _assessments.GetRecentAsync(userIdValue, limit: 3);
         }
 
+        var referenceDocuments = await LoadReferenceDocumentsAsync(request.ReferenceDocumentSources, HttpContext.RequestAborted);
+
         try
         {
             var job = await _analysisService.AnalyzeAsync(
@@ -77,6 +83,7 @@ public class AssessmentController : ControllerBase
                 request.ProjectName ?? string.Empty,
                 request.File!,
                 referenceAssessments,
+                referenceDocuments,
                 HttpContext.RequestAborted);
 
             return Ok(job);
@@ -95,6 +102,62 @@ public class AssessmentController : ControllerBase
             _logger.LogError(ex, "Unexpected error running AI analysis for template {TemplateId}", request.TemplateId);
             return StatusCode(StatusCodes.Status500InternalServerError, "Failed to analyze the scope document due to an unexpected server error.");
         }
+    }
+
+    private async Task<IReadOnlyList<AssessmentReferenceDocument>> LoadReferenceDocumentsAsync(
+        IEnumerable<string> sources,
+        CancellationToken cancellationToken)
+    {
+        var distinct = sources
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .Select(source => source.Trim())
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .Distinct(System.StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinct.Count == 0)
+        {
+            return Array.Empty<AssessmentReferenceDocument>();
+        }
+
+        var documents = new List<AssessmentReferenceDocument>(distinct.Count);
+        foreach (var source in distinct)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string? summary = null;
+            try
+            {
+                summary = await _vectorStore.GetDocumentSummaryAsync(source).ConfigureAwait(false);
+            }
+            catch
+            {
+                summary = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(summary))
+            {
+                try
+                {
+                    summary = await _vectorStore.GetDocumentPreviewAsync(source).ConfigureAwait(false);
+                }
+                catch
+                {
+                    summary = null;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(summary))
+            {
+                documents.Add(new AssessmentReferenceDocument
+                {
+                    Source = source,
+                    Summary = summary
+                });
+            }
+        }
+
+        return documents;
     }
 
     [HttpDelete("jobs/{jobId}")]
@@ -461,4 +524,5 @@ public class AssessmentAnalyzeRequest
     public IFormFile? File { get; set; }
     public string? ProjectName { get; set; }
     public List<int> ReferenceAssessmentIds { get; set; } = new();
+    public List<string> ReferenceDocumentSources { get; set; } = new();
 }

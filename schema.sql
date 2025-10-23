@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS assessment_jobs (
     scope_document_mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
     original_template_json TEXT NOT NULL,
     reference_assessments_json TEXT,
+    reference_documents_json TEXT,
     raw_generation_response TEXT,
     generated_items_json TEXT,
     raw_estimation_response TEXT,
