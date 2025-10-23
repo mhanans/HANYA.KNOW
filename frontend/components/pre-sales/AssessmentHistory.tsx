@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
 import {
   Alert,
   Backdrop,
@@ -97,6 +98,7 @@ const getStatusColor = (status: AssessmentJobSummary['status']) => {
 };
 
 export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAssessment }: AssessmentHistoryProps) {
+  const router = useRouter();
   const [jobs, setJobs] = useState<AssessmentJobSummary[]>([]);
   const [savedAssessments, setSavedAssessments] = useState<ProjectAssessmentSummary[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
@@ -114,6 +116,37 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    const handleNavigationComplete = () => {
+      if (isMountedRef.current) {
+        setIsNavigating(false);
+      }
+    };
+
+    const handleNavigationError = (error: unknown) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      setIsNavigating(false);
+      if (!navigationError) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : 'Unable to open the workspace. Please try again.';
+        setNavigationError(message);
+      }
+    };
+
+    router.events.on('routeChangeComplete', handleNavigationComplete);
+    router.events.on('routeChangeError', handleNavigationError);
+
+    return () => {
+      router.events.off('routeChangeComplete', handleNavigationComplete);
+      router.events.off('routeChangeError', handleNavigationError);
+    };
+  }, [navigationError, router.events]);
 
   const loadJobs = useCallback(async () => {
     setJobsLoading(true);
@@ -164,17 +197,20 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
       setNavigationError('');
       setIsNavigating(true);
       try {
-        await Promise.resolve(onOpenJob(id));
+        const result = await Promise.resolve(onOpenJob(id));
+        if (result === false) {
+          throw new Error('Navigation was cancelled.');
+        }
       } catch (err) {
         const message =
           err instanceof Error && err.message
             ? err.message
             : 'Unable to open the workspace. Please try again.';
         setNavigationError(message);
-      } finally {
         if (isMountedRef.current) {
           setIsNavigating(false);
         }
+      } finally {
       }
     },
     [onOpenJob]
@@ -186,17 +222,20 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
       setNavigationError('');
       setIsNavigating(true);
       try {
-        await Promise.resolve(onOpenAssessment(id));
+        const result = await Promise.resolve(onOpenAssessment(id));
+        if (result === false) {
+          throw new Error('Navigation was cancelled.');
+        }
       } catch (err) {
         const message =
           err instanceof Error && err.message
             ? err.message
             : 'Unable to open the workspace. Please try again.';
         setNavigationError(message);
-      } finally {
         if (isMountedRef.current) {
           setIsNavigating(false);
         }
+      } finally {
       }
     },
     [onOpenAssessment]
@@ -390,7 +429,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
     <>
       <Backdrop
         open={isNavigating}
-        sx={{ color: '#fff', zIndex: theme => theme.zIndex.drawer + 1 }}
+        sx={{ color: '#fff', zIndex: theme => theme.zIndex.modal + 1 }}
       >
         <CircularProgress color="inherit" />
       </Backdrop>
