@@ -29,6 +29,7 @@ public class AssessmentJobStore
         const string sql = @"INSERT INTO assessment_jobs (
                                     project_name,
                                     template_id,
+                                    analysis_mode,
                                     status,
                                     step,
                                     scope_document_path,
@@ -46,6 +47,7 @@ public class AssessmentJobStore
                                 VALUES (
                                     @projectName,
                                     @templateId,
+                                    @analysisMode,
                                     @status,
                                     @step,
                                     @scopeDocumentPath,
@@ -67,6 +69,7 @@ public class AssessmentJobStore
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("projectName", job.ProjectName ?? string.Empty);
         cmd.Parameters.AddWithValue("templateId", job.TemplateId);
+        cmd.Parameters.AddWithValue("analysisMode", job.AnalysisMode.ToString());
         cmd.Parameters.AddWithValue("status", job.Status.ToString());
         cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
@@ -100,6 +103,7 @@ public class AssessmentJobStore
         const string sql = @"SELECT aj.id,
                                      aj.project_name,
                                      aj.template_id,
+                                     aj.analysis_mode,
                                      aj.status,
                                      aj.step,
                                      aj.scope_document_path,
@@ -140,6 +144,7 @@ public class AssessmentJobStore
         const string sql = @"UPDATE assessment_jobs
                               SET project_name=@projectName,
                                   template_id=@templateId,
+                                  analysis_mode=@analysisMode,
                                   status=@status,
                                   step=@step,
                                   scope_document_path=@scopeDocumentPath,
@@ -161,6 +166,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("id", job.Id);
         cmd.Parameters.AddWithValue("projectName", job.ProjectName ?? string.Empty);
         cmd.Parameters.AddWithValue("templateId", job.TemplateId);
+        cmd.Parameters.AddWithValue("analysisMode", job.AnalysisMode.ToString());
         cmd.Parameters.AddWithValue("status", job.Status.ToString());
         cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
@@ -241,28 +247,30 @@ public class AssessmentJobStore
 
     private static AssessmentJob Map(NpgsqlDataReader reader)
     {
-        var status = ParseStatus(reader.IsDBNull(3) ? null : reader.GetString(3));
+        var analysisMode = ParseAnalysisMode(reader.IsDBNull(3) ? null : reader.GetString(3));
+        var status = ParseStatus(reader.IsDBNull(4) ? null : reader.GetString(4));
 
         return new AssessmentJob
         {
             Id = reader.GetInt32(0),
             ProjectName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
             TemplateId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+            AnalysisMode = analysisMode,
             Status = status,
-            Step = reader.IsDBNull(4) ? 1 : Math.Max(1, reader.GetInt32(4)),
-            ScopeDocumentPath = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
-            ScopeDocumentMimeType = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
-            OriginalTemplateJson = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
-            ReferenceAssessmentsJson = reader.IsDBNull(8) ? null : reader.GetString(8),
-            ReferenceDocumentsJson = reader.IsDBNull(9) ? null : reader.GetString(9),
-            RawGenerationResponse = reader.IsDBNull(10) ? null : reader.GetString(10),
-            GeneratedItemsJson = reader.IsDBNull(11) ? null : reader.GetString(11),
-            RawEstimationResponse = reader.IsDBNull(12) ? null : reader.GetString(12),
-            FinalAnalysisJson = reader.IsDBNull(13) ? null : reader.GetString(13),
-            LastError = reader.IsDBNull(14) ? null : reader.GetString(14),
-            CreatedAt = reader.IsDBNull(15) ? DateTime.UtcNow : reader.GetDateTime(15),
-            LastModifiedAt = reader.IsDBNull(16) ? DateTime.UtcNow : reader.GetDateTime(16),
-            TemplateName = reader.FieldCount > 17 && !reader.IsDBNull(17) ? reader.GetString(17) : string.Empty
+            Step = reader.IsDBNull(5) ? 1 : Math.Max(1, reader.GetInt32(5)),
+            ScopeDocumentPath = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
+            ScopeDocumentMimeType = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+            OriginalTemplateJson = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+            ReferenceAssessmentsJson = reader.IsDBNull(9) ? null : reader.GetString(9),
+            ReferenceDocumentsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
+            RawGenerationResponse = reader.IsDBNull(11) ? null : reader.GetString(11),
+            GeneratedItemsJson = reader.IsDBNull(12) ? null : reader.GetString(12),
+            RawEstimationResponse = reader.IsDBNull(13) ? null : reader.GetString(13),
+            FinalAnalysisJson = reader.IsDBNull(14) ? null : reader.GetString(14),
+            LastError = reader.IsDBNull(15) ? null : reader.GetString(15),
+            CreatedAt = reader.IsDBNull(16) ? DateTime.UtcNow : reader.GetDateTime(16),
+            LastModifiedAt = reader.IsDBNull(17) ? DateTime.UtcNow : reader.GetDateTime(17),
+            TemplateName = reader.FieldCount > 18 && !reader.IsDBNull(18) ? reader.GetString(18) : string.Empty
         };
     }
 
@@ -274,6 +282,16 @@ public class AssessmentJobStore
         }
 
         return JobStatus.Pending;
+    }
+
+    private static AssessmentAnalysisMode ParseAnalysisMode(string? value)
+    {
+        if (Enum.TryParse<AssessmentAnalysisMode>(value, true, out var mode))
+        {
+            return mode;
+        }
+
+        return AssessmentAnalysisMode.Interpretive;
     }
 
     private async Task<string> TryGetTemplateNameAsync(int templateId, CancellationToken cancellationToken)

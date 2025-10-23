@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -74,6 +75,7 @@ public class AssessmentController : ControllerBase
         }
 
         var referenceDocuments = await LoadReferenceDocumentsAsync(request.ReferenceDocumentSources, HttpContext.RequestAborted);
+        var analysisMode = ParseAnalysisMode(request.AnalysisMode);
 
         try
         {
@@ -82,6 +84,7 @@ public class AssessmentController : ControllerBase
                 request.TemplateId,
                 request.ProjectName ?? string.Empty,
                 request.File!,
+                analysisMode,
                 referenceAssessments,
                 referenceDocuments,
                 HttpContext.RequestAborted);
@@ -158,6 +161,16 @@ public class AssessmentController : ControllerBase
         }
 
         return documents;
+    }
+
+    private static AssessmentAnalysisMode ParseAnalysisMode(string? value)
+    {
+        if (Enum.TryParse<AssessmentAnalysisMode>(value, true, out var mode))
+        {
+            return mode;
+        }
+
+        return AssessmentAnalysisMode.Interpretive;
     }
 
     [HttpDelete("jobs/{jobId}")]
@@ -525,4 +538,5 @@ public class AssessmentAnalyzeRequest
     public string? ProjectName { get; set; }
     public List<int> ReferenceAssessmentIds { get; set; } = new();
     public List<string> ReferenceDocumentSources { get; set; } = new();
+    public string? AnalysisMode { get; set; }
 }

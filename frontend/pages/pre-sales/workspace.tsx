@@ -13,6 +13,8 @@ import {
   Chip,
   Divider,
   FormControl,
+  FormControlLabel,
+  FormLabel,
   InputLabel,
   LinearProgress,
   List,
@@ -36,6 +38,8 @@ import {
   IconButton,
   Tooltip,
   CircularProgress,
+  Radio,
+  RadioGroup,
 } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -124,12 +128,15 @@ interface AssessmentJob {
   projectName: string;
   templateId: number;
   templateName: string;
+  analysisMode?: 'Interpretive' | 'Strict';
   status: AssessmentJobStatus;
   step?: number;
   lastError?: string | null;
   createdAt?: string;
   lastModifiedAt?: string;
 }
+
+type AnalysisModeOption = 'interpretive' | 'strict';
 
 const statusOptions: AssessmentStatus[] = ['Draft', 'Completed'];
 
@@ -417,6 +424,7 @@ export default function AssessmentWorkspace() {
   const [documentsError, setDocumentsError] = useState('');
   const [selectedDocumentSources, setSelectedDocumentSources] = useState<string[]>([]);
   const [templateColumns, setTemplateColumns] = useState<string[]>([]);
+  const [analysisMode, setAnalysisMode] = useState<AnalysisModeOption>('interpretive');
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
@@ -450,6 +458,9 @@ export default function AssessmentWorkspace() {
   const applyJobStatus = useCallback(
     (job: AssessmentJob) => {
       setActiveJob(job);
+      if (job.analysisMode) {
+        setAnalysisMode(job.analysisMode === 'Strict' ? 'strict' : 'interpretive');
+      }
 
       const currentStepNumber = jobStatusStepNumber[job.status];
       const steps: string[] = [];
@@ -532,7 +543,7 @@ export default function AssessmentWorkspace() {
       lastJobStatusRef.current = job.status;
       return { previousStatus, statusChanged };
     },
-    [showError, showSuccess]
+    [setAnalysisMode, showError, showSuccess]
   );
 
   const refreshSimilarAssessments = useCallback(async () => {
@@ -927,6 +938,7 @@ export default function AssessmentWorkspace() {
       selectedDocumentSources.forEach(source => {
         formData.append('referenceDocumentSources', source);
       });
+      formData.append('analysisMode', analysisMode === 'strict' ? 'Strict' : 'Interpretive');
       const res = await apiFetch('/api/assessment/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(await res.text());
       const job: AssessmentJob = await res.json();
@@ -1154,7 +1166,11 @@ export default function AssessmentWorkspace() {
               )}
             />
 
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              alignItems={{ xs: 'stretch', md: 'center' }}
+            >
               <Button
                 component="label"
                 variant="outlined"
@@ -1163,6 +1179,31 @@ export default function AssessmentWorkspace() {
                 {file ? file.name : 'Upload scope document'}
                 <input hidden type="file" accept=".pdf,.doc,.docx" onChange={handleFileChange} />
               </Button>
+              <FormControl
+                component="fieldset"
+                sx={{ minWidth: { md: 260 }, alignSelf: { xs: 'stretch', md: 'flex-start' } }}
+              >
+                <FormLabel component="legend">Analysis mode</FormLabel>
+                <RadioGroup
+                  row
+                  value={analysisMode}
+                  onChange={event => setAnalysisMode(event.target.value as AnalysisModeOption)}
+                >
+                  <FormControlLabel
+                    value="interpretive"
+                    control={<Radio />}
+                    label="AI interpret scope"
+                  />
+                  <FormControlLabel
+                    value="strict"
+                    control={<Radio />}
+                    label="Strict scope only"
+                  />
+                </RadioGroup>
+                <FormHelperText>
+                  Choose whether the AI can infer new items or must mirror the scope document.
+                </FormHelperText>
+              </FormControl>
               <Box flexGrow={1} />
               <LoadingButton
                 variant="contained"
