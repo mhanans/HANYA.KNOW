@@ -23,6 +23,8 @@ public class UiStore
         "invoice-verification",
         "pre-sales-project-templates",
         "pre-sales-assessment-workspace",
+        "pre-sales-project-timelines",
+        "pre-sales-configuration",
         "admin-presales-history",
         "users",
         "roles",

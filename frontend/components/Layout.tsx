@@ -49,10 +49,22 @@ const navSections: { title: string; links: NavItem[] }[] = [
         key: 'pre-sales-assessment-workspace',
       },
       {
+        href: '/pre-sales/project-timelines',
+        label: 'Project Timelines',
+        icon: '📅',
+        key: 'pre-sales-project-timelines',
+      },
+      {
         href: '/pre-sales/presales-ai-history',
         label: 'Presales AI History',
         icon: '🗃️',
         key: 'admin-presales-history',
+      },
+      {
+        href: '/pre-sales/configuration',
+        label: 'Presales Configuration',
+        icon: '⚙️',
+        key: 'pre-sales-configuration',
       },
     ],
   },
