@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using backend.Models;
@@ -13,17 +14,20 @@ public class TimelineGenerationService
     private readonly ProjectAssessmentStore _assessments;
     private readonly PresalesConfigurationStore _configurationStore;
     private readonly TimelineStore _timelineStore;
+    private readonly LlmClient _llmClient;
     private readonly ILogger<TimelineGenerationService> _logger;
 
     public TimelineGenerationService(
         ProjectAssessmentStore assessments,
         PresalesConfigurationStore configurationStore,
         TimelineStore timelineStore,
+        LlmClient llmClient,
         ILogger<TimelineGenerationService> logger)
     {
         _assessments = assessments;
         _configurationStore = configurationStore;
         _timelineStore = timelineStore;
+        _llmClient = llmClient;
         _logger = logger;
     }
 
@@ -41,104 +45,19 @@ public class TimelineGenerationService
         }
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var activityLookup = config.Activities
-            .OrderBy(a => a.DisplayOrder)
-            .ThenBy(a => a.ActivityName, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(a => a.ActivityName, a => a, StringComparer.OrdinalIgnoreCase);
-
-        var taskActivityLookup = config.TaskActivities
-            .GroupBy(m => m.TaskKey, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Select(m => m.ActivityName).FirstOrDefault(), StringComparer.OrdinalIgnoreCase);
-
-        var taskRoleLookup = config.TaskRoles
-            .GroupBy(m => m.TaskKey, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-
         var aggregatedTasks = AggregateTasks(assessment);
         if (aggregatedTasks.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline.");
         }
 
-        var activities = new Dictionary<string, TimelineActivityRecord>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (taskKey, detail) in aggregatedTasks.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            var activityName = taskActivityLookup.TryGetValue(taskKey, out var mappedActivity) && !string.IsNullOrWhiteSpace(mappedActivity)
-                ? mappedActivity
-                : "Unmapped Activities";
+        var prompt = ConstructDailySchedulerAiPrompt(aggregatedTasks, config);
+        _logger.LogInformation(
+            "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
+            assessmentId,
+            aggregatedTasks.Count);
 
-            if (!activities.TryGetValue(activityName, out var activityRecord))
-            {
-                var displayOrder = activityLookup.TryGetValue(activityName, out var activity)
-                    ? activity.DisplayOrder
-                    : int.MaxValue;
-                activityRecord = new TimelineActivityRecord
-                {
-                    ActivityName = activityName,
-                    DisplayOrder = displayOrder,
-                    Details = new List<TimelineDetailRecord>()
-                };
-                activities[activityName] = activityRecord;
-            }
-
-            activityRecord.Details.Add(new TimelineDetailRecord
-            {
-                TaskKey = taskKey,
-                DetailName = detail.DetailName,
-                ManDays = detail.ManDays
-            });
-        }
-
-        var orderedActivities = activities.Values
-            .OrderBy(a => a.DisplayOrder)
-            .ThenBy(a => a.ActivityName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var currentDayIndex = 0;
-        foreach (var activity in orderedActivities)
-        {
-            double activityTotalManDays = 0;
-            foreach (var detail in activity.Details)
-            {
-                activityTotalManDays += detail.ManDays;
-            }
-
-            var activityDuration = (int)Math.Ceiling(activityTotalManDays);
-            activity.ManDays = activityTotalManDays;
-            activity.StartDayIndex = currentDayIndex;
-            activity.DurationDays = activityDuration;
-
-            var detailStartDay = currentDayIndex;
-            foreach (var detail in activity.Details)
-            {
-                var duration = Math.Max(1, (int)Math.Ceiling(detail.ManDays));
-                detail.DurationDays = duration;
-                detail.StartDayIndex = detailStartDay;
-                detailStartDay += duration;
-            }
-
-            currentDayIndex += activityDuration;
-        }
-
-        var totalDays = currentDayIndex;
-
-        var workingDays = BuildWorkingDayTimeline(totalDays);
-        foreach (var activity in orderedActivities)
-        {
-            foreach (var detail in activity.Details)
-            {
-                if (detail.StartDayIndex < workingDays.Count)
-                {
-                    detail.StartDate = workingDays[detail.StartDayIndex];
-                    var endIndex = Math.Min(detail.StartDayIndex + detail.DurationDays - 1, workingDays.Count - 1);
-                    detail.EndDate = workingDays[Math.Max(0, endIndex)];
-                }
-            }
-        }
-
-        var resourceAllocations = BuildResourceAllocations(orderedActivities, taskRoleLookup, config.Roles, totalDays, workingDays.Count);
-        var manpowerSummary = BuildManpowerSummary(resourceAllocations, config.Roles);
-        var totalCost = manpowerSummary.Sum(item => item.TotalCost);
+        var aiTimeline = await GetScheduleFromAiAsync(prompt).ConfigureAwait(false);
 
         var record = new TimelineRecord
         {
@@ -146,22 +65,114 @@ public class TimelineGenerationService
             ProjectName = assessment.ProjectName,
             TemplateName = assessment.TemplateName ?? string.Empty,
             GeneratedAt = DateTime.UtcNow,
-            StartDate = workingDays.Count > 0 ? workingDays[0] : AlignToNextWorkingDay(DateTime.UtcNow.Date),
-            WorkingDays = workingDays,
-            Activities = orderedActivities,
-            ManpowerSummary = manpowerSummary,
-            ResourceAllocations = resourceAllocations,
-            TotalCost = totalCost
+            TotalDurationDays = aiTimeline.TotalDurationDays,
+            Activities = aiTimeline.Activities,
+            ResourceAllocation = aiTimeline.ResourceAllocation
         };
-
-        _logger.LogInformation(
-            "Generated timeline for assessment {AssessmentId} containing {ActivityCount} activities and {DayCount} working days.",
-            assessmentId,
-            orderedActivities.Count,
-            workingDays.Count);
 
         await _timelineStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
         return record;
+    }
+
+    private async Task<AiTimelineResult> GetScheduleFromAiAsync(string prompt)
+    {
+        try
+        {
+            var response = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
+            return ParseAiTimeline(response);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "AI response was not valid JSON for timeline generation.");
+            throw new InvalidOperationException("AI returned an invalid timeline response.", ex);
+        }
+    }
+
+    private static AiTimelineResult ParseAiTimeline(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            throw new InvalidOperationException("AI returned an empty timeline response.");
+        }
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        var result = JsonSerializer.Deserialize<AiTimelineResult>(response, options);
+        if (result == null)
+        {
+            throw new InvalidOperationException("AI response could not be parsed into a timeline.");
+        }
+
+        result.Activities ??= new List<TimelineActivity>();
+        result.ResourceAllocation ??= new List<TimelineResourceAllocationEntry>();
+        return result;
+    }
+
+    private string ConstructDailySchedulerAiPrompt(
+        Dictionary<string, (string DetailName, double ManDays)> tasks,
+        PresalesConfiguration config)
+    {
+        var taskDetailsForPrompt = tasks.Select(kvp =>
+        {
+            var taskKey = kvp.Key;
+            var manDays = kvp.Value.ManDays;
+            var roles = config.TaskRoles
+                .Where(tr => tr.TaskKey.Equals(taskKey, StringComparison.OrdinalIgnoreCase))
+                .Select(tr => tr.RoleName)
+                .ToList();
+            var actorString = roles.Any() ? string.Join(", ", roles) : "Unassigned";
+            var activityGroup = config.TaskActivities
+                .FirstOrDefault(ta => ta.TaskKey.Equals(taskKey, StringComparison.OrdinalIgnoreCase))?.ActivityName ?? "Unmapped";
+            return $"  - Task: \"{taskKey}\", ManDays: {manDays:F2}, Actor(s): \"{actorString}\", Group: \"{activityGroup}\"";
+        });
+
+        var allRoles = config.Roles.Select(r => $"\"{r.RoleName}\"").ToList();
+
+        return $@"
+        You are an expert Project Management AI. Your task is to generate a detailed, day-based project schedule in a specific JSON format based on a list of tasks.
+
+        **CRITICAL INSTRUCTIONS:**
+        1.  **UNIT IS DAYS:** The entire schedule is based on a sequence of working days (Day 1, Day 2, ...).
+        2.  **SEQUENCING:**
+            - Project phases ('Group') are strictly sequential. 'Analysis & Design' must finish before 'Application Development' begins.
+            - Tasks ('Task') WITHIN a phase are also sequential (waterfall).
+        3.  **DURATION:** Task duration in days is `CEILING(ManDays)`.
+        4.  **RESOURCE ALLOCATION (HEADCOUNT PER DAY):**
+            - For each day, determine which task is active.
+            - For that active task, look at its 'Actor(s)'.
+            - The daily headcount for each listed actor is `1.0 / (number of actors)`. E.g., if actors are 'Dev, Dev Lead', each gets 0.5 for that day. If actor is 'BA', BA gets 1.0.
+            - **SPECIAL RULE:** 'PM' and 'Architect' roles are always active from Day 1 to the final day of the project. Their daily headcount is always 0.5.
+            - All other roles have a headcount of 0 on days they are not working.
+            - Round the final daily headcount to the nearest whole number (0, 1, 2...).
+        5.  **JSON OUTPUT:** You MUST return ONLY a single, minified JSON object with NO commentary or explanations. The structure must be EXACTLY as follows.
+
+        **TASK LIST:**
+        {string.Join("\n", taskDetailsForPrompt)}
+
+        **ROLE LIST:**
+        [{string.Join(", ", allRoles)}]
+
+        **JSON OUTPUT STRUCTURE:**
+        {{
+          ""totalDurationDays"": <number>,
+          ""activities"": [
+            {{
+              ""activityName"": ""Project Preparation"",
+              ""details"": [
+                {{ ""taskName"": ""System Setup"", ""actor"": ""Architect"", ""manDays"": 0.6, ""startDay"": 1, ""durationDays"": 1 }}
+              ]
+            }}
+          ],
+          ""resourceAllocation"": [
+            {{ ""role"": ""Architect"", ""totalManDays"": 16.5, ""dailyEffort"": [1, 0, 1, 0, 1, ...] }},
+            {{ ""role"": ""PM"", ""totalManDays"": 14.5, ""dailyEffort"": [1, 0, 1, 0, 1, ...] }},
+            {{ ""role"": ""Dev"", ""totalManDays"": 26.5, ""dailyEffort"": [0, 0, 0, 0, 2, 2, 1, 0, ...] }}
+          ]
+        }}
+    ";
     }
 
     private static Dictionary<string, (string DetailName, double ManDays)> AggregateTasks(ProjectAssessment assessment)
@@ -213,130 +224,10 @@ public class TimelineGenerationService
         return result;
     }
 
-    private static List<DateTime> BuildWorkingDayTimeline(int totalDays)
+    private sealed class AiTimelineResult
     {
-        var start = AlignToNextWorkingDay(DateTime.UtcNow.Date);
-        var days = new List<DateTime>(Math.Max(1, totalDays));
-        var cursor = start;
-        while (days.Count < totalDays)
-        {
-            if (IsWorkingDay(cursor))
-            {
-                days.Add(cursor);
-            }
-
-            cursor = cursor.AddDays(1);
-        }
-
-        return days;
-    }
-
-    private static DateTime AlignToNextWorkingDay(DateTime date)
-    {
-        var aligned = date;
-        while (!IsWorkingDay(aligned))
-        {
-            aligned = aligned.AddDays(1);
-        }
-
-        return aligned;
-    }
-
-    private static bool IsWorkingDay(DateTime date)
-    {
-        return date.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday;
-    }
-
-    private static List<TimelineResourceAllocation> BuildResourceAllocations(
-        IEnumerable<TimelineActivityRecord> activities,
-        IReadOnlyDictionary<string, List<TaskRoleMapping>> taskRoleLookup,
-        IEnumerable<PresalesRole> roles,
-        int totalDays,
-        int workingDayCount)
-    {
-        var roleLookup = roles.ToDictionary(r => r.RoleName, r => r, StringComparer.OrdinalIgnoreCase);
-        var allocations = new Dictionary<string, TimelineResourceAllocation>(StringComparer.OrdinalIgnoreCase);
-        foreach (var role in roles)
-        {
-            allocations[role.RoleName] = new TimelineResourceAllocation
-            {
-                RoleName = role.RoleName,
-                ExpectedLevel = role.ExpectedLevel,
-                DailyAllocation = Enumerable.Repeat(0d, Math.Max(workingDayCount, totalDays)).ToList()
-            };
-        }
-
-        foreach (var activity in activities)
-        {
-            foreach (var detail in activity.Details)
-            {
-                if (!taskRoleLookup.TryGetValue(detail.TaskKey, out var roleAssignments) || roleAssignments.Count == 0)
-                {
-                    continue;
-                }
-
-                var duration = Math.Max(1, detail.DurationDays);
-                foreach (var assignment in roleAssignments)
-                {
-                    if (!allocations.TryGetValue(assignment.RoleName, out var allocation))
-                    {
-                        var roleInfo = roleLookup.TryGetValue(assignment.RoleName, out var r) ? r : new PresalesRole { RoleName = assignment.RoleName };
-                        allocation = new TimelineResourceAllocation
-                        {
-                            RoleName = roleInfo.RoleName,
-                            ExpectedLevel = roleInfo.ExpectedLevel,
-                            DailyAllocation = Enumerable.Repeat(0d, Math.Max(workingDayCount, totalDays)).ToList()
-                        };
-                        allocations[assignment.RoleName] = allocation;
-                    }
-
-                    var allocatedManDays = detail.ManDays * (assignment.AllocationPercentage / 100d);
-                    var perDay = allocatedManDays / duration;
-                    for (var i = 0; i < duration; i++)
-                    {
-                        var dayIndex = detail.StartDayIndex + i;
-                        if (dayIndex >= allocation.DailyAllocation.Count)
-                        {
-                            break;
-                        }
-
-                        allocation.DailyAllocation[dayIndex] += perDay;
-                    }
-                }
-            }
-        }
-
-        return allocations.Values
-            .Where(a => a.DailyAllocation.Any(value => value > 0))
-            .OrderBy(a => a.RoleName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static List<TimelineManpowerSummary> BuildManpowerSummary(
-        IEnumerable<TimelineResourceAllocation> allocations,
-        IEnumerable<PresalesRole> roles)
-    {
-        var roleLookup = roles.ToDictionary(r => r.RoleName, r => r, StringComparer.OrdinalIgnoreCase);
-        var summaries = new List<TimelineManpowerSummary>();
-        foreach (var allocation in allocations)
-        {
-            var roleName = allocation.RoleName;
-            var totalManDays = allocation.DailyAllocation.Sum();
-            roleLookup.TryGetValue(roleName, out var roleInfo);
-            var costPerDay = roleInfo?.CostPerDay ?? 0;
-            var totalCost = costPerDay * (decimal)totalManDays;
-            summaries.Add(new TimelineManpowerSummary
-            {
-                RoleName = roleName,
-                ExpectedLevel = roleInfo?.ExpectedLevel ?? string.Empty,
-                ManDays = Math.Round(totalManDays, 2, MidpointRounding.AwayFromZero),
-                CostPerDay = costPerDay,
-                TotalCost = Math.Round(totalCost, 2, MidpointRounding.AwayFromZero)
-            });
-        }
-
-        return summaries
-            .OrderBy(s => s.RoleName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        public int TotalDurationDays { get; set; }
+        public List<TimelineActivity> Activities { get; set; } = new();
+        public List<TimelineResourceAllocationEntry> ResourceAllocation { get; set; } = new();
     }
 }

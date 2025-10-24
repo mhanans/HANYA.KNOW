@@ -1,0 +1,104 @@
+.timeline-grid {
+  display: grid;
+  grid-template-columns: 
+    [col1-start] var(--w-activity) [col1-end col2-start] var(--w-detail) [col2-end col3-start] var(--w-actor) [col3-end col4-start] var(--w-mandays) [col4-end] 
+    1fr; /* Timeline scroll area */
+  grid-template-rows: auto auto auto auto 20px auto auto; /* Months, Weeks, Days, Gantt, Spacer, ResHeader, Resources */
+  grid-template-areas:
+    "h-act h-det h-actr h-md  h-months"
+    "h-act h-det h-actr h-md  h-weeks"
+    "h-act h-det h-actr h-md  h-days"
+    "d-rows d-rows d-rows d-rows d-rows"
+    "spacer spacer spacer spacer spacer"
+    "r-head r-head r-head r-head r-head"
+    "r-rows r-rows r-rows r-rows r-rows";
+  --w-activity: 200px;
+  --w-detail: 280px;
+  --w-actor: 150px;
+  --w-mandays: 90px;
+  --day-width: 35px;
+}
+
+.sticky-col-1, .sticky-col-2, .sticky-col-3, .sticky-col-4 {
+  position: sticky;
+  z-index: 2;
+  background: var(--mui-palette-background-paper); /* Use theme color */
+}
+.sticky-col-1 { left: 0; }
+.sticky-col-2 { left: var(--w-activity); }
+.sticky-col-3 { left: calc(var(--w-activity) + var(--w-detail)); }
+.sticky-col-4 { left: calc(var(--w-activity) + var(--w-detail) + var(--w-actor)); }
+
+.header-cell, .data-cell {
+  padding: 6px;
+  border: 1px solid var(--mui-palette-divider);
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+
+.header-cell {
+  background: #4472c4; /* Excel Blue */
+  color: white;
+  font-weight: bold;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.header-months, .header-weeks, .header-days {
+  grid-column: h-months;
+  display: flex;
+  position: sticky;
+  top: 0;
+  background: var(--mui-palette-background-paper);
+  z-index: 1;
+}
+.header-weeks { top: 35px; }
+.header-days { top: 70px; }
+
+.header-months > div, .header-weeks > div, .header-days > div {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 6px 0;
+  font-size: 0.8rem;
+  font-weight: bold;
+  border: 1px solid var(--mui-palette-divider);
+  border-top: none;
+}
+.header-months > div { background-color: #d9e1f2; color: #333; }
+.header-weeks > div { background-color: #f2f2f2; color: #333; }
+.header-days > div { width: var(--day-width); }
+
+.data-rows { grid-area: d-rows; }
+.resource-rows { grid-area: r-rows; }
+.data-row { display: contents; } /* Makes children part of the parent grid */
+
+.bar-container, .effort-container {
+  grid-column: 5;
+  position: relative;
+  border-bottom: 1px solid var(--mui-palette-divider);
+  background-image: repeating-linear-gradient(to right, var(--mui-palette-divider) 0 1px, transparent 1px var(--day-width));
+}
+.bar {
+  position: absolute;
+  top: 5px; bottom: 5px;
+  background-color: #92d050; /* Excel Green */
+  border-radius: 2px;
+}
+
+.spacer-row { grid-area: spacer; }
+.resource-header-row { grid-area: r-head; display: contents; }
+.resource-header-row .data-cell { font-weight: bold; }
+
+.effort-container { display: flex; }
+.effort-cell {
+  flex-shrink: 0;
+  width: var(--day-width);
+  text-align: center;
+  font-size: 0.8rem;
+  color: #333;
+  padding: 6px 0;
+}
+.data-row:nth-of-type(odd) .effort-cell:not(:empty) { background-color: #fff2cc; } /* Yellow for odd rows */
+.data-row:nth-of-type(even) .effort-cell:not(:empty) { background-color: #deebf7; } /* Blue for even rows */
