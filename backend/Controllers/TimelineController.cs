@@ -250,10 +250,11 @@ public class TimelineController : ControllerBase
         }
 
         var headerRange = worksheet.Range(3, 1, 3, leftPaneColumns);
-        headerRange.Value = new object[,]
+        var headers = new[] { "Activity", "Detail", "Actor", "Man-days" };
+        for (var i = 0; i < headers.Length; i++)
         {
-            { "Activity", "Detail", "Actor", "Man-days" }
-        };
+            worksheet.Cell(3, 1 + i).Value = headers[i];
+        }
         ApplyHeaderStyle(headerRange);
 
         for (var day = 0; day < totalDays; day++)
