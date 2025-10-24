@@ -23,6 +23,7 @@ import {
 import LaunchIcon from '@mui/icons-material/Launch';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DownloadIcon from '@mui/icons-material/Download';
 import { apiFetch } from '../../lib/api';
 
 export type AssessmentJobStatus =
@@ -109,6 +110,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
   const [assessmentDeleting, setAssessmentDeleting] = useState<number | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigationError, setNavigationError] = useState('');
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -285,6 +287,35 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
     []
   );
 
+  const handleDownload = useCallback(
+    async (id: number) => {
+      setAssessmentsError('');
+      setDownloadingId(id);
+      try {
+        const response = await apiFetch(`/api/assessment/${id}/export/full`);
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Failed to download export.');
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `assessment-${id}-bundle.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to download export.';
+        setAssessmentsError(message);
+      } finally {
+        setDownloadingId(current => (current === id ? null : current));
+      }
+    },
+    []
+  );
+
   const jobsContent = useMemo(() => {
     if (jobs.length === 0) {
       return (
@@ -391,6 +422,17 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                 <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Tooltip title="Download bundled export">
+                      <span>
+                        <IconButton
+                          color="primary"
+                          onClick={() => handleDownload(row.id)}
+                          disabled={downloadingId === row.id || isNavigating}
+                        >
+                          <DownloadIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                     {onOpenAssessment && (
                       <Tooltip title="Open for editing">
                         <span>
@@ -423,7 +465,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
         </Table>
       </TableContainer>
     );
-  }, [assessmentDeleting, deleteAssessment, handleOpenAssessment, isNavigating, onOpenAssessment, savedAssessments]);
+  }, [assessmentDeleting, deleteAssessment, downloadingId, handleDownload, handleOpenAssessment, isNavigating, onOpenAssessment, savedAssessments]);
 
   return (
     <>
