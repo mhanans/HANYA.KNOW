@@ -1,107 +1,85 @@
-/* --- Final Corrected CSS for timeline.module.css --- */
-
-.timelineContainer {
-  display: flex; /* Establishes the fundamental two-pane layout */
-  position: relative;
+.timelineTable {
+  border-collapse: collapse;
+  width: 100%;
 }
 
-/* --- PANE 1: THE STICKY LEFT SIDE --- */
-.leftPane {
-  position: sticky;
-  left: 0;
-  z-index: 2; /* Sits on top of the right pane */
-  display: flex;
-  flex-direction: column;
-  background-color: var(--mui-palette-background-paper);
+/* --- GENERIC CELL STYLING --- */
+.timelineTable th, .timelineTable td {
+  border: 1px solid var(--mui-palette-divider);
+  padding: 0 8px;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  height: 40px; /* Consistent row height */
 }
 
-/* --- PANE 2: THE SCROLLABLE RIGHT SIDE --- */
-.rightPane {
-  z-index: 1; /* Sits below the left pane */
-  display: flex;
-  flex-direction: column;
-  width: 100%; /* Takes up the calculated width */
-}
-
-/* --- HEADER STYLES (Applies to both panes) --- */
-.header {
-  display: flex;
+/* --- HEADER STYLING --- */
+.timelineTable thead th {
   position: sticky;
   top: 0;
-  z-index: 3; /* Sits on top of everything */
+  z-index: 2; /* Header rows */
   background-color: var(--mui-palette-background-paper);
 }
-.rightHeader {
-  display: flex;
-  flex-direction: column;
+.headerTopLeft {
+  z-index: 3 !important; /* Corner must be on top */
+  border: none !important;
+  background-color: var(--mui-palette-background-paper) !important;
 }
-.headerMonths,
-.headerWeeks,
-.headerDays {
-  display: flex; /* This makes the children (Month/Week/Day divs) align horizontally */
-}
-.headerCell,
-.headerMonths > div,
-.headerWeeks > div,
-.headerDays > div {
-  flex-shrink: 0;
-  height: 35px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--mui-palette-divider);
+.headerMonth, .headerWeek, .headerDay {
+  text-align: center;
   font-weight: bold;
-  font-size: 0.8rem;
-  white-space: nowrap;
 }
+.headerMonth { background-color: #d9e1f2; color: #111; }
+.headerWeek { background-color: #f2f2f2; color: #111; }
+.headerDay { font-size: 0.8rem; }
 .headerCell {
   background-color: #4472c4;
   color: white;
+  z-index: 3 !important; /* Sticky column headers must be on top */
 }
-.headerMonths > div {
-  background-color: #d9e1f2;
-  color: #111;
-}
-.headerWeeks > div {
-  background-color: #f2f2f2;
-  color: #111;
-}
-.headerDays > div {
-  border-top: none;
+.resourceHeader {
+  background-color: #595959 !important;
 }
 
-/* --- DATA ROW STYLES (Applies to both panes) --- */
-.leftDataRow {
-  display: flex;
-  min-height: 40px;
+/* --- FROZEN COLUMN STICKY POSITIONING --- */
+.timelineTable tbody td:nth-child(1), .timelineTable tbody th:nth-child(1),
+.timelineTable thead th:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 1;
 }
+.timelineTable tbody td:nth-child(2), .timelineTable tbody th:nth-child(2),
+.timelineTable thead th:nth-child(2) {
+  position: sticky;
+  left: 200px; /* Must match col1 width */
+  z-index: 1;
+}
+.timelineTable tbody td:nth-child(3), .timelineTable thead th:nth-child(3) {
+  position: sticky;
+  left: 480px; /* col1 + col2 */
+  z-index: 1;
+}
+.timelineTable tbody td:nth-child(4), .timelineTable thead th:nth-child(4) {
+  position: sticky;
+  left: 630px; /* col1 + col2 + col3 */
+  z-index: 1;
+}
+/* Ensure sticky data cells have a background to hide content scrolling behind them */
 .dataCell {
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--mui-palette-divider);
-  border-left: 1px solid var(--mui-palette-divider);
-  flex-shrink: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-height: 40px;
-}
-.leftDataRow > .dataCell:last-child {
-  border-right: 1px solid var(--mui-palette-divider);
+  background-color: var(--mui-palette-background-paper);
 }
 
-/* --- CONTENT-SPECIFIC STYLES --- */
-.barContainer,
-.effortContainer {
+
+/* --- DATA-SPECIFIC STYLING --- */
+.textCenter { text-align: center; }
+.spacerRow td {
+  height: 20px;
+  border: none;
+  border-bottom: 2px solid var(--mui-palette-primary-main);
+}
+.barContainer {
   position: relative;
-  min-height: 40px;
-  border-bottom: 1px solid var(--mui-palette-divider);
-  background-image: repeating-linear-gradient(
-    to right,
-    var(--mui-palette-divider) 0 1px,
-    transparent 1px 35px
-  );
+  padding: 0 !important;
+  background-image: repeating-linear-gradient(to right, var(--mui-palette-divider) 0 1px, transparent 1px 35px); /* Day width */
 }
 .bar {
   position: absolute;
@@ -110,16 +88,12 @@
   background-color: #92d050;
   border-radius: 2px;
 }
-.spacerRow {
-  height: 20px;
-  border-bottom: 2px solid var(--mui-palette-primary-main);
-}
 .effortContainer {
   display: flex;
-  background-image: none;
+  padding: 0 !important;
 }
 .effortCell {
-  width: 35px;
+  width: 35px; /* Day width */
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -129,19 +103,7 @@
   border-right: 1px solid var(--mui-palette-divider);
   height: 100%;
 }
-
-.textCenter {
-  justify-content: center;
-}
-.roleYellow {
-  background-color: rgba(255, 242, 204, 0.1);
-}
-.roleBlue {
-  background-color: rgba(222, 235, 247, 0.1);
-}
-.effortYellow {
-  background-color: #FFF2CC;
-}
-.effortBlue {
-  background-color: #DEEBF7;
-}
+.roleYellow { background-color: rgba(255, 242, 204, 0.1); }
+.roleBlue { background-color: rgba(222, 235, 247, 0.1); }
+.effortYellow { background-color: #FFF2CC; }
+.effortBlue { background-color: #DEEBF7; }
