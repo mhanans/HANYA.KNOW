@@ -127,23 +127,24 @@ export default function ProjectTimelineDetailPage() {
       <Paper variant="outlined" sx={{ overflow: 'auto', width: '100%' }}>
         <table className={styles.timelineTable} style={{ minWidth: TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH }}>
           <thead>
+            {/* Row 1: Months */}
             <tr>
-              <th colSpan={4} className={styles.headerTopLeft} />
+              <th rowSpan={3} className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</th>
+              <th rowSpan={3} className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</th>
+              <th rowSpan={3} className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</th>
+              <th rowSpan={3} className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</th>
               {metrics.months.map(m => (
                 <th key={m.index} colSpan={m.span * 5} className={styles.headerMonth}>{`Month ${m.index}`}</th>
               ))}
             </tr>
+            {/* Row 2: Weeks */}
             <tr>
-              <th colSpan={4} className={styles.headerTopLeft} />
               {metrics.weeks.map(w => (
                 <th key={w.index} colSpan={w.span} className={styles.headerWeek}>{`W${w.index}`}</th>
               ))}
             </tr>
+            {/* Row 3: Days */}
             <tr>
-              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</th>
-              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</th>
-              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</th>
-              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</th>
               {metrics.days.map(d => (
                 <th key={d} className={styles.headerDay} style={{ width: DAY_WIDTH }}>
                   {d}

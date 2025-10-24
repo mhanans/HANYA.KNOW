@@ -45,17 +45,36 @@
   background-color: #595959 !important;
 }
 
-/* --- FROZEN (STICKY) COLUMN STYLING --- */
-.timelineTable th:nth-child(1), .timelineTable td:nth-child(1) { position: sticky; left: 0; z-index: 1; }
-.timelineTable th:nth-child(2), .timelineTable td:nth-child(2) { position: sticky; left: 200px; z-index: 1; } /* Must match col1 width */
-.timelineTable th:nth-child(3), .timelineTable td:nth-child(3) { position: sticky; left: 480px; z-index: 1; } /* col1 + col2 */
-.timelineTable th:nth-child(4), .timelineTable td:nth-child(4) { position: sticky; left: 630px; z-index: 1; } /* col1 + col2 + col3 */
+/* --- FROZEN (STICKY) COLUMN STYLING (REVISED) --- */
 
-.dataCell {
-  background-color: var(--mui-palette-background-paper); /* Hides content scrolling behind */
+/* Apply sticky positioning to ALL header and data cells in the first 4 columns */
+.timelineTable th:nth-child(1), .timelineTable td:nth-child(1),
+.timelineTable th:nth-child(2), .timelineTable td:nth-child(2),
+.timelineTable th:nth-child(3), .timelineTable td:nth-child(3),
+.timelineTable th:nth-child(4), .timelineTable td:nth-child(4) {
+  position: sticky;
+  z-index: 1; /* Puts these columns above the scrolling timeline content */
+  /* CRITICAL: This hides content scrolling behind the sticky cells */
+  background-color: var(--mui-palette-background-paper);
+}
+
+/* Define the left offset for each sticky column */
+.timelineTable th:nth-child(1), .timelineTable td:nth-child(1) { left: 0; }
+.timelineTable th:nth-child(2), .timelineTable td:nth-child(2) { left: 200px; } /* Must match col1 width */
+.timelineTable th:nth-child(3), .timelineTable td:nth-child(3) { left: 480px; } /* col1 + col2 */
+.timelineTable th:nth-child(4), .timelineTable td:nth-child(4) { left: 630px; } /* col1 + col2 + col3 */
+
+/* The timeline content (bars and effort) needs a lower z-index */
+.barContainer, .effortContainer {
+  position: relative;
+  z-index: 0; /* Ensures it scrolls BEHIND the sticky columns */
+  /* ... rest of the styles are okay */
 }
 
 /* --- DATA-SPECIFIC STYLING --- */
+.dataCell {
+  background-color: var(--mui-palette-background-paper);
+}
 .textCenter { text-align: center; }
 .spacerRow td {
   height: 20px;
