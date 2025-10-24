@@ -45,7 +45,9 @@ export default function ProjectTimelineDetailPage() {
   const [timeline, setTimeline] = useState<AiTimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const resolvedId = useMemo(() => {
     if (Array.isArray(assessmentId)) return parseInt(assessmentId[0] ?? '', 10);
@@ -84,10 +86,28 @@ export default function ProjectTimelineDetailPage() {
     await loadTimeline();
   }, [resolvedId, loadTimeline]);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     if (!resolvedId) return;
-    const exportUrl = `/api/assessment/${resolvedId}/export`;
-    window.location.href = exportUrl;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const res = await apiFetch(`/api/assessment/${resolvedId}/export`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `timeline-${resolvedId}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to export the timeline.';
+      setExportError(message);
+    } finally {
+      setExporting(false);
+    }
   }, [resolvedId]);
 
   const metrics = useMemo(() => {
@@ -128,28 +148,73 @@ export default function ProjectTimelineDetailPage() {
     };
   }, [timeline]);
 
-  if (loading) return <CircularProgress />;
-  if (error) return <Alert severity="error">{error}</Alert>;
-  if (!timeline || !metrics) return <Alert severity="info">No timeline data.</Alert>;
+  if (loading) {
+    return (
+      <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (error) {
+    return (
+      <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6 }}>
+        <Alert severity="error">{error}</Alert>
+      </Box>
+    );
+  }
+  if (!timeline || !metrics) {
+    return (
+      <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6 }}>
+        <Alert severity="info">No timeline data.</Alert>
+      </Box>
+    );
+  }
+
+  const formatGeneratedAt = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat(undefined, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  };
 
   return (
-    <Stack spacing={3}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+    <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={2}
+        justifyContent="space-between"
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
+      >
         <Box>
-          <Typography variant="h1">{timeline.projectName}</Typography>
-          <Typography color="text.secondary">Template: {timeline.templateName}</Typography>
+          <Typography variant="h1" gutterBottom>
+            {timeline.projectName}
+          </Typography>
+          <Typography color="text.secondary">
+            Generated from template “{timeline.templateName}” on {formatGeneratedAt(timeline.generatedAt)}
+          </Typography>
         </Box>
-        <Stack direction="row" spacing={2}>
-          <Button variant="outlined" startIcon={<span className="material-symbols-outlined">download</span>} onClick={handleExport}>
-            Download as Excel
+        <Stack direction="row" spacing={1.5} flexWrap="wrap">
+          <Button
+            variant="outlined"
+            startIcon={<span className="material-symbols-outlined">download</span>}
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? 'Preparing…' : 'Download as Excel'}
           </Button>
           <Button variant="contained" onClick={handleRegenerate} disabled={regenerating}>
-            {regenerating ? 'Regenerating...' : 'Regenerate Timeline'}
+            {regenerating ? 'Regenerating…' : 'Regenerate Timeline'}
           </Button>
         </Stack>
       </Stack>
+      {exportError && <Alert severity="error">{exportError}</Alert>}
 
-      <Paper variant="outlined" sx={{ overflow: 'auto', width: '100%' }}>
+      <Paper variant="outlined" sx={{ overflow: 'auto', width: '100%', bgcolor: 'background.paper', borderRadius: 3 }}>
         <table
           className={styles.timelineTable}
           style={{ minWidth: TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH }}

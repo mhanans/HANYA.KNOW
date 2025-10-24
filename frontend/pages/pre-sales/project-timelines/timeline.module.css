@@ -1,15 +1,14 @@
-/* --- Final, Correct CSS for timeline.module.css --- */
-
 .timelineTable {
   border-collapse: collapse;
   table-layout: fixed; /* Crucial for predictable column widths */
+  color: var(--mui-palette-text-primary);
 }
 
 /* --- GENERIC CELL STYLING --- */
 .timelineTable th,
 .timelineTable td {
-  border: 1px solid var(--mui-palette-divider);
-  padding: 0 8px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 0 12px;
   white-space: nowrap;
   font-size: 0.875rem;
   height: 40px;
@@ -35,16 +34,26 @@
   text-align: center;
   font-weight: bold;
 }
-.headerMonth { background-color: #d9e1f2; color: #111; }
-.headerWeek { background-color: #f2f2f2; color: #111; }
-.headerDay { font-size: 0.8rem; }
+.headerMonth {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: var(--mui-palette-text-primary);
+}
+.headerWeek {
+  background-color: rgba(148, 163, 184, 0.2);
+  color: var(--mui-palette-text-secondary);
+}
+.headerDay {
+  font-size: 0.8rem;
+  background-color: rgba(148, 163, 184, 0.1);
+  color: var(--mui-palette-text-secondary);
+}
 .headerCell {
-  background-color: #4472c4;
-  color: white;
+  background-color: var(--mui-palette-primary-main);
+  color: var(--mui-palette-primary-contrastText, #fff);
   z-index: 3 !important; /* Sticky column headers must be above regular headers */
 }
 .resourceHeader {
-  background-color: #595959 !important;
+  background-color: rgba(148, 163, 184, 0.2) !important;
 }
 
 /* --- FROZEN (STICKY) COLUMN STYLING (REVISED) --- */
@@ -83,7 +92,7 @@
 .spacerRow td {
   height: 20px;
   border: none;
-  border-bottom: 2px solid var(--mui-palette-primary-main);
+  border-bottom: 2px solid rgba(34, 211, 238, 0.4);
 }
 .activityGroup {
   font-weight: 700;
@@ -94,12 +103,22 @@
   background-color: var(--mui-palette-background-default);
 }
 .ganttBar {
-  background-color: #92d050 !important;
+  background-color: rgba(34, 211, 238, 0.4) !important;
 }
-.roleYellow { background-color: rgba(255, 242, 204, 0.1); }
-.roleBlue { background-color: rgba(222, 235, 247, 0.1); }
-.effortYellow { background-color: #FFF2CC; }
-.effortBlue { background-color: #DEEBF7; }
+.roleYellow {
+  background-color: rgba(59, 130, 246, 0.08);
+}
+.roleBlue {
+  background-color: rgba(34, 211, 238, 0.08);
+}
+.effortYellow {
+  background-color: rgba(59, 130, 246, 0.25);
+  color: var(--mui-palette-text-primary);
+}
+.effortBlue {
+  background-color: rgba(34, 211, 238, 0.25);
+  color: var(--mui-palette-text-primary);
+}
 
 .boldCell {
   font-weight: 700;
@@ -107,11 +126,11 @@
 .summarySeparatorRow td {
   border: none;
   height: 12px;
-  border-bottom: 2px solid var(--mui-palette-divider);
+  border-bottom: 2px solid rgba(148, 163, 184, 0.25);
 }
 .summaryHeader {
-  background-color: #595959 !important;
-  color: #fff;
+  background-color: rgba(59, 130, 246, 0.3) !important;
+  color: var(--mui-palette-text-primary);
   font-weight: 700;
 }
 .summaryRole {
@@ -124,5 +143,5 @@
   width: 35px;
   text-align: center;
   font-size: 0.75rem;
-  border: 1px solid var(--mui-palette-divider);
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
