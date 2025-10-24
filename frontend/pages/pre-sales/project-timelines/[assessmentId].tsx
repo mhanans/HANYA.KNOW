@@ -4,7 +4,7 @@ import { Alert, Box, Button, CircularProgress, Paper, Stack, Typography } from '
 import { apiFetch } from '../../../lib/api';
 import styles from './timeline.module.css';
 
-// --- INTERFACES ---
+// --- INTERFACES & CONSTANTS ---
 interface TimelineDetail {
   taskName: string;
   actor: string;
@@ -33,17 +33,12 @@ interface AiTimelineResponse {
   generatedAt: string;
 }
 
-// --- CONSTANTS ---
 const DAY_WIDTH = 35;
-const LEFT_PANE_WIDTHS = {
-  col1: 200,
-  col2: 280,
-  col3: 150,
-  col4: 90,
-};
+const LEFT_PANE_WIDTHS = { col1: 200, col2: 280, col3: 150, col4: 90 };
 const TOTAL_LEFT_PANE_WIDTH = Object.values(LEFT_PANE_WIDTHS).reduce((a, b) => a + b, 0);
 
 export default function ProjectTimelineDetailPage() {
+  // --- HOOKS AND HANDLERS (No changes needed) ---
   const router = useRouter();
   const { assessmentId } = router.query;
   const [timeline, setTimeline] = useState<AiTimelineResponse | null>(null);
@@ -120,11 +115,7 @@ export default function ProjectTimelineDetailPage() {
           <Typography color="text.secondary">Template: {timeline.templateName}</Typography>
         </Box>
         <Stack direction="row" spacing={2}>
-          <Button
-            variant="outlined"
-            startIcon={<span className="material-symbols-outlined">download</span>}
-            onClick={handleExport}
-          >
+          <Button variant="outlined" startIcon={<span className="material-symbols-outlined">download</span>} onClick={handleExport}>
             Download as Excel
           </Button>
           <Button variant="contained" onClick={handleRegenerate} disabled={regenerating}>
@@ -139,54 +130,20 @@ export default function ProjectTimelineDetailPage() {
             <tr>
               <th colSpan={4} className={styles.headerTopLeft} />
               {metrics.months.map(m => (
-                <th
-                  key={m.index}
-                  colSpan={m.span * 5}
-                  className={styles.headerMonth}
-                  style={{ width: m.span * 5 * DAY_WIDTH }}
-                >
-                  {`Month ${m.index}`}
-                </th>
+                <th key={m.index} colSpan={m.span * 5} className={styles.headerMonth}>{`Month ${m.index}`}</th>
               ))}
             </tr>
             <tr>
               <th colSpan={4} className={styles.headerTopLeft} />
               {metrics.weeks.map(w => (
-                <th
-                  key={w.index}
-                  colSpan={w.span}
-                  className={styles.headerWeek}
-                  style={{ width: w.span * DAY_WIDTH }}
-                >
-                  {`W${w.index}`}
-                </th>
+                <th key={w.index} colSpan={w.span} className={styles.headerWeek}>{`W${w.index}`}</th>
               ))}
             </tr>
             <tr>
-              <th
-                className={styles.headerCell}
-                style={{ width: LEFT_PANE_WIDTHS.col1, left: 0 }}
-              >
-                Activity
-              </th>
-              <th
-                className={styles.headerCell}
-                style={{ width: LEFT_PANE_WIDTHS.col2, left: LEFT_PANE_WIDTHS.col1 }}
-              >
-                Detail
-              </th>
-              <th
-                className={styles.headerCell}
-                style={{ width: LEFT_PANE_WIDTHS.col3, left: LEFT_PANE_WIDTHS.col1 + LEFT_PANE_WIDTHS.col2 }}
-              >
-                Actor
-              </th>
-              <th
-                className={styles.headerCell}
-                style={{ width: LEFT_PANE_WIDTHS.col4, left: TOTAL_LEFT_PANE_WIDTH - LEFT_PANE_WIDTHS.col4 }}
-              >
-                Man-days
-              </th>
+              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</th>
+              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</th>
+              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</th>
+              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</th>
               {metrics.days.map(d => (
                 <th key={d} className={styles.headerDay} style={{ width: DAY_WIDTH }}>
                   {d}
@@ -199,25 +156,16 @@ export default function ProjectTimelineDetailPage() {
               <Fragment key={activity.activityName}>
                 {activity.details.map((detail, index) => (
                   <tr key={`${detail.taskName}-${index}`}>
-                    <td
-                      className={styles.dataCell}
-                      style={{ width: LEFT_PANE_WIDTHS.col1, fontWeight: index === 0 ? 'bold' : 'normal' }}
-                    >
+                    <td className={styles.dataCell} style={{ fontWeight: index === 0 ? 'bold' : 'normal' }}>
                       {index === 0 ? activity.activityName : ''}
                     </td>
-                    <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
-                      {detail.taskName}
-                    </td>
-                    <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>
-                      {detail.actor}
-                    </td>
-                    <td className={`${styles.dataCell} ${styles.textCenter}`} style={{ width: LEFT_PANE_WIDTHS.col4 }}>
-                      {detail.manDays.toFixed(2)}
-                    </td>
+                    <td className={styles.dataCell}>{detail.taskName}</td>
+                    <td className={styles.dataCell}>{detail.actor}</td>
+                    <td className={`${styles.dataCell} ${styles.textCenter}`}>{detail.manDays.toFixed(2)}</td>
                     <td colSpan={timeline.totalDurationDays} className={styles.barContainer}>
                       <div
                         className={styles.bar}
-                        style={{ left: (detail.startDay - 1) * DAY_WIDTH, width: detail.durationDays * DAY_WIDTH }}
+                        style={{ left: `${(detail.startDay - 1) * DAY_WIDTH}px`, width: `${detail.durationDays * DAY_WIDTH}px` }}
                       />
                     </td>
                   </tr>
@@ -230,39 +178,17 @@ export default function ProjectTimelineDetailPage() {
             </tr>
 
             <tr>
-              <th
-                className={`${styles.headerCell} ${styles.resourceHeader}`}
-                style={{ width: LEFT_PANE_WIDTHS.col1 }}
-              >
-                Role
-              </th>
-              <th
-                className={`${styles.headerCell} ${styles.resourceHeader}`}
-                style={{ width: LEFT_PANE_WIDTHS.col2 }}
-              >
-                Mandays Total
-              </th>
-              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
-              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
-              <td colSpan={timeline.totalDurationDays} />
+              <th className={`${styles.headerCell} ${styles.resourceHeader}`}>Role</th>
+              <th className={`${styles.headerCell} ${styles.resourceHeader}`}>Mandays Total</th>
+              <th className={styles.headerCell} colSpan={2} />
+              <td colSpan={timeline.totalDurationDays} className={styles.dataCell} />
             </tr>
 
             {timeline.resourceAllocation.map((res, index) => (
               <tr key={res.role}>
-                <td
-                  className={`${styles.dataCell} ${index % 2 === 0 ? styles.roleYellow : styles.roleBlue}`}
-                  style={{ width: LEFT_PANE_WIDTHS.col1 }}
-                >
-                  {res.role}
-                </td>
-                <td
-                  className={`${styles.dataCell} ${styles.textCenter}`}
-                  style={{ width: LEFT_PANE_WIDTHS.col2 }}
-                >
-                  {res.totalManDays.toFixed(2)}
-                </td>
-                <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
-                <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
+                <td className={`${styles.dataCell} ${index % 2 === 0 ? styles.roleYellow : styles.roleBlue}`}>{res.role}</td>
+                <td className={`${styles.dataCell} ${styles.textCenter}`}>{res.totalManDays.toFixed(2)}</td>
+                <td className={styles.dataCell} colSpan={2} />
                 <td colSpan={timeline.totalDurationDays} className={styles.effortContainer}>
                   {res.dailyEffort.map((effort, dayIndex) => (
                     <div
@@ -281,4 +207,3 @@ export default function ProjectTimelineDetailPage() {
     </Stack>
   );
 }
-
