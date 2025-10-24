@@ -91,7 +91,7 @@ export default function ProjectTimelineDetailPage() {
     setExportError(null);
     setExporting(true);
     try {
-      const res = await apiFetch(`/api/assessment/${resolvedId}/export`);
+      const res = await apiFetch(`/api/timelines/${resolvedId}/export`);
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -219,6 +219,15 @@ export default function ProjectTimelineDetailPage() {
           className={styles.timelineTable}
           style={{ minWidth: TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH }}
         >
+          <colgroup>
+            <col style={{ width: `${LEFT_PANE_WIDTHS.col1}px` }} />
+            <col style={{ width: `${LEFT_PANE_WIDTHS.col2}px` }} />
+            <col style={{ width: `${LEFT_PANE_WIDTHS.col3}px` }} />
+            <col style={{ width: `${LEFT_PANE_WIDTHS.col4}px` }} />
+            {metrics.days.map(day => (
+              <col key={`day-col-${day}`} style={{ width: `${DAY_WIDTH}px` }} />
+            ))}
+          </colgroup>
           <thead>
             {/* Row 1: Months */}
             <tr>
