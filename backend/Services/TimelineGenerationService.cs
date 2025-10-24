@@ -94,17 +94,33 @@ public class TimelineGenerationService
             .ThenBy(a => a.ActivityName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var totalDays = 0;
+        var currentDayIndex = 0;
         foreach (var activity in orderedActivities)
         {
+            double activityTotalManDays = 0;
+            foreach (var detail in activity.Details)
+            {
+                activityTotalManDays += detail.ManDays;
+            }
+
+            var activityDuration = (int)Math.Ceiling(activityTotalManDays);
+            activity.ManDays = activityTotalManDays;
+            activity.StartDayIndex = currentDayIndex;
+            activity.DurationDays = activityDuration;
+
+            var detailStartDay = currentDayIndex;
             foreach (var detail in activity.Details)
             {
                 var duration = Math.Max(1, (int)Math.Ceiling(detail.ManDays));
                 detail.DurationDays = duration;
-                detail.StartDayIndex = totalDays;
-                totalDays += duration;
+                detail.StartDayIndex = detailStartDay;
+                detailStartDay += duration;
             }
+
+            currentDayIndex += activityDuration;
         }
+
+        var totalDays = currentDayIndex;
 
         var workingDays = BuildWorkingDayTimeline(totalDays);
         foreach (var activity in orderedActivities)

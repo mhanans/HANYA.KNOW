@@ -34,6 +34,9 @@ interface TimelineActivityRecord {
   activityName: string;
   displayOrder: number;
   details: TimelineDetailRecord[];
+  manDays: number;
+  startDayIndex: number;
+  durationDays: number;
 }
 
 interface TimelineManpowerSummary {
@@ -62,8 +65,6 @@ interface TimelineRecord {
   resourceAllocations: TimelineResourceAllocation[];
   totalCost: number;
 }
-
-const leftColumnTemplate = '210px 260px 120px';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(value);
@@ -165,17 +166,6 @@ export default function ProjectTimelineDetailPage() {
     return result;
   }, [weeks]);
 
-  const flattenedDetails = useMemo(() => {
-    if (!timeline) return [];
-    const rows: Array<{ activity: string; detail: TimelineDetailRecord; isFirst: boolean }> = [];
-    timeline.activities.forEach(activity => {
-      activity.details.forEach((detail, idx) => {
-        rows.push({ activity: activity.activityName, detail, isFirst: idx === 0 });
-      });
-    });
-    return rows;
-  }, [timeline]);
-
   const dayCount = timeline?.workingDays?.length ?? 0;
   const rightGridTemplate = useMemo(() => `repeat(${Math.max(dayCount, 1)}, minmax(32px, 1fr))`, [dayCount]);
 
@@ -220,46 +210,38 @@ export default function ProjectTimelineDetailPage() {
           ) : (
             <Stack spacing={4}>
               <Box className="gantt-area">
-                <div className="timeline-matrix" style={{ gridTemplateColumns: `${leftColumnTemplate} calc(${dayCount} * 1fr)` }}>
-                  <div className="timeline-header-left" style={{ gridTemplateColumns: leftColumnTemplate }}>
-                    <div className="timeline-header-cell">Activity</div>
-                    <div className="timeline-header-cell">Detail</div>
-                    <div className="timeline-header-cell">Man-days</div>
+                <div className="timeline-matrix">
+                  <div className="timeline-header-left">
+                    <div className="header-cell">Activity</div>
+                    <div className="header-cell">Detail</div>
+                    <div className="header-cell">Man-days</div>
                   </div>
                   <div
                     className="timeline-header-right"
                     style={{ gridTemplateColumns: rightGridTemplate, ['--day-count' as any]: Math.max(dayCount, 1) }}
                   >
-                    <div className="timeline-month-row">
+                    <div className="month-row">
                       {months.map(month => (
-                        <div
-                          key={month.index}
-                          className="timeline-month-cell"
-                          style={{ gridColumn: `span ${month.spanWeeks * 5}` }}
-                        >
+                        <div key={month.index} className="month-cell" style={{ gridColumn: `span ${month.spanWeeks * 5}` }}>
                           Month {month.index}
                         </div>
                       ))}
                     </div>
-                    <div className="timeline-week-row">
+                    <div className="week-row">
                       {weeks.map(week => (
-                        <div
-                          key={week.index}
-                          className="timeline-week-cell"
-                          style={{ gridColumn: `span ${week.days.length}` }}
-                        >
+                        <div key={week.index} className="week-cell" style={{ gridColumn: `span ${week.days.length}` }}>
                           W{week.index}
                         </div>
                       ))}
                     </div>
-                    <div className="timeline-day-row">
+                    <div className="day-row">
                       {timeline.workingDays.map((day, idx) => {
                         const date = new Date(day);
                         const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
                         const dayNum = date.getDate();
                         return (
-                          <div key={idx} className="timeline-day-cell">
-                            <span className="day-label">{weekday}</span>
+                          <div key={idx} className="day-cell">
+                            <span className="day-label">{weekday.toUpperCase()}</span>
                             <span className="day-number">{dayNum}</span>
                           </div>
                         );
@@ -267,28 +249,44 @@ export default function ProjectTimelineDetailPage() {
                     </div>
                   </div>
 
-                  {flattenedDetails.map(row => (
-                    <Fragment key={`${row.activity}-${row.detail.taskKey}-${row.detail.startDayIndex}`}>
-                      <div className="timeline-left-row" style={{ gridTemplateColumns: leftColumnTemplate }}>
-                        <div className="timeline-activity-cell">{row.isFirst ? row.activity : ''}</div>
-                        <div className="timeline-detail-cell">{row.detail.detailName}</div>
-                        <div className="timeline-mandays-cell">{formatNumber(row.detail.manDays, 1)}</div>
+                  {timeline.activities.map(activity => (
+                    <Fragment key={activity.activityName}>
+                      <div className="activity-row">
+                        <div className="activity-cell activity-name-cell">{activity.activityName}</div>
+                        <div className="activity-cell" />
+                        <div className="activity-cell mandays-cell">{formatNumber(activity.manDays, 2)}</div>
                       </div>
                       <div
-                        className="timeline-right-row"
+                        className="activity-right-row"
                         style={{ gridTemplateColumns: rightGridTemplate, ['--day-count' as any]: Math.max(dayCount, 1) }}
                       >
                         <div className="timeline-grid-lines" />
-                        <div
-                          className="timeline-bar"
-                          style={{
-                            ['--start' as any]: row.detail.startDayIndex + 1,
-                            ['--duration' as any]: row.detail.durationDays,
-                          }}
-                        >
-                          <span className="timeline-bar-label">{row.detail.taskKey}</span>
-                        </div>
                       </div>
+
+                      {activity.details.map(detail => (
+                        <Fragment key={detail.taskKey}>
+                          <div className="detail-row">
+                            <div className="detail-cell" />
+                            <div className="detail-cell detail-name-cell">{detail.detailName}</div>
+                            <div className="detail-cell mandays-cell">{formatNumber(detail.manDays, 2)}</div>
+                          </div>
+                          <div
+                            className="detail-right-row"
+                            style={{ gridTemplateColumns: rightGridTemplate, ['--day-count' as any]: Math.max(dayCount, 1) }}
+                          >
+                            <div className="timeline-grid-lines" />
+                            <div
+                              className="timeline-bar"
+                              style={{
+                                ['--start' as any]: detail.startDayIndex + 1,
+                                ['--duration' as any]: detail.durationDays,
+                              }}
+                            >
+                              <span className="timeline-bar-label">{detail.taskKey}</span>
+                            </div>
+                          </div>
+                        </Fragment>
+                      ))}
                     </Fragment>
                   ))}
                 </div>
