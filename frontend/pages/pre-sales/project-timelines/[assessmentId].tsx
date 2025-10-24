@@ -139,12 +139,13 @@ export default function ProjectTimelineDetailPage() {
         <Box className={styles.timelineContainer} sx={{ minWidth: `${TOTAL_LEFT_PANE_WIDTH + rightPaneWidth}px` }}>
           {/* --- PANE 1: THE STICKY LEFT SIDE --- */}
           <div className={styles.leftPane}>
-            <div className={styles.leftHeader}>
+            <div className={styles.header}>
               <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</div>
               <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</div>
               <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</div>
               <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</div>
             </div>
+            {/* Gantt Data Cells */}
             {timeline.activities.map(activity => (
               <Fragment key={activity.activityName}>
                 {activity.details.map((detail, index) => (
@@ -161,17 +162,16 @@ export default function ProjectTimelineDetailPage() {
                     <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>
                       {detail.actor}
                     </div>
-                    <div
-                      className={`${styles.dataCell} ${styles.textCenter}`}
-                      style={{ width: LEFT_PANE_WIDTHS.col4 }}
-                    >
+                    <div className={`${styles.dataCell} ${styles.textCenter}`} style={{ width: LEFT_PANE_WIDTHS.col4 }}>
                       {detail.manDays.toFixed(2)}
                     </div>
                   </div>
                 ))}
               </Fragment>
             ))}
+            {/* Spacer */}
             <div className={styles.spacerRow} />
+            {/* Resource Header */}
             <div className={styles.leftDataRow}>
               <div className={`${styles.dataCell} ${styles.headerCell}`} style={{ width: LEFT_PANE_WIDTHS.col1 }}>
                 Role
@@ -182,6 +182,7 @@ export default function ProjectTimelineDetailPage() {
               <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
               <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
             </div>
+            {/* Resource Data Cells */}
             {timeline.resourceAllocation.map((res, index) => (
               <div key={res.role} className={styles.leftDataRow}>
                 <div
@@ -190,10 +191,7 @@ export default function ProjectTimelineDetailPage() {
                 >
                   {res.role}
                 </div>
-                <div
-                  className={`${styles.dataCell} ${styles.textCenter}`}
-                  style={{ width: LEFT_PANE_WIDTHS.col2 }}
-                >
+                <div className={`${styles.dataCell} ${styles.textCenter}`} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
                   {res.totalManDays.toFixed(2)}
                 </div>
                 <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
@@ -204,7 +202,7 @@ export default function ProjectTimelineDetailPage() {
 
           {/* --- PANE 2: THE SCROLLABLE RIGHT SIDE --- */}
           <div className={styles.rightPane}>
-            <div className={styles.rightHeader}>
+            <div className={`${styles.header} ${styles.rightHeader}`}>
               <div className={styles.headerMonths}>
                 {metrics.months.map(m => (
                   <div key={m.index} style={{ width: m.span * 5 * DAY_WIDTH }}>
@@ -227,6 +225,7 @@ export default function ProjectTimelineDetailPage() {
                 ))}
               </div>
             </div>
+            {/* Gantt Bar Rows */}
             {timeline.activities.map(activity => (
               <Fragment key={activity.activityName}>
                 {activity.details.map((detail, index) => (
@@ -239,8 +238,11 @@ export default function ProjectTimelineDetailPage() {
                 ))}
               </Fragment>
             ))}
+            {/* Spacer */}
             <div className={styles.spacerRow} />
+            {/* Resource Header (Empty) */}
             <div className={styles.barContainer} />
+            {/* Resource Effort Rows */}
             {timeline.resourceAllocation.map((res, index) => (
               <div key={res.role} className={styles.effortContainer}>
                 {res.dailyEffort.map((effort, dayIndex) => (
@@ -259,4 +261,3 @@ export default function ProjectTimelineDetailPage() {
     </Stack>
   );
 }
-
