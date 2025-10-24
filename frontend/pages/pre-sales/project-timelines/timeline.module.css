@@ -1,45 +1,45 @@
+/* --- Final Corrected CSS for timeline.module.css --- */
+
 .timelineContainer {
-  display: flex;
+  display: flex; /* Establishes the fundamental two-pane layout */
+  position: relative;
 }
 
-/* --- LEFT PANE (STICKY) --- */
+/* --- PANE 1: THE STICKY LEFT SIDE --- */
 .leftPane {
   position: sticky;
   left: 0;
-  z-index: 2;
-  background-color: var(--mui-palette-background-paper);
+  z-index: 2; /* Sits on top of the right pane */
   display: flex;
   flex-direction: column;
+  background-color: var(--mui-palette-background-paper);
 }
-.leftHeader {
+
+/* --- PANE 2: THE SCROLLABLE RIGHT SIDE --- */
+.rightPane {
+  z-index: 1; /* Sits below the left pane */
+  display: flex;
+  flex-direction: column;
+  width: 100%; /* Takes up the calculated width */
+}
+
+/* --- HEADER STYLES (Applies to both panes) --- */
+.header {
   display: flex;
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: 3; /* Sits on top of everything */
   background-color: var(--mui-palette-background-paper);
-}
-.leftDataRow {
-  display: flex;
-  min-height: 40px;
-}
-
-/* --- RIGHT PANE (SCROLLABLE) --- */
-.rightPane {
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  flex-grow: 1;
 }
 .rightHeader {
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background-color: var(--mui-palette-background-paper);
 }
-
-/* --- GENERIC CELL STYLING --- */
+.headerMonths,
+.headerWeeks,
+.headerDays {
+  display: flex; /* This makes the children (Month/Week/Day divs) align horizontally */
+}
 .headerCell,
 .headerMonths > div,
 .headerWeeks > div,
@@ -69,6 +69,12 @@
 .headerDays > div {
   border-top: none;
 }
+
+/* --- DATA ROW STYLES (Applies to both panes) --- */
+.leftDataRow {
+  display: flex;
+  min-height: 40px;
+}
 .dataCell {
   display: flex;
   align-items: center;
@@ -81,11 +87,11 @@
   text-overflow: ellipsis;
   min-height: 40px;
 }
-.dataCell:last-child {
+.leftDataRow > .dataCell:last-child {
   border-right: 1px solid var(--mui-palette-divider);
 }
 
-/* --- CONTENT-SPECIFIC STYLING --- */
+/* --- CONTENT-SPECIFIC STYLES --- */
 .barContainer,
 .effortContainer {
   position: relative;
@@ -134,8 +140,8 @@
   background-color: rgba(222, 235, 247, 0.1);
 }
 .effortYellow {
-  background-color: #fff2cc;
+  background-color: #FFF2CC;
 }
 .effortBlue {
-  background-color: #deebf7;
+  background-color: #DEEBF7;
 }
