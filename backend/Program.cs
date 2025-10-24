@@ -111,6 +111,8 @@ builder.Services.AddSingleton<ProjectAssessmentAnalysisService>();
 builder.Services.AddSingleton<PresalesConfigurationStore>();
 builder.Services.AddSingleton<TimelineStore>();
 builder.Services.AddSingleton<TimelineGenerationService>();
+builder.Services.AddSingleton<CostEstimationConfigurationStore>();
+builder.Services.AddSingleton<CostEstimationService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<KnowledgeBaseIngestionService>());
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>();
