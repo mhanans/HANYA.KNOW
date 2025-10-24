@@ -112,8 +112,6 @@ export default function ProjectTimelineDetailPage() {
   if (error) return <Alert severity="error">{error}</Alert>;
   if (!timeline || !metrics) return <Alert severity="info">No timeline data.</Alert>;
 
-  const rightPaneWidth = timeline.totalDurationDays * DAY_WIDTH;
-
   return (
     <Stack spacing={3}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -135,129 +133,152 @@ export default function ProjectTimelineDetailPage() {
         </Stack>
       </Stack>
 
-      <Paper variant="outlined" sx={{ overflow: 'auto' }}>
-        <Box className={styles.timelineContainer} sx={{ minWidth: `${TOTAL_LEFT_PANE_WIDTH + rightPaneWidth}px` }}>
-          {/* --- PANE 1: THE STICKY LEFT SIDE --- */}
-          <div className={styles.leftPane}>
-            <div className={styles.header}>
-              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</div>
-              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</div>
-              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</div>
-              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</div>
-            </div>
-            {/* Gantt Data Cells */}
+      <Paper variant="outlined" sx={{ overflow: 'auto', width: '100%' }}>
+        <table className={styles.timelineTable} style={{ minWidth: TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH }}>
+          <thead>
+            <tr>
+              <th colSpan={4} className={styles.headerTopLeft} />
+              {metrics.months.map(m => (
+                <th
+                  key={m.index}
+                  colSpan={m.span * 5}
+                  className={styles.headerMonth}
+                  style={{ width: m.span * 5 * DAY_WIDTH }}
+                >
+                  {`Month ${m.index}`}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              <th colSpan={4} className={styles.headerTopLeft} />
+              {metrics.weeks.map(w => (
+                <th
+                  key={w.index}
+                  colSpan={w.span}
+                  className={styles.headerWeek}
+                  style={{ width: w.span * DAY_WIDTH }}
+                >
+                  {`W${w.index}`}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              <th
+                className={styles.headerCell}
+                style={{ width: LEFT_PANE_WIDTHS.col1, left: 0 }}
+              >
+                Activity
+              </th>
+              <th
+                className={styles.headerCell}
+                style={{ width: LEFT_PANE_WIDTHS.col2, left: LEFT_PANE_WIDTHS.col1 }}
+              >
+                Detail
+              </th>
+              <th
+                className={styles.headerCell}
+                style={{ width: LEFT_PANE_WIDTHS.col3, left: LEFT_PANE_WIDTHS.col1 + LEFT_PANE_WIDTHS.col2 }}
+              >
+                Actor
+              </th>
+              <th
+                className={styles.headerCell}
+                style={{ width: LEFT_PANE_WIDTHS.col4, left: TOTAL_LEFT_PANE_WIDTH - LEFT_PANE_WIDTHS.col4 }}
+              >
+                Man-days
+              </th>
+              {metrics.days.map(d => (
+                <th key={d} className={styles.headerDay} style={{ width: DAY_WIDTH }}>
+                  {d}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
             {timeline.activities.map(activity => (
               <Fragment key={activity.activityName}>
                 {activity.details.map((detail, index) => (
-                  <div key={`${detail.taskName}-${index}`} className={styles.leftDataRow}>
-                    <div
+                  <tr key={`${detail.taskName}-${index}`}>
+                    <td
                       className={styles.dataCell}
                       style={{ width: LEFT_PANE_WIDTHS.col1, fontWeight: index === 0 ? 'bold' : 'normal' }}
                     >
                       {index === 0 ? activity.activityName : ''}
-                    </div>
-                    <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
+                    </td>
+                    <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
                       {detail.taskName}
-                    </div>
-                    <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>
+                    </td>
+                    <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>
                       {detail.actor}
-                    </div>
-                    <div className={`${styles.dataCell} ${styles.textCenter}`} style={{ width: LEFT_PANE_WIDTHS.col4 }}>
+                    </td>
+                    <td className={`${styles.dataCell} ${styles.textCenter}`} style={{ width: LEFT_PANE_WIDTHS.col4 }}>
                       {detail.manDays.toFixed(2)}
-                    </div>
-                  </div>
+                    </td>
+                    <td colSpan={timeline.totalDurationDays} className={styles.barContainer}>
+                      <div
+                        className={styles.bar}
+                        style={{ left: (detail.startDay - 1) * DAY_WIDTH, width: detail.durationDays * DAY_WIDTH }}
+                      />
+                    </td>
+                  </tr>
                 ))}
               </Fragment>
             ))}
-            {/* Spacer */}
-            <div className={styles.spacerRow} />
-            {/* Resource Header */}
-            <div className={styles.leftDataRow}>
-              <div className={`${styles.dataCell} ${styles.headerCell}`} style={{ width: LEFT_PANE_WIDTHS.col1 }}>
+
+            <tr className={styles.spacerRow}>
+              <td colSpan={4 + timeline.totalDurationDays} />
+            </tr>
+
+            <tr>
+              <th
+                className={`${styles.headerCell} ${styles.resourceHeader}`}
+                style={{ width: LEFT_PANE_WIDTHS.col1 }}
+              >
                 Role
-              </div>
-              <div className={`${styles.dataCell} ${styles.headerCell}`} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
+              </th>
+              <th
+                className={`${styles.headerCell} ${styles.resourceHeader}`}
+                style={{ width: LEFT_PANE_WIDTHS.col2 }}
+              >
                 Mandays Total
-              </div>
-              <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
-              <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
-            </div>
-            {/* Resource Data Cells */}
+              </th>
+              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
+              <th className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
+              <td colSpan={timeline.totalDurationDays} />
+            </tr>
+
             {timeline.resourceAllocation.map((res, index) => (
-              <div key={res.role} className={styles.leftDataRow}>
-                <div
+              <tr key={res.role}>
+                <td
                   className={`${styles.dataCell} ${index % 2 === 0 ? styles.roleYellow : styles.roleBlue}`}
                   style={{ width: LEFT_PANE_WIDTHS.col1 }}
                 >
                   {res.role}
-                </div>
-                <div className={`${styles.dataCell} ${styles.textCenter}`} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
+                </td>
+                <td
+                  className={`${styles.dataCell} ${styles.textCenter}`}
+                  style={{ width: LEFT_PANE_WIDTHS.col2 }}
+                >
                   {res.totalManDays.toFixed(2)}
-                </div>
-                <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
-                <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
-              </div>
-            ))}
-          </div>
-
-          {/* --- PANE 2: THE SCROLLABLE RIGHT SIDE --- */}
-          <div className={styles.rightPane}>
-            <div className={`${styles.header} ${styles.rightHeader}`}>
-              <div className={styles.headerMonths}>
-                {metrics.months.map(m => (
-                  <div key={m.index} style={{ width: m.span * 5 * DAY_WIDTH }}>
-                    Month {m.index}
-                  </div>
-                ))}
-              </div>
-              <div className={styles.headerWeeks}>
-                {metrics.weeks.map(w => (
-                  <div key={w.index} style={{ width: w.span * DAY_WIDTH }}>
-                    W{w.index}
-                  </div>
-                ))}
-              </div>
-              <div className={styles.headerDays}>
-                {metrics.days.map(d => (
-                  <div key={d} style={{ width: DAY_WIDTH }}>
-                    {d}
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* Gantt Bar Rows */}
-            {timeline.activities.map(activity => (
-              <Fragment key={activity.activityName}>
-                {activity.details.map((detail, index) => (
-                  <div key={`${detail.taskName}-${index}`} className={styles.barContainer}>
+                </td>
+                <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }} />
+                <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col4 }} />
+                <td colSpan={timeline.totalDurationDays} className={styles.effortContainer}>
+                  {res.dailyEffort.map((effort, dayIndex) => (
                     <div
-                      className={styles.bar}
-                      style={{ left: (detail.startDay - 1) * DAY_WIDTH, width: detail.durationDays * DAY_WIDTH }}
-                    />
-                  </div>
-                ))}
-              </Fragment>
+                      key={dayIndex}
+                      className={`${styles.effortCell} ${effort > 0 ? (index % 2 === 0 ? styles.effortYellow : styles.effortBlue) : ''}`}
+                    >
+                      {effort > 0 ? effort : ''}
+                    </div>
+                  ))}
+                </td>
+              </tr>
             ))}
-            {/* Spacer */}
-            <div className={styles.spacerRow} />
-            {/* Resource Header (Empty) */}
-            <div className={styles.barContainer} />
-            {/* Resource Effort Rows */}
-            {timeline.resourceAllocation.map((res, index) => (
-              <div key={res.role} className={styles.effortContainer}>
-                {res.dailyEffort.map((effort, dayIndex) => (
-                  <div
-                    key={dayIndex}
-                    className={`${styles.effortCell} ${effort > 0 ? (index % 2 === 0 ? styles.effortYellow : styles.effortBlue) : ''}`}
-                  >
-                    {effort > 0 ? effort : ''}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </Box>
+          </tbody>
+        </table>
       </Paper>
     </Stack>
   );
 }
+
