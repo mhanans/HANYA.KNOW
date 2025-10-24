@@ -124,7 +124,11 @@ export default function ProjectTimelineDetailPage() {
         </Stack>
       </Stack>
 
-      <Paper variant="outlined" sx={{ overflow: 'auto', position: 'relative' }}>
+      <Paper
+        variant="outlined"
+        sx={{ overflow: 'auto', position: 'relative' }}
+        className={styles.timeline}
+      >
         <Box sx={{ minWidth: `${TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH}px`, position: 'relative' }}>
           
           {/* --- HEADER --- */}
