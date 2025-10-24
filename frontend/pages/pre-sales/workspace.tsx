@@ -623,6 +623,40 @@ export default function AssessmentWorkspace() {
     [applyJobStatus, loadAssessmentFromJob, showError, stopJobPolling]
   );
 
+  const resumeFailedJob = useCallback(
+    async (jobId: number) => {
+      stopJobPolling();
+      setIsAnalyzing(true);
+      setAnalysisLog(current => {
+        const prefix = current.length > 0 ? current.slice(0, 1) : ['Preparing analysis…'];
+        return [...prefix, 'Attempting to resume from the failed step…'];
+      });
+      try {
+        const res = await apiFetch(`/api/assessment/jobs/${jobId}/resume`, { method: 'POST' });
+        if (!res.ok) throw new Error(await res.text());
+        const resumedJob: AssessmentJob = await res.json();
+        const { statusChanged } = applyJobStatus(resumedJob);
+
+        if (resumedJob.status === 'Complete') {
+          await loadAssessmentFromJob(jobId);
+          stopJobPolling();
+        } else if (isFailureJobStatus(resumedJob.status)) {
+          stopJobPolling();
+        } else {
+          setAssessment(null);
+          jobPollTimer.current = setTimeout(() => {
+            void refreshJobStatus(jobId);
+          }, statusChanged ? 500 : 2000);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to resume the assessment job.';
+        showError(message, 'Resume failed');
+        setIsAnalyzing(false);
+      }
+    },
+    [applyJobStatus, loadAssessmentFromJob, refreshJobStatus, showError, stopJobPolling]
+  );
+
   const loadJob = useCallback(
     async (jobId: number) => {
       stopJobPolling();
@@ -637,7 +671,9 @@ export default function AssessmentWorkspace() {
         void refreshSimilarAssessments();
         if (job.status === 'Complete') {
           await loadAssessmentFromJob(jobId);
-        } else if (!isFailureJobStatus(job.status)) {
+        } else if (isFailureJobStatus(job.status)) {
+          await resumeFailedJob(jobId);
+        } else {
           setAssessment(null);
           jobPollTimer.current = setTimeout(() => {
             void refreshJobStatus(jobId);
@@ -650,7 +686,14 @@ export default function AssessmentWorkspace() {
         setLoadingAssessment(false);
       }
     },
-    [applyJobStatus, loadAssessmentFromJob, refreshJobStatus, showError, stopJobPolling]
+    [
+      applyJobStatus,
+      loadAssessmentFromJob,
+      refreshJobStatus,
+      resumeFailedJob,
+      showError,
+      stopJobPolling,
+    ]
   );
 
   useEffect(() => {
