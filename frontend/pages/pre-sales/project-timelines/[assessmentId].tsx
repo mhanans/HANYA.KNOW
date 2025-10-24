@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Alert, Box, Button, CircularProgress, Paper, Stack, Typography } from '@mui/material';
@@ -93,14 +94,38 @@ export default function ProjectTimelineDetailPage() {
     if (!timeline) return null;
     const days = Array.from({ length: timeline.totalDurationDays }, (_, i) => i + 1);
     const weeks: { index: number; span: number }[] = [];
-    for (let i = 0; i < days.length; i += 5) {
-      weeks.push({ index: weeks.length + 1, span: Math.min(5, days.length - i) });
+    for (let dayIndex = 0; dayIndex < days.length; ) {
+      const span = Math.min(5, days.length - dayIndex);
+      weeks.push({ index: weeks.length + 1, span });
+      dayIndex += span;
     }
+
     const months: { index: number; span: number }[] = [];
-    for (let i = 0; i < weeks.length; i += 4) {
-      months.push({ index: months.length + 1, span: Math.min(4, weeks.length - i) });
+    for (let weekIndex = 0; weekIndex < weeks.length; ) {
+      const monthWeeks = Math.min(5, weeks.length - weekIndex);
+      const span = weeks.slice(weekIndex, weekIndex + monthWeeks).reduce((acc, week) => acc + week.span, 0);
+      months.push({ index: months.length + 1, span });
+      weekIndex += monthWeeks;
     }
+
     return { days, weeks, months };
+  }, [timeline]);
+
+  const summary = useMemo(() => {
+    if (!timeline) return null;
+
+    const formatNumber = (value: number) =>
+      new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+
+    const totalManDays = timeline.activities.reduce((activitySum, activity) => {
+      const detailSum = activity.details.reduce((sum, detail) => sum + (detail.manDays ?? 0), 0);
+      return activitySum + detailSum;
+    }, 0);
+
+    return {
+      totalManDays,
+      formatNumber,
+    };
   }, [timeline]);
 
   if (loading) return <CircularProgress />;
@@ -125,7 +150,10 @@ export default function ProjectTimelineDetailPage() {
       </Stack>
 
       <Paper variant="outlined" sx={{ overflow: 'auto', width: '100%' }}>
-        <table className={styles.timelineTable} style={{ minWidth: TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH }}>
+        <table
+          className={styles.timelineTable}
+          style={{ minWidth: TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH }}
+        >
           <thead>
             {/* Row 1: Months */}
             <tr>
@@ -134,7 +162,7 @@ export default function ProjectTimelineDetailPage() {
               <th rowSpan={3} className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</th>
               <th rowSpan={3} className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</th>
               {metrics.months.map(m => (
-                <th key={m.index} colSpan={m.span * 5} className={styles.headerMonth}>{`Month ${m.index}`}</th>
+                <th key={m.index} colSpan={m.span} className={styles.headerMonth}>{`Month ${m.index}`}</th>
               ))}
             </tr>
             {/* Row 2: Weeks */}
@@ -157,18 +185,28 @@ export default function ProjectTimelineDetailPage() {
               <Fragment key={activity.activityName}>
                 {activity.details.map((detail, index) => (
                   <tr key={`${detail.taskName}-${index}`}>
-                    <td className={styles.dataCell} style={{ fontWeight: index === 0 ? 'bold' : 'normal' }}>
-                      {index === 0 ? activity.activityName : ''}
+                    {index === 0 && (
+                      <td
+                        rowSpan={activity.details.length}
+                        className={clsx(styles.dataCell, styles.activityGroup)}
+                        style={{ width: LEFT_PANE_WIDTHS.col1 }}
+                      >
+                        {activity.activityName}
+                      </td>
+                    )}
+                    <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
+                      {detail.taskName}
                     </td>
-                    <td className={styles.dataCell}>{detail.taskName}</td>
-                    <td className={styles.dataCell}>{detail.actor}</td>
-                    <td className={`${styles.dataCell} ${styles.textCenter}`}>{detail.manDays.toFixed(2)}</td>
-                    <td colSpan={timeline.totalDurationDays} className={styles.barContainer}>
-                      <div
-                        className={styles.bar}
-                        style={{ left: `${(detail.startDay - 1) * DAY_WIDTH}px`, width: `${detail.durationDays * DAY_WIDTH}px` }}
-                      />
+                    <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>
+                      {detail.actor}
                     </td>
+                    <td className={clsx(styles.dataCell, styles.textRight)} style={{ width: LEFT_PANE_WIDTHS.col4 }}>
+                      {summary?.formatNumber(detail.manDays ?? 0)}
+                    </td>
+                    {metrics.days.map(day => {
+                      const isActive = day >= detail.startDay && day < detail.startDay + detail.durationDays;
+                      return <td key={day} className={clsx(styles.timelineCell, isActive && styles.ganttBar)} />;
+                    })}
                   </tr>
                 ))}
               </Fragment>
@@ -179,27 +217,60 @@ export default function ProjectTimelineDetailPage() {
             </tr>
 
             <tr>
-              <th className={`${styles.headerCell} ${styles.resourceHeader}`}>Role</th>
-              <th className={`${styles.headerCell} ${styles.resourceHeader}`}>Mandays Total</th>
-              <th className={styles.headerCell} colSpan={2} />
-              <td colSpan={timeline.totalDurationDays} className={styles.dataCell} />
+              <td colSpan={3} className={clsx(styles.dataCell, styles.boldCell)}>
+                Mandays Total
+              </td>
+              <td className={clsx(styles.dataCell, styles.boldCell, styles.textRight)}>
+                {summary ? summary.formatNumber(summary.totalManDays) : '0'}
+              </td>
+              {metrics.days.map(day => (
+                <td key={`summary-total-${day}`} className={styles.timelineCell} />
+              ))}
+            </tr>
+
+            <tr className={styles.summarySeparatorRow}>
+              <td colSpan={4 + metrics.days.length} />
+            </tr>
+
+            <tr>
+              <td colSpan={3} className={clsx(styles.dataCell, styles.summaryHeader)}>
+                Role
+              </td>
+              <td className={clsx(styles.dataCell, styles.summaryHeader)}>Mandays Total</td>
+              {metrics.days.map(day => (
+                <td key={`summary-header-${day}`} className={styles.timelineCell} />
+              ))}
             </tr>
 
             {timeline.resourceAllocation.map((res, index) => (
               <tr key={res.role}>
-                <td className={`${styles.dataCell} ${index % 2 === 0 ? styles.roleYellow : styles.roleBlue}`}>{res.role}</td>
-                <td className={`${styles.dataCell} ${styles.textCenter}`}>{res.totalManDays.toFixed(2)}</td>
-                <td className={styles.dataCell} colSpan={2} />
-                <td colSpan={timeline.totalDurationDays} className={styles.effortContainer}>
-                  {res.dailyEffort.map((effort, dayIndex) => (
-                    <div
-                      key={dayIndex}
-                      className={`${styles.effortCell} ${effort > 0 ? (index % 2 === 0 ? styles.effortYellow : styles.effortBlue) : ''}`}
-                    >
-                      {effort > 0 ? effort : ''}
-                    </div>
-                  ))}
+                <td
+                  colSpan={3}
+                  className={clsx(
+                    styles.dataCell,
+                    styles.summaryRole,
+                    index % 2 === 0 ? styles.roleYellow : styles.roleBlue
+                  )}
+                >
+                  {res.role}
                 </td>
+                <td className={clsx(styles.dataCell, styles.textRight, styles.summaryTotal)}>
+                  {summary?.formatNumber(res.totalManDays ?? 0)}
+                </td>
+                {metrics.days.map((day, dayIndex) => {
+                  const effort = res.dailyEffort?.[dayIndex] ?? 0;
+                  return (
+                    <td
+                      key={`${res.role}-day-${day}`}
+                      className={clsx(
+                        styles.resourceCell,
+                        effort > 0 && (index % 2 === 0 ? styles.effortYellow : styles.effortBlue)
+                      )}
+                    >
+                      {effort > 0 ? summary?.formatNumber(effort) : ''}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
