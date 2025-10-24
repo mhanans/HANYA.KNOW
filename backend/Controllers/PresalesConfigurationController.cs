@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using backend.Models;
 using backend.Middleware;
@@ -11,10 +12,12 @@ namespace backend.Controllers;
 public class PresalesConfigurationController : ControllerBase
 {
     private readonly PresalesConfigurationStore _store;
+    private readonly ProjectTemplateStore _templates;
 
-    public PresalesConfigurationController(PresalesConfigurationStore store)
+    public PresalesConfigurationController(PresalesConfigurationStore store, ProjectTemplateStore templates)
     {
         _store = store;
+        _templates = templates;
     }
 
     [HttpGet]
@@ -31,5 +34,13 @@ public class PresalesConfigurationController : ControllerBase
     {
         var result = await _store.SaveConfigurationAsync(configuration, HttpContext.RequestAborted).ConfigureAwait(false);
         return Ok(result);
+    }
+
+    [HttpGet("tasks")]
+    [UiAuthorize("pre-sales-configuration")]
+    public async Task<ActionResult<IEnumerable<string>>> ListTasks()
+    {
+        var tasks = await _templates.ListEstimationColumnsAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        return Ok(tasks);
     }
 }

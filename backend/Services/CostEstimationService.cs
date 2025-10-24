@@ -13,15 +13,29 @@ public class CostEstimationService
 {
     private readonly TimelineStore _timelineStore;
     private readonly CostEstimationConfigurationStore _configurationStore;
+    private readonly CostEstimationStore _resultStore;
 
-    public CostEstimationService(TimelineStore timelineStore, CostEstimationConfigurationStore configurationStore)
+    public CostEstimationService(
+        TimelineStore timelineStore,
+        CostEstimationConfigurationStore configurationStore,
+        CostEstimationStore resultStore)
     {
         _timelineStore = timelineStore;
         _configurationStore = configurationStore;
+        _resultStore = resultStore;
     }
 
     public async Task<CostEstimationResult?> GetAsync(int assessmentId, CostEstimationInputs? overrideInputs, CancellationToken cancellationToken)
     {
+        if (overrideInputs == null)
+        {
+            var cached = await _resultStore.GetAsync(assessmentId, cancellationToken).ConfigureAwait(false);
+            if (cached != null)
+            {
+                return cached;
+            }
+        }
+
         var timeline = await _timelineStore.GetAsync(assessmentId, cancellationToken).ConfigureAwait(false);
         if (timeline == null)
         {
@@ -30,7 +44,9 @@ public class CostEstimationService
 
         var config = await _configurationStore.GetAsync(cancellationToken).ConfigureAwait(false);
         var inputs = MergeInputs(config, overrideInputs);
-        return Calculate(timeline, config, inputs);
+        var result = Calculate(timeline, config, inputs);
+        await _resultStore.SaveAsync(result, cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     public async Task<GoalSeekResponse?> GoalSeekAsync(int assessmentId, GoalSeekRequest request, CancellationToken cancellationToken)
@@ -137,13 +153,19 @@ public class CostEstimationService
         }
 
         adjustable.Setter(inputs, current);
-        return new GoalSeekResponse
+        var response = new GoalSeekResponse
         {
             Inputs = inputs,
             Result = currentResult,
             Iterations = iterations,
             Converged = converged
         };
+        if (currentResult != null)
+        {
+            await _resultStore.SaveAsync(currentResult, cancellationToken).ConfigureAwait(false);
+        }
+
+        return response;
     }
 
     public async Task<byte[]> ExportAsync(int assessmentId, CostEstimationInputs? overrideInputs, CancellationToken cancellationToken)
@@ -157,6 +179,7 @@ public class CostEstimationService
         var config = await _configurationStore.GetAsync(cancellationToken).ConfigureAwait(false);
         var inputs = MergeInputs(config, overrideInputs);
         var result = Calculate(timeline, config, inputs);
+        await _resultStore.SaveAsync(result, cancellationToken).ConfigureAwait(false);
 
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("Estimation");

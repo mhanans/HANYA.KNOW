@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using backend.Models;
 using Microsoft.Extensions.Logging;
@@ -171,5 +173,57 @@ public class ProjectTemplateStore
         {
             throw new KeyNotFoundException($"Template {id} not found");
         }
+    }
+
+    public async Task<IReadOnlyList<string>> ListEstimationColumnsAsync(CancellationToken cancellationToken)
+    {
+        const string sql = "SELECT template_data -> 'estimationColumns' FROM project_templates";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (reader.IsDBNull(0))
+            {
+                continue;
+            }
+
+            var json = reader.GetString(0);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var element in doc.RootElement.EnumerateArray())
+                    {
+                        if (element.ValueKind == JsonValueKind.String)
+                        {
+                            var value = element.GetString();
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                set.Add(value.Trim());
+                            }
+                        }
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse estimation columns from template data record.");
+            }
+        }
+
+        return set
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }

@@ -20,12 +20,17 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import SyncIcon from '@mui/icons-material/Sync';
 import { apiFetch } from '../../../lib/api';
+import Autocomplete from '@mui/material/Autocomplete';
+import { CostEstimationConfiguration } from '../../../types/cost-estimation';
 
 interface PresalesRole {
   roleName: string;
   expectedLevel: string;
   costPerDay: number;
+  monthlySalary?: number;
+  ratePerDay?: number;
 }
 
 interface PresalesActivity {
@@ -63,28 +68,97 @@ const toNumber = (value: string, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const resolveDefaultRateCardKey = (config?: CostEstimationConfiguration | null) => {
+  if (!config) return 'default';
+  const keys = Object.keys(config.rateCards ?? {});
+  return config.defaultRateCardKey || keys[0] || 'default';
+};
+
+const prepareRateCard = (config: CostEstimationConfiguration, key: string) => {
+  const rateCards = { ...config.rateCards };
+  const existing = rateCards[key];
+  const card = existing
+    ? { ...existing, roleRates: { ...existing.roleRates } }
+    : { displayName: key, roleRates: {} as Record<string, number> };
+  rateCards[key] = card;
+  return { rateCards, card };
+};
+
 export default function PresalesConfigurationPage() {
   const [config, setConfig] = useState<PresalesConfiguration>(emptyConfig);
+  const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
+  const [availableTasks, setAvailableTasks] = useState<string[]>([]);
+  const [syncingTasks, setSyncingTasks] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/presales/config/tasks');
+      if (!res.ok) {
+        throw new Error(`Failed to load tasks (${res.status})`);
+      }
+      const data = await res.json();
+      setAvailableTasks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn('Failed to load task list', err);
+    }
+  }, []);
+
   const loadConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch('/api/presales/config');
-      if (!res.ok) {
-        throw new Error(`Failed to load configuration (${res.status})`);
+      const [presalesRes, costRes] = await Promise.all([
+        apiFetch('/api/presales/config'),
+        apiFetch('/api/cost-estimations/configuration'),
+      ]);
+      if (!presalesRes.ok) {
+        throw new Error(`Failed to load configuration (${presalesRes.status})`);
       }
-      const data = await res.json();
+
+      const presalesData = await presalesRes.json();
+      let costData: CostEstimationConfiguration | null = null;
+      if (costRes.ok) {
+        try {
+          const json = await costRes.json();
+          costData = json ?? null;
+        } catch (err) {
+          console.warn('Failed to parse cost configuration', err);
+        }
+      }
+
+      let normalizedCost: CostEstimationConfiguration | null = null;
+      if (costData) {
+        const key = resolveDefaultRateCardKey(costData);
+        const { rateCards } = prepareRateCard(costData, key);
+        normalizedCost = {
+          ...costData,
+          defaultRateCardKey: key,
+          rateCards,
+          roleMonthlySalaries: { ...costData.roleMonthlySalaries },
+        };
+      }
+
+      const activeRateCardKey = resolveDefaultRateCardKey(normalizedCost);
+      const activeRateCard = normalizedCost?.rateCards?.[activeRateCardKey];
+
       setConfig({
-        roles: data.roles ?? [],
-        activities: data.activities ?? [],
-        taskActivities: data.taskActivities ?? [],
-        taskRoles: data.taskRoles ?? [],
+        roles: (presalesData.roles ?? []).map((role: PresalesRole) => {
+          const name = role.roleName?.trim() ?? '';
+          return {
+            ...role,
+            monthlySalary: name && normalizedCost ? normalizedCost.roleMonthlySalaries?.[name] ?? 0 : role.monthlySalary ?? 0,
+            ratePerDay: name && activeRateCard ? activeRateCard.roleRates?.[name] ?? 0 : role.ratePerDay ?? 0,
+          };
+        }),
+        activities: presalesData.activities ?? [],
+        taskActivities: presalesData.taskActivities ?? [],
+        taskRoles: presalesData.taskRoles ?? [],
       });
+      setCostConfig(normalizedCost);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load configuration');
     } finally {
@@ -96,6 +170,10 @@ export default function PresalesConfigurationPage() {
     loadConfig();
   }, [loadConfig]);
 
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
   const handleRoleChange = useCallback((index: number, key: keyof PresalesRole, value: string) => {
     setConfig(prev => {
       const roles = [...prev.roles];
@@ -103,7 +181,32 @@ export default function PresalesConfigurationPage() {
       if (key === 'costPerDay') {
         role.costPerDay = toNumber(value, 0);
       } else if (key === 'roleName') {
+        const oldName = role.roleName?.trim() ?? '';
         role.roleName = value;
+        const newName = value.trim();
+        const salary = role.monthlySalary ?? 0;
+        const rate = role.ratePerDay ?? 0;
+        setCostConfig(current => {
+          if (!current) return current;
+          const roleMonthlySalaries = { ...current.roleMonthlySalaries };
+          if (oldName) {
+            delete roleMonthlySalaries[oldName];
+          }
+          if (newName) {
+            roleMonthlySalaries[newName] = salary;
+          }
+          const keyName = resolveDefaultRateCardKey(current);
+          const { rateCards, card } = prepareRateCard(current, keyName);
+          const roleRates = { ...card.roleRates };
+          if (oldName) {
+            delete roleRates[oldName];
+          }
+          if (newName) {
+            roleRates[newName] = rate;
+          }
+          rateCards[keyName] = { ...card, roleRates };
+          return { ...current, roleMonthlySalaries, rateCards, defaultRateCardKey: keyName };
+        });
       } else if (key === 'expectedLevel') {
         role.expectedLevel = value;
       }
@@ -123,6 +226,54 @@ export default function PresalesConfigurationPage() {
       }
       activities[index] = activity;
       return { ...prev, activities };
+    });
+  }, []);
+
+  const handleRoleSalaryChange = useCallback((index: number, value: string) => {
+    const salary = toNumber(value, 0);
+    setConfig(prev => {
+      const roles = [...prev.roles];
+      const role = { ...roles[index] };
+      role.monthlySalary = salary;
+      roles[index] = role;
+      const name = role.roleName?.trim();
+      if (name) {
+        setCostConfig(current => {
+          if (!current) return current;
+          return {
+            ...current,
+            roleMonthlySalaries: { ...current.roleMonthlySalaries, [name]: salary },
+          };
+        });
+      }
+      return { ...prev, roles };
+    });
+  }, []);
+
+  const handleRoleRateChange = useCallback((index: number, value: string) => {
+    const rate = toNumber(value, 0);
+    setConfig(prev => {
+      const roles = [...prev.roles];
+      const role = { ...roles[index] };
+      role.ratePerDay = rate;
+      roles[index] = role;
+      const name = role.roleName?.trim();
+      if (name) {
+        setCostConfig(current => {
+          if (!current) return current;
+          const keyName = resolveDefaultRateCardKey(current);
+          const { rateCards, card } = prepareRateCard(current, keyName);
+          const roleRates = { ...card.roleRates };
+          if (rate > 0) {
+            roleRates[name] = rate;
+          } else {
+            delete roleRates[name];
+          }
+          rateCards[keyName] = { ...card, roleRates };
+          return { ...current, rateCards, defaultRateCardKey: keyName };
+        });
+      }
+      return { ...prev, roles };
     });
   }, []);
 
@@ -156,36 +307,104 @@ export default function PresalesConfigurationPage() {
     });
   }, []);
 
-  const addRole = () => setConfig(prev => ({ ...prev, roles: [...prev.roles, { roleName: '', expectedLevel: '', costPerDay: 0 }] }));
+  const addRole = () =>
+    setConfig(prev => ({
+      ...prev,
+      roles: [...prev.roles, { roleName: '', expectedLevel: '', costPerDay: 0, monthlySalary: 0, ratePerDay: 0 }],
+    }));
   const addActivity = () => setConfig(prev => ({ ...prev, activities: [...prev.activities, { activityName: '', displayOrder: prev.activities.length + 1 }] }));
   const addTaskActivity = () => setConfig(prev => ({ ...prev, taskActivities: [...prev.taskActivities, { taskKey: '', activityName: '' }] }));
   const addTaskRole = () => setConfig(prev => ({ ...prev, taskRoles: [...prev.taskRoles, { taskKey: '', roleName: '', allocationPercentage: 0 }] }));
 
-  const removeRole = (index: number) => setConfig(prev => ({ ...prev, roles: prev.roles.filter((_, i) => i !== index) }));
+  const removeRole = (index: number) =>
+    setConfig(prev => {
+      const roles = prev.roles.filter((_, i) => i !== index);
+      const removed = prev.roles[index];
+      const name = removed?.roleName?.trim();
+      if (name) {
+        setCostConfig(current => {
+          if (!current) return current;
+          const roleMonthlySalaries = { ...current.roleMonthlySalaries };
+          delete roleMonthlySalaries[name];
+          const keyName = resolveDefaultRateCardKey(current);
+          const { rateCards, card } = prepareRateCard(current, keyName);
+          const roleRates = { ...card.roleRates };
+          delete roleRates[name];
+          rateCards[keyName] = { ...card, roleRates };
+          return { ...current, roleMonthlySalaries, rateCards, defaultRateCardKey: keyName };
+        });
+      }
+      return { ...prev, roles };
+    });
   const removeActivity = (index: number) => setConfig(prev => ({ ...prev, activities: prev.activities.filter((_, i) => i !== index) }));
   const removeTaskActivity = (index: number) => setConfig(prev => ({ ...prev, taskActivities: prev.taskActivities.filter((_, i) => i !== index) }));
   const removeTaskRole = (index: number) => setConfig(prev => ({ ...prev, taskRoles: prev.taskRoles.filter((_, i) => i !== index) }));
+
+  const handleSyncTasks = useCallback(async () => {
+    setSyncingTasks(true);
+    try {
+      await fetchTasks();
+    } finally {
+      setSyncingTasks(false);
+    }
+  }, [fetchTasks]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     setError(null);
     setSuccessMessage(null);
     try {
-      const res = await apiFetch('/api/presales/config', {
+      const presalesResponse = await apiFetch('/api/presales/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
-      if (!res.ok) {
-        const text = await res.text();
+      if (!presalesResponse.ok) {
+        const text = await presalesResponse.text();
         throw new Error(text || 'Failed to save configuration');
       }
-      const data = await res.json();
+      const presalesData = await presalesResponse.json();
+
+      let updatedCost = costConfig;
+      if (costConfig) {
+        const costResponse = await apiFetch('/api/cost-estimations/configuration', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(costConfig),
+        });
+        if (!costResponse.ok) {
+          const text = await costResponse.text();
+          throw new Error(text || 'Failed to save cost configuration');
+        }
+        const savedCost = await costResponse.json();
+        if (savedCost) {
+          const keyName = resolveDefaultRateCardKey(savedCost);
+          const { rateCards } = prepareRateCard(savedCost, keyName);
+          updatedCost = {
+            ...savedCost,
+            defaultRateCardKey: keyName,
+            rateCards,
+            roleMonthlySalaries: { ...savedCost.roleMonthlySalaries },
+          };
+          setCostConfig(updatedCost);
+        }
+      }
+
+      const activeRateCardKey = resolveDefaultRateCardKey(updatedCost);
+      const activeRateCard = updatedCost?.rateCards?.[activeRateCardKey];
+
       setConfig({
-        roles: data.roles ?? [],
-        activities: data.activities ?? [],
-        taskActivities: data.taskActivities ?? [],
-        taskRoles: data.taskRoles ?? [],
+        roles: (presalesData.roles ?? []).map((role: PresalesRole) => {
+          const name = role.roleName?.trim() ?? '';
+          return {
+            ...role,
+            monthlySalary: name && updatedCost ? updatedCost.roleMonthlySalaries?.[name] ?? 0 : 0,
+            ratePerDay: name && activeRateCard ? activeRateCard.roleRates?.[name] ?? 0 : 0,
+          };
+        }),
+        activities: presalesData.activities ?? [],
+        taskActivities: presalesData.taskActivities ?? [],
+        taskRoles: presalesData.taskRoles ?? [],
       });
       setSuccessMessage('Configuration saved successfully.');
     } catch (err) {
@@ -193,10 +412,16 @@ export default function PresalesConfigurationPage() {
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, costConfig]);
 
-  const roleNames = useMemo(() => config.roles.map(role => role.roleName).filter(Boolean), [config.roles]);
-  const activityNames = useMemo(() => config.activities.map(activity => activity.activityName).filter(Boolean), [config.activities]);
+  const roleNames = useMemo(
+    () => config.roles.map(role => role.roleName?.trim()).filter((name): name is string => Boolean(name)),
+    [config.roles]
+  );
+  const activityNames = useMemo(
+    () => config.activities.map(activity => activity.activityName?.trim()).filter((name): name is string => Boolean(name)),
+    [config.activities]
+  );
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -236,14 +461,16 @@ export default function PresalesConfigurationPage() {
               </Stack>
               <TableContainer>
                 <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Role Name</TableCell>
-                      <TableCell>Expected Level</TableCell>
-                      <TableCell>Cost per Man-day</TableCell>
-                      <TableCell align="right">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Role Name</TableCell>
+                        <TableCell>Expected Level</TableCell>
+                        <TableCell>Timeline Cost / Day</TableCell>
+                        <TableCell>Monthly Salary (IDR)</TableCell>
+                        <TableCell>Billing Rate / Day</TableCell>
+                        <TableCell align="right">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
                   <TableBody>
                     {config.roles.map((role, index) => (
                       <TableRow key={index}>
@@ -273,6 +500,26 @@ export default function PresalesConfigurationPage() {
                             value={role.costPerDay}
                             inputProps={{ min: 0, step: 50 }}
                             onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'costPerDay', event.target.value)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            value={role.monthlySalary ?? 0}
+                            inputProps={{ min: 0, step: 500000 }}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            value={role.ratePerDay ?? 0}
+                            inputProps={{ min: 0, step: 50000 }}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
                           />
                         </TableCell>
                         <TableCell align="right">
@@ -337,9 +584,25 @@ export default function PresalesConfigurationPage() {
 
             <Grid container spacing={4}>
               <Grid item xs={12} md={6}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                  spacing={1}
+                  sx={{ mb: 2 }}
+                >
                   <Typography variant="h2" className="section-title">Task → Activity Mapping</Typography>
-                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addTaskActivity}>Add Mapping</Button>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Button
+                      startIcon={<SyncIcon />}
+                      variant="outlined"
+                      onClick={handleSyncTasks}
+                      disabled={syncingTasks || loading}
+                    >
+                      {syncingTasks ? 'Syncing…' : 'Sync Tasks'}
+                    </Button>
+                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addTaskActivity}>Add Mapping</Button>
+                  </Stack>
                 </Stack>
                 <TableContainer>
                   <Table size="small">
@@ -354,12 +617,20 @@ export default function PresalesConfigurationPage() {
                       {config.taskActivities.map((mapping, index) => (
                         <TableRow key={index}>
                           <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              value={mapping.taskKey}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleTaskActivityChange(index, 'taskKey', event.target.value)}
-                              placeholder="e.g. BE Development"
+                            <Autocomplete
+                              freeSolo
+                              options={availableTasks}
+                              value={mapping.taskKey || ''}
+                              onInputChange={(_, newValue) => handleTaskActivityChange(index, 'taskKey', newValue)}
+                              onChange={(_, newValue) => handleTaskActivityChange(index, 'taskKey', newValue ?? '')}
+                              renderInput={params => (
+                                <TextField
+                                  {...params}
+                                  fullWidth
+                                  size="small"
+                                  placeholder="e.g. BE Development"
+                                />
+                              )}
                             />
                           </TableCell>
                           <TableCell>
@@ -407,12 +678,20 @@ export default function PresalesConfigurationPage() {
                       {config.taskRoles.map((mapping, index) => (
                         <TableRow key={index}>
                           <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              value={mapping.taskKey}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleTaskRoleChange(index, 'taskKey', event.target.value)}
-                              placeholder="e.g. BE Development"
+                            <Autocomplete
+                              freeSolo
+                              options={availableTasks}
+                              value={mapping.taskKey || ''}
+                              onInputChange={(_, newValue) => handleTaskRoleChange(index, 'taskKey', newValue)}
+                              onChange={(_, newValue) => handleTaskRoleChange(index, 'taskKey', newValue ?? '')}
+                              renderInput={params => (
+                                <TextField
+                                  {...params}
+                                  fullWidth
+                                  size="small"
+                                  placeholder="e.g. BE Development"
+                                />
+                              )}
                             />
                           </TableCell>
                           <TableCell>

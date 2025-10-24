@@ -300,3 +300,11 @@ CREATE TABLE IF NOT EXISTS assessment_timelines (
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     timeline_data JSONB NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cost_estimations (
+    assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    result_json JSONB NOT NULL
+);
