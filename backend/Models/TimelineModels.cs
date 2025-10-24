@@ -53,41 +53,26 @@ public class PresalesConfiguration
     public List<TaskRoleMapping> TaskRoles { get; set; } = new();
 }
 
-public class TimelineDetailRecord
+public class TimelineDetail
 {
-    public string TaskKey { get; set; } = string.Empty;
-    public string DetailName { get; set; } = string.Empty;
+    public string TaskName { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
     public double ManDays { get; set; }
-    public int StartDayIndex { get; set; }
+    public int StartDay { get; set; }
     public int DurationDays { get; set; }
-    public DateTime StartDate { get; set; }
-    public DateTime EndDate { get; set; }
 }
 
-public class TimelineActivityRecord
+public class TimelineActivity
 {
     public string ActivityName { get; set; } = string.Empty;
-    public int DisplayOrder { get; set; }
-    public List<TimelineDetailRecord> Details { get; set; } = new();
-    public double ManDays { get; set; }
-    public int StartDayIndex { get; set; }
-    public int DurationDays { get; set; }
+    public List<TimelineDetail> Details { get; set; } = new();
 }
 
-public class TimelineManpowerSummary
+public class TimelineResourceAllocationEntry
 {
-    public string RoleName { get; set; } = string.Empty;
-    public string ExpectedLevel { get; set; } = string.Empty;
-    public double ManDays { get; set; }
-    public decimal CostPerDay { get; set; }
-    public decimal TotalCost { get; set; }
-}
-
-public class TimelineResourceAllocation
-{
-    public string RoleName { get; set; } = string.Empty;
-    public string ExpectedLevel { get; set; } = string.Empty;
-    public List<double> DailyAllocation { get; set; } = new();
+    public string Role { get; set; } = string.Empty;
+    public double TotalManDays { get; set; }
+    public List<double> DailyEffort { get; set; } = new();
 }
 
 public class TimelineRecord
@@ -96,10 +81,7 @@ public class TimelineRecord
     public string ProjectName { get; set; } = string.Empty;
     public string TemplateName { get; set; } = string.Empty;
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
-    public DateTime StartDate { get; set; } = DateTime.UtcNow.Date;
-    public List<DateTime> WorkingDays { get; set; } = new();
-    public List<TimelineActivityRecord> Activities { get; set; } = new();
-    public List<TimelineManpowerSummary> ManpowerSummary { get; set; } = new();
-    public List<TimelineResourceAllocation> ResourceAllocations { get; set; } = new();
-    public decimal TotalCost { get; set; }
+    public int TotalDurationDays { get; set; }
+    public List<TimelineActivity> Activities { get; set; } = new();
+    public List<TimelineResourceAllocationEntry> ResourceAllocation { get; set; } = new();
 }
