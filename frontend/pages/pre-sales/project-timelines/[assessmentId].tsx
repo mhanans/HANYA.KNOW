@@ -341,6 +341,6 @@ export default function ProjectTimelineDetailPage() {
           </tbody>
         </table>
       </Paper>
-    </Stack>
+    </Box>
   );
 }
