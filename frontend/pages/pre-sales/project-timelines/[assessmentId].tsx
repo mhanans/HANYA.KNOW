@@ -2,7 +2,6 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Alert, Box, Button, Card, CardContent, CardHeader, CircularProgress, Paper, Stack, Typography } from '@mui/material';
 import { apiFetch } from '../../../lib/api';
-import * as XLSX from 'xlsx'; // Import xlsx library
 
 // --- NEW, DAY-BASED INTERFACES ---
 interface TimelineDetail {
@@ -93,64 +92,16 @@ export default function ProjectTimelineDetailPage() {
   }, [timeline]);
 
   // --- EXPORT TO EXCEL FUNCTION ---
-  const handleExport = () => {
-    if (!timeline || !timelineMetrics) return;
+  const handleExport = useCallback(() => {
+    if (!resolvedId) return;
 
-    const aoa: (string | number | null)[][] = [];
-    const header1_months: (string | null)[] = [...Array(4).fill(null)];
-    timelineMetrics.months.forEach(m => {
-        header1_months.push(`Month ${m.index}`);
-        header1_months.push(...Array(m.span * 5 - 1).fill(null));
-    });
-    aoa.push(header1_months);
-    
-    const header2_weeks: (string | null)[] = [...Array(4).fill(null)];
-    timelineMetrics.weeks.forEach(w => {
-        header2_weeks.push(`W${w.index}`);
-        header2_weeks.push(...Array(w.span - 1).fill(null));
-    });
-    aoa.push(header2_weeks);
-    
-    const header3_days: (string | number)[] = ['Activity', 'Detail', 'Actor', 'Man-days'];
-    header3_days.push(...timelineMetrics.days);
-    aoa.push(header3_days);
-
-    // Activity & Detail Rows
-    timeline.activities.forEach(activity => {
-      activity.details.forEach((detail, index) => {
-        const row = Array(4 + timeline.totalDurationDays).fill(null);
-        if (index === 0) row[0] = activity.activityName;
-        row[1] = detail.taskName;
-        row[2] = detail.actor;
-        row[3] = detail.manDays;
-        for (let i = 0; i < detail.durationDays; i++) {
-          row[4 + detail.startDay - 1 + i] = ''; // Placeholder for green bar
-        }
-        aoa.push(row);
-      });
-    });
-
-    // Spacer & Role Header
-    aoa.push(Array(4 + timeline.totalDurationDays).fill(null));
-    const roleHeader = ['Role', 'Mandays Total', null, null, ...timelineMetrics.days.map(() => '')];
-    aoa.push(roleHeader);
-
-    // Resource Allocation Rows
-    timeline.resourceAllocation.forEach(res => {
-        const row = Array(4 + timeline.totalDurationDays).fill(null);
-        row[0] = res.role;
-        row[1] = res.totalManDays;
-        res.dailyEffort.forEach((effort, dayIndex) => {
-            if (effort > 0) row[4 + dayIndex] = effort;
-        });
-        aoa.push(row);
-    });
-    
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Project Timeline');
-    XLSX.writeFile(wb, `${timeline.projectName}_Timeline.xlsx`);
-  };
+    const link = document.createElement('a');
+    link.href = `/api/timelines/${resolvedId}/export`;
+    link.setAttribute('download', `Timeline_Assessment_${resolvedId}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [resolvedId]);
 
   // --- MAIN RENDER FUNCTION ---
   if (loading) return <CircularProgress />;
