@@ -1,31 +1,49 @@
-.timelineGrid {
-  position: relative;
-  background-color: var(--mui-palette-background-paper);
+.timelineContainer {
+  display: flex;
 }
 
-/* --- HEADER --- */
-.headerArea {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  background-color: var(--mui-palette-background-paper);
-}
-.headerLeftPane {
-  display: flex;
+/* --- LEFT PANE (STICKY) --- */
+.leftPane {
   position: sticky;
   left: 0;
-  z-index: 11; /* Must be higher than the main header area */
+  z-index: 2;
   background-color: var(--mui-palette-background-paper);
-}
-.headerRightPane {
   display: flex;
   flex-direction: column;
 }
-.headerMonths, .headerWeeks, .headerDays {
+.leftHeader {
   display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: var(--mui-palette-background-paper);
 }
-.headerCell, .headerMonths > div, .headerWeeks > div, .headerDays > div {
+.leftDataRow {
+  display: flex;
+  min-height: 40px;
+}
+
+/* --- RIGHT PANE (SCROLLABLE) --- */
+.rightPane {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+}
+.rightHeader {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--mui-palette-background-paper);
+}
+
+/* --- GENERIC CELL STYLING --- */
+.headerCell,
+.headerMonths > div,
+.headerWeeks > div,
+.headerDays > div {
   flex-shrink: 0;
   height: 35px;
   display: flex;
@@ -40,15 +58,16 @@
   background-color: #4472c4;
   color: white;
 }
-.headerMonths > div { background-color: #d9e1f2; color: #111; }
-.headerWeeks > div { background-color: #f2f2f2; color: #111; }
-.headerDays > div { border-top: none; }
-
-
-/* --- DATA ROWS --- */
-.dataRow {
-  display: flex;
-  min-height: 40px;
+.headerMonths > div {
+  background-color: #d9e1f2;
+  color: #111;
+}
+.headerWeeks > div {
+  background-color: #f2f2f2;
+  color: #111;
+}
+.headerDays > div {
+  border-top: none;
 }
 .dataCell {
   display: flex;
@@ -60,33 +79,23 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-height: 40px;
 }
-/* This creates the "frozen pane" effect for the first 4 columns */
-.dataRow > .dataCell:nth-child(1),
-.dataRow > .dataCell:nth-child(2),
-.dataRow > .dataCell:nth-child(3),
-.dataRow > .dataCell:nth-child(4) {
-  position: sticky;
-  left: 0;
-  background-color: var(--mui-palette-background-paper);
-  z-index: 5;
-}
-.dataRow > .dataCell:nth-child(2) { left: 200px; } /* Must match col1 width */
-.dataRow > .dataCell:nth-child(3) { left: 480px; } /* col1 + col2 */
-.dataRow > .dataCell:nth-child(4) { left: 630px; } /* col1 + col2 + col3 */
-
-.textCenter {
-  justify-content: center;
-}
-.resourceHeader > .headerCell {
-  background-color: #595959;
+.dataCell:last-child {
+  border-right: 1px solid var(--mui-palette-divider);
 }
 
-/* --- TIMELINE AREA (RIGHT PANE) --- */
-.barContainer, .effortContainer {
+/* --- CONTENT-SPECIFIC STYLING --- */
+.barContainer,
+.effortContainer {
   position: relative;
+  min-height: 40px;
   border-bottom: 1px solid var(--mui-palette-divider);
-  background-image: repeating-linear-gradient(to right, var(--mui-palette-divider) 0 1px, transparent 1px 35px); /* Day width */
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--mui-palette-divider) 0 1px,
+    transparent 1px 35px
+  );
 }
 .bar {
   position: absolute;
@@ -94,21 +103,17 @@
   bottom: 5px;
   background-color: #92d050;
   border-radius: 2px;
-  z-index: 2; /* Ensure bar is above gridlines */
 }
-
-/* --- RESOURCE AREA --- */
 .spacerRow {
   height: 20px;
-  /* Add a border to visually separate sections */
-  border-bottom: 2px solid var(--mui-palette-primary-main, #90caf9);
+  border-bottom: 2px solid var(--mui-palette-primary-main);
 }
 .effortContainer {
   display: flex;
   background-image: none;
 }
 .effortCell {
-  width: 35px; /* Day width */
+  width: 35px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -118,7 +123,19 @@
   border-right: 1px solid var(--mui-palette-divider);
   height: 100%;
 }
-.roleYellow { background-color: #444; }
-.roleBlue { background-color: #333; }
-.effortYellow { background-color: #FFF2CC; }
-.effortBlue { background-color: #DEEBF7; }
+
+.textCenter {
+  justify-content: center;
+}
+.roleYellow {
+  background-color: rgba(255, 242, 204, 0.1);
+}
+.roleBlue {
+  background-color: rgba(222, 235, 247, 0.1);
+}
+.effortYellow {
+  background-color: #fff2cc;
+}
+.effortBlue {
+  background-color: #deebf7;
+}
