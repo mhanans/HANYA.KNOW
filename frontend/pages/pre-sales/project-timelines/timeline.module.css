@@ -1,0 +1,124 @@
+.timelineGrid {
+  position: relative;
+  background-color: var(--mui-palette-background-paper);
+}
+
+/* --- HEADER --- */
+.headerArea {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  background-color: var(--mui-palette-background-paper);
+}
+.headerLeftPane {
+  display: flex;
+  position: sticky;
+  left: 0;
+  z-index: 11; /* Must be higher than the main header area */
+  background-color: var(--mui-palette-background-paper);
+}
+.headerRightPane {
+  display: flex;
+  flex-direction: column;
+}
+.headerMonths, .headerWeeks, .headerDays {
+  display: flex;
+}
+.headerCell, .headerMonths > div, .headerWeeks > div, .headerDays > div {
+  flex-shrink: 0;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--mui-palette-divider);
+  font-weight: bold;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.headerCell {
+  background-color: #4472c4;
+  color: white;
+}
+.headerMonths > div { background-color: #d9e1f2; color: #111; }
+.headerWeeks > div { background-color: #f2f2f2; color: #111; }
+.headerDays > div { border-top: none; }
+
+
+/* --- DATA ROWS --- */
+.dataRow {
+  display: flex;
+  min-height: 40px;
+}
+.dataCell {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--mui-palette-divider);
+  border-left: 1px solid var(--mui-palette-divider);
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* This creates the "frozen pane" effect for the first 4 columns */
+.dataRow > .dataCell:nth-child(1),
+.dataRow > .dataCell:nth-child(2),
+.dataRow > .dataCell:nth-child(3),
+.dataRow > .dataCell:nth-child(4) {
+  position: sticky;
+  left: 0;
+  background-color: var(--mui-palette-background-paper);
+  z-index: 5;
+}
+.dataRow > .dataCell:nth-child(2) { left: 200px; } /* Must match col1 width */
+.dataRow > .dataCell:nth-child(3) { left: 480px; } /* col1 + col2 */
+.dataRow > .dataCell:nth-child(4) { left: 630px; } /* col1 + col2 + col3 */
+
+.textCenter {
+  justify-content: center;
+}
+.resourceHeader > .headerCell {
+  background-color: #595959;
+}
+
+/* --- TIMELINE AREA (RIGHT PANE) --- */
+.barContainer, .effortContainer {
+  position: relative;
+  border-bottom: 1px solid var(--mui-palette-divider);
+  background-image: repeating-linear-gradient(to right, var(--mui-palette-divider) 0 1px, transparent 1px 35px); /* Day width */
+}
+.bar {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  background-color: #92d050;
+  border-radius: 2px;
+  z-index: 2; /* Ensure bar is above gridlines */
+}
+
+/* --- RESOURCE AREA --- */
+.spacerRow {
+  height: 20px;
+  /* Add a border to visually separate sections */
+  border-bottom: 2px solid var(--mui-palette-primary-main, #90caf9);
+}
+.effortContainer {
+  display: flex;
+  background-image: none;
+}
+.effortCell {
+  width: 35px; /* Day width */
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: #111;
+  border-right: 1px solid var(--mui-palette-divider);
+  height: 100%;
+}
+.roleYellow { background-color: #444; }
+.roleBlue { background-color: #333; }
+.effortYellow { background-color: #FFF2CC; }
+.effortBlue { background-color: #DEEBF7; }

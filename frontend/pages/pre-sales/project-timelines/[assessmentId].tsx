@@ -2,11 +2,9 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Alert, Box, Button, CircularProgress, Paper, Stack, Typography } from '@mui/material';
 import { apiFetch } from '../../../lib/api';
-import { useTheme } from '@mui/material/styles';
-import styles from './Timeline.module.css';
-void styles;
+import styles from './timeline.module.css'; // Import the CSS module
 
-// --- INTERFACES (from your provided JSON) ---
+// --- INTERFACES (Correct based on your JSON) ---
 interface TimelineDetail {
   taskName: string;
   actor: string;
@@ -34,7 +32,6 @@ interface AiTimelineResponse {
 
 // --- CONSTANTS FOR LAYOUT ---
 const DAY_WIDTH = 35;
-const ROW_HEIGHT = 40;
 const LEFT_PANE_WIDTHS = {
   col1: 200, // Activity
   col2: 280, // Detail
@@ -45,7 +42,6 @@ const TOTAL_LEFT_PANE_WIDTH = Object.values(LEFT_PANE_WIDTHS).reduce((a, b) => a
 
 export default function ProjectTimelineDetailPage() {
   const router = useRouter();
-  const theme = useTheme();
   const { assessmentId } = router.query;
   const [timeline, setTimeline] = useState<AiTimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,6 +53,7 @@ export default function ProjectTimelineDetailPage() {
     return assessmentId ? parseInt(assessmentId, 10) : NaN;
   }, [assessmentId]);
 
+  // Data fetching logic remains the same
   const loadTimeline = useCallback(async () => {
     if (!resolvedId) return;
     setLoading(true); setError(null);
@@ -67,10 +64,9 @@ export default function ProjectTimelineDetailPage() {
       setTimeline(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load timeline');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, [resolvedId]);
+
   useEffect(() => { loadTimeline(); }, [loadTimeline]);
 
   const handleRegenerate = useCallback(async () => {
@@ -84,10 +80,10 @@ export default function ProjectTimelineDetailPage() {
     setRegenerating(false);
     await loadTimeline();
   }, [resolvedId, loadTimeline]);
-
+  
   const handleExport = useCallback(() => {
     if (!resolvedId) return;
-    const exportUrl = `/api/assessment/${resolvedId}/export`; 
+    const exportUrl = `/api/assessment/${resolvedId}/export`;
     window.location.href = exportUrl;
   }, [resolvedId]);
 
@@ -109,6 +105,8 @@ export default function ProjectTimelineDetailPage() {
   if (error) return <Alert severity="error">{error}</Alert>;
   if (!timeline || !metrics) return <Alert severity="info">No timeline data available.</Alert>;
 
+  const rightPaneWidth = timeline.totalDurationDays * DAY_WIDTH;
+
   return (
     <Stack spacing={3}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -117,85 +115,78 @@ export default function ProjectTimelineDetailPage() {
           <Typography color="text.secondary">Template: {timeline.templateName}</Typography>
         </Box>
         <Stack direction="row" spacing={2}>
-          <Button variant="outlined" onClick={handleExport}>Download as Excel</Button>
+          <Button variant="outlined" startIcon={<Box component="span" className="material-symbols-outlined">download</Box>} onClick={handleExport}>Download as Excel</Button>
           <Button variant="contained" onClick={handleRegenerate} disabled={regenerating}>
             {regenerating ? 'Regenerating...' : 'Regenerate Timeline'}
           </Button>
         </Stack>
       </Stack>
 
-      <Paper
-        variant="outlined"
-        sx={{ overflow: 'auto', position: 'relative' }}
-        className={styles.timeline}
-      >
-        <Box sx={{ minWidth: `${TOTAL_LEFT_PANE_WIDTH + timeline.totalDurationDays * DAY_WIDTH}px`, position: 'relative' }}>
-          
-          {/* --- HEADER --- */}
-          <Box className="timeline-header">
-            <Box className="header-pane-left">
-              <div className="header-cell" style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</div>
-              <div className="header-cell" style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</div>
-              <div className="header-cell" style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</div>
-              <div className="header-cell" style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</div>
-            </Box>
-            <Box className="header-pane-right">
-              <div className="header-months">{metrics.months.map(m => (<div key={m.index} style={{ width: m.span * 5 * DAY_WIDTH }}>Month {m.index}</div>))}</div>
-              <div className="header-weeks">{metrics.weeks.map(w => (<div key={w.index} style={{ width: w.span * DAY_WIDTH }}>W{w.index}</div>))}</div>
-              <div className="header-days">{metrics.days.map(d => (<div key={d} style={{ width: DAY_WIDTH }}>{d}</div>))}</div>
-            </Box>
-          </Box>
+      <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+        <Box className={styles.timelineGrid} sx={{ minWidth: `${TOTAL_LEFT_PANE_WIDTH + rightPaneWidth}px` }}>
+          {/* --- HEADER AREA --- */}
+          <div className={styles.headerArea}>
+            <div className={styles.headerLeftPane}>
+              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col1 }}>Activity</div>
+              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>Detail</div>
+              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>Actor</div>
+              <div className={styles.headerCell} style={{ width: LEFT_PANE_WIDTHS.col4 }}>Man-days</div>
+            </div>
+            <div className={styles.headerRightPane} style={{ width: rightPaneWidth }}>
+              <div className={styles.headerMonths}>{metrics.months.map(m => (<div key={m.index} style={{ width: m.span * 5 * DAY_WIDTH }}>Month {m.index}</div>))}</div>
+              <div className={styles.headerWeeks}>{metrics.weeks.map(w => (<div key={w.index} style={{ width: w.span * DAY_WIDTH }}>W{w.index}</div>))}</div>
+              <div className={styles.headerDays}>{metrics.days.map(d => (<div key={d} style={{ width: DAY_WIDTH }}>{d}</div>))}</div>
+            </div>
+          </div>
 
-          {/* --- BODY --- */}
-          <Box className="timeline-body">
-            {/* GANTT ROWS */}
-            {timeline.activities.map(activity => (
-              <Fragment key={activity.activityName}>
-                {activity.details.map((detail, index) => (
-                  <div key={`${detail.taskName}-${index}`} className="data-row">
-                    <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col1, backgroundColor: theme.palette.background.default, fontWeight: index === 0 ? 'bold' : 'normal' }}>{index === 0 ? activity.activityName : ''}</div>
-                    <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col2 }}>{detail.taskName}</div>
-                    <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col3 }}>{detail.actor}</div>
-                    <div className="data-cell text-center" style={{ width: LEFT_PANE_WIDTHS.col4 }}>{detail.manDays.toFixed(2)}</div>
-                    <div className="bar-container">
-                      <div className="bar" style={{ left: (detail.startDay - 1) * DAY_WIDTH, width: detail.durationDays * DAY_WIDTH }} />
-                    </div>
+          {/* --- GANTT ROWS --- */}
+          {timeline.activities.map(activity => (
+            <Fragment key={activity.activityName}>
+              {activity.details.map((detail, index) => (
+                <div key={`${detail.taskName}-${index}`} className={styles.dataRow}>
+                  <div className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col1, fontWeight: index === 0 ? 'bold' : 'normal' }}>{index === 0 ? activity.activityName : ''}</div>
+                  <div className={styles.dataCell}>{detail.taskName}</div>
+                  <div className={styles.dataCell}>{detail.actor}</div>
+                  <div className={`${styles.dataCell} ${styles.textCenter}`}>{detail.manDays.toFixed(2)}</div>
+                  <div className={styles.barContainer} style={{ width: rightPaneWidth }}>
+                    <div className={styles.bar} style={{ left: (detail.startDay - 1) * DAY_WIDTH, width: detail.durationDays * DAY_WIDTH }} />
+                  </div>
+                </div>
+              ))}
+            </Fragment>
+          ))}
+          
+          {/* --- SPACER ROW --- */}
+          <div className={styles.spacerRow} />
+          
+          {/* --- RESOURCE HEADER --- */}
+          <div className={`${styles.dataRow} ${styles.resourceHeader}`}>
+            <div className={`${styles.dataCell} ${styles.headerCell}`}>Role</div>
+            <div className={`${styles.dataCell} ${styles.headerCell}`}>Mandays Total</div>
+            <div className={styles.dataCell} />
+            <div className={styles.dataCell} />
+            <div className={styles.barContainer} style={{ width: rightPaneWidth }} />
+          </div>
+
+          {/* --- RESOURCE ROWS --- */}
+          {timeline.resourceAllocation.map((res, index) => (
+            <div key={res.role} className={styles.dataRow}>
+              <div className={`${styles.dataCell} ${index % 2 === 0 ? styles.roleYellow : styles.roleBlue}`}>{res.role}</div>
+              <div className={`${styles.dataCell} ${styles.textCenter}`}>{res.totalManDays.toFixed(2)}</div>
+              <div className={styles.dataCell} />
+              <div className={styles.dataCell} />
+              <div className={styles.effortContainer} style={{ width: rightPaneWidth }}>
+                {res.dailyEffort.map((effort, dayIndex) => (
+                  <div key={dayIndex} className={`${styles.effortCell} ${effort > 0 ? (index % 2 === 0 ? styles.effortYellow : styles.effortBlue) : ''}`}>
+                    {effort > 0 ? effort : ''}
                   </div>
                 ))}
-              </Fragment>
-            ))}
-            
-            {/* SPACER ROW */}
-            <div className="spacer-row" />
-            
-            {/* RESOURCE HEADER */}
-            <div className="data-row resource-header">
-              <div className="data-cell header-cell" style={{ width: LEFT_PANE_WIDTHS.col1 }}>Role</div>
-              <div className="data-cell header-cell" style={{ width: LEFT_PANE_WIDTHS.col2 }}>Mandays Total</div>
-              <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col3 }} />
-              <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col4 }} />
-              <div className="bar-container" />
-            </div>
-
-            {/* RESOURCE ROWS */}
-            {timeline.resourceAllocation.map((res, index) => (
-              <div key={res.role} className="data-row">
-                <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col1, backgroundColor: index % 2 === 0 ? '#444' : '#333' }}>{res.role}</div>
-                <div className="data-cell text-center" style={{ width: LEFT_PANE_WIDTHS.col2 }}>{res.totalManDays.toFixed(2)}</div>
-                <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col3 }} />
-                <div className="data-cell" style={{ width: LEFT_PANE_WIDTHS.col4 }} />
-                <div className="effort-container">
-                  {res.dailyEffort.map((effort, dayIndex) => (
-                    <div key={dayIndex} className="effort-cell" style={{ backgroundColor: effort > 0 ? (index % 2 === 0 ? '#FFF2CC' : '#DEEBF7') : 'transparent' }}>
-                      {effort > 0 ? effort : ''}
-                    </div>
-                  ))}
-                </div>
               </div>
-            ))}
-          </Box>
+            </div>
+          ))}
         </Box>
       </Paper>
     </Stack>
   );
 }
+
