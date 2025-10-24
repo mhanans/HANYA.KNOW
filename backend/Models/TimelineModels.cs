@@ -69,6 +69,9 @@ public class TimelineActivityRecord
     public string ActivityName { get; set; } = string.Empty;
     public int DisplayOrder { get; set; }
     public List<TimelineDetailRecord> Details { get; set; } = new();
+    public double ManDays { get; set; }
+    public int StartDayIndex { get; set; }
+    public int DurationDays { get; set; }
 }
 
 public class TimelineManpowerSummary
