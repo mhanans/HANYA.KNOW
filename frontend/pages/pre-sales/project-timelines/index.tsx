@@ -3,11 +3,9 @@ import { useRouter } from 'next/router';
 import {
   Box,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
   Chip,
   CircularProgress,
+  Paper,
   Stack,
   Table,
   TableBody,
@@ -193,16 +191,18 @@ export default function ProjectTimelinesPage() {
   }, [loading, error, rows, generatingId, handleGenerate, handleView, loadData]);
 
   return (
-    <Box className="page-container">
-      <Card className="page-card">
-        <CardHeader
-          title={<Typography variant="h1">Pre-Sales Project Timelines</Typography>}
-          subheader="Transform completed AI assessments into timeline-ready project plans."
-        />
-        <CardContent>
-          {content}
-        </CardContent>
-      </Card>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Box>
+        <Typography variant="h1" gutterBottom>
+          Pre-Sales Project Timelines
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          Transform completed AI assessments into timeline-ready project plans.
+        </Typography>
+      </Box>
+      <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper', borderRadius: 3 }}>
+        {content}
+      </Paper>
     </Box>
   );
 }
