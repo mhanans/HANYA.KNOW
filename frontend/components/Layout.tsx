@@ -55,6 +55,12 @@ const navSections: { title: string; links: NavItem[] }[] = [
         key: 'pre-sales-project-timelines',
       },
       {
+        href: '/pre-sales/cost-estimations',
+        label: 'Cost Estimations',
+        icon: '💰',
+        key: 'pre-sales-cost-estimations',
+      },
+      {
         href: '/pre-sales/presales-ai-history',
         label: 'Presales AI History',
         icon: '🗃️',
