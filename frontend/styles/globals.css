@@ -1514,292 +1514,96 @@ select:focus {
 
 
 /* Project Timelines */
-.timelines-table th,
-.timelines-table td {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
+/* --- NEW, SIMPLIFIED TIMELINE CSS --- */
 
-.timeline-card {
-  background: linear-gradient(180deg, #f3f6fb 0%, #eef2f9 100%);
-  color: #0f1c2e;
-  box-shadow: 0 18px 38px rgba(11, 21, 41, 0.12);
-}
-
-.timeline-content {
-  background: #f3f6fb;
-  border-radius: 0 0 20px 20px;
-  padding: 32px;
-}
-
-/* --- Global Container & Scrollbar --- */
-.gantt-area {
-  overflow-x: auto;
-  background-color: #ffffff;
-  border: 1px solid #bfbfbf;
-}
-
-.timeline-matrix {
-  display: grid;
-  grid-template-columns: 210px 260px 120px 1fr;
-  min-width: 1600px;
-}
-
-/* --- Header Styling --- */
-.timeline-header-left {
-  display: grid;
-  grid-column: 1 / span 3;
-  grid-template-columns: 210px 260px 120px;
-}
-
-.timeline-header-right {
-  display: grid;
-  grid-column: 4;
-  grid-template-rows: auto auto auto;
-  grid-template-columns: repeat(var(--day-count), minmax(32px, 1fr));
-}
-
+/* Gantt Chart Header Cells */
 .header-cell {
-  background-color: #00b0f0;
+  background-color: #00b0f0; /* Keeping Excel color for headers */
   color: white;
   font-weight: bold;
   padding: 8px;
   text-align: center;
-  border-right: 1px solid #bfbfbf;
-  border-bottom: 1px solid #bfbfbf;
+  border-right: 1px solid rgba(128, 128, 128, 0.3);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.5);
 }
 
-.month-row,
-.week-row,
-.day-row {
-  display: grid;
-  grid-template-columns: inherit;
-}
-
-.month-cell,
-.week-cell,
-.day-cell {
-  text-align: center;
-  border-right: 1px solid #bfbfbf;
-  border-bottom: 1px solid #bfbfbf;
-  font-size: 11px;
-}
-
-.month-cell {
-  background-color: #d9e1f2;
-  padding: 4px 0;
-  font-weight: bold;
-}
-
-.week-cell {
-  background-color: #f2f2f2;
-  padding: 4px 0;
-  font-weight: bold;
-}
-
-.day-cell {
+.month-row, .week-row, .day-row {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+}
+
+.month-cell, .week-cell, .day-cell {
+  text-align: center;
+  border-right: 1px solid rgba(128, 128, 128, 0.3);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.5);
+  display: flex;
   align-items: center;
-  padding: 2px 0;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.month-cell { background-color: #d9e1f2; color: #333; font-weight: bold; }
+.week-cell { background-color: #f2f2f2; color: #333; font-weight: bold; }
+
+.day-cell {
+  flex-direction: column;
 }
 
 .day-label {
   font-weight: bold;
 }
 
-/* --- Data Row Styling --- */
-.activity-row,
-.detail-row {
-  display: grid;
-  grid-column: 1 / span 3;
-  grid-template-columns: 210px 260px 120px;
-  min-height: 40px;
-}
+/* Gantt Chart Data Cells */
+.activity-data-row { background-color: rgba(128, 128, 128, 0.1); }
+.detail-data-row:hover { background-color: rgba(128, 128, 128, 0.05); }
 
-.activity-cell,
-.detail-cell {
+.data-cell {
+  padding: 4px 8px;
+  border-right: 1px solid rgba(128, 128, 128, 0.3);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.3);
   display: flex;
   align-items: center;
-  padding: 4px 8px;
-  border-right: 1px solid #bfbfbf;
-  border-bottom: 1px solid #bfbfbf;
-  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.activity-name-cell { font-weight: bold; }
+.mandays-cell { justify-content: center; }
 
-.activity-row {
-  background-color: #f2f2f2;
-}
-
-.activity-name-cell {
-  font-weight: bold;
-}
-
-.mandays-cell {
-  justify-content: center;
-  font-weight: 500;
-}
-
-/* --- Gantt Bar & Gridlines --- */
-.activity-right-row,
-.detail-right-row {
-  display: grid;
-  grid-column: 4;
-  position: relative;
-  grid-template-columns: repeat(var(--day-count), minmax(32px, 1fr));
-  min-height: 40px;
-}
-
+/* Gridlines and Bar Styling */
 .timeline-grid-lines {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background-image: repeating-linear-gradient(
-    to right,
-    transparent,
-    transparent calc(100% / var(--day-count) - 1px),
-    #e0e0e0 calc(100% / var(--day-count) - 1px),
-    #e0e0e0 calc(100% / var(--day-count))
-  );
+  background-image: repeating-linear-gradient(to right, transparent, transparent calc(var(--day-width) - 1px), rgba(128, 128, 128, 0.2) calc(var(--day-width) - 1px), rgba(128, 128, 128, 0.2) var(--day-width));
   pointer-events: none;
 }
 
 .timeline-bar {
-  grid-column: var(--start) / span var(--duration);
-  background-color: #92d050;
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  background-color: #92d050; /* Green from Excel */
   border: 1px solid #70ad47;
-  border-radius: 2px;
-  margin: 6px 2px;
+  border-radius: 4px;
   z-index: 2;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.timeline-bar-label {
+  color: white;
   white-space: nowrap;
-  color: white;
-  font-size: 12px;
-  padding-left: 8px;
-  display: flex;
-  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* --- Manpower & Resource Tables --- */
-.manpower-table .MuiTableCell-root,
-.resource-grid .MuiTableCell-root {
-  border: 1px solid #d3d3d3;
-}
-
-.manpower-table .MuiTableHead-root .MuiTableCell-root {
-  background-color: #4472c4;
-  color: white;
+/* Manpower Summary Table Head */
+.MuiTableHead-root .MuiTableCell-root {
+  background-color: #4472c4; /* Blue header from Excel */
+  color: white !important;
   font-weight: bold;
 }
 
-.summary-total-row .MuiTableCell-root {
-  background-color: #f2f2f2;
-}
-
-.manpower-summary,
-.resource-allocation {
-  background-color: #ffffff;
-  border: 1px solid #bfbfbf;
-  padding: 16px;
-}
-
-.resource-empty {
-  border: 1px dashed #bfbfbf;
-  background-color: #f9f9f9;
-  padding: 24px;
-  text-align: center;
-}
-
-.timeline-divider {
-  border-color: #bfbfbf;
-}
-
-.section-title {
-  font-weight: 600;
-  color: #1f2a44;
-  margin-bottom: 12px;
-}
-
-.resource-grid {
-  display: grid;
-  grid-template-columns: 210px 1fr;
-  border: 1px solid #bfbfbf;
-  background-color: #ffffff;
-}
-
-.resource-header-left,
-.resource-left-row {
-  display: grid;
-  grid-template-columns: 140px 70px;
-}
-
-.resource-header-left span {
-  background-color: #00b0f0;
-  color: #ffffff;
-  font-weight: bold;
-  text-align: center;
-  padding: 8px;
-  border-right: 1px solid #bfbfbf;
-  border-bottom: 1px solid #bfbfbf;
-}
-
-.resource-left-row span {
-  padding: 6px 8px;
-  border-right: 1px solid #bfbfbf;
-  border-bottom: 1px solid #bfbfbf;
-  font-size: 14px;
-}
-
-.resource-left-row span:last-child,
-.resource-header-left span:last-child {
-  border-right: none;
-}
-
-.resource-role-name {
-  font-weight: 600;
-}
-
-.resource-role-level {
-  color: #555555;
-  font-size: 12px;
-}
-
-.resource-header-right,
-.resource-right-row {
-  display: grid;
-  grid-template-columns: repeat(var(--day-count), minmax(32px, 1fr));
-}
-
-.resource-header-right {
-  background-color: #d9e1f2;
-  border-bottom: 1px solid #bfbfbf;
-}
-
-.resource-day-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-right: 1px solid #bfbfbf;
-  font-weight: bold;
-  font-size: 12px;
-}
-
-.resource-right-row {
-  min-height: 40px;
-}
-
-.resource-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-right: 1px solid #bfbfbf;
-  border-bottom: 1px solid #bfbfbf;
-  font-size: 12px;
-}
-
-.resource-cell:last-child,
-.resource-day-header:last-child {
-  border-right: none;
-}
