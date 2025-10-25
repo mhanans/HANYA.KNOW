@@ -9,7 +9,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using backend.Configuration;
 using backend.Models;
+using backend.Services.Estimation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -33,6 +35,7 @@ public class ProjectAssessmentAnalysisService
 
     private readonly ILogger<ProjectAssessmentAnalysisService> _logger;
     private readonly AssessmentJobStore _jobStore;
+    private readonly EffectiveEstimationPolicy _estimationPolicy;
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
     private readonly string _model;
@@ -43,10 +46,12 @@ public class ProjectAssessmentAnalysisService
     public ProjectAssessmentAnalysisService(
         IConfiguration configuration,
         ILogger<ProjectAssessmentAnalysisService> logger,
-        AssessmentJobStore jobStore)
+        AssessmentJobStore jobStore,
+        EffectiveEstimationPolicy estimationPolicy)
     {
         _logger = logger;
         _jobStore = jobStore;
+        _estimationPolicy = estimationPolicy;
 
         _apiKey = configuration["Gemini:ApiKey"]
                   ?? configuration["GoogleAI:ApiKey"]
@@ -259,7 +264,13 @@ public class ProjectAssessmentAnalysisService
             }
             else if (job.Status == JobStatus.FailedEstimation)
             {
-                if (TryDeserializeAnalysis(repairedJson, out var serializedResult))
+                var template = JsonSerializer.Deserialize<ProjectTemplate>(job.OriginalTemplateJson, _deserializationOptions)
+                               ?? new ProjectTemplate();
+                var generatedItems = DeserializeGeneratedItems(job.GeneratedItemsJson);
+                var augmentedTemplate = BuildAugmentedTemplate(template, generatedItems);
+                var references = DeserializeReferences(job.ReferenceAssessmentsJson, _deserializationOptions);
+
+                if (TryDeserializeAnalysis(repairedJson, augmentedTemplate, references, out var serializedResult))
                 {
                     job.RawEstimationResponse = repairedJson;
                     job.FinalAnalysisJson = serializedResult;
@@ -429,7 +440,7 @@ public class ProjectAssessmentAnalysisService
             var rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
             job.RawEstimationResponse = rawResponse;
 
-            if (TryDeserializeAnalysis(rawResponse, out var serializedResult))
+            if (TryDeserializeAnalysis(rawResponse, augmentedTemplate, references, out var serializedResult))
             {
                 job.FinalAnalysisJson = serializedResult;
                 job.Status = JobStatus.Complete;
@@ -507,7 +518,11 @@ public class ProjectAssessmentAnalysisService
         }
     }
 
-    private bool TryDeserializeAnalysis(string response, out string serializedResult)
+    private bool TryDeserializeAnalysis(
+        string response,
+        ProjectTemplate template,
+        IReadOnlyList<ProjectAssessment> references,
+        out string serializedResult)
     {
         serializedResult = string.Empty;
         if (string.IsNullOrWhiteSpace(response))
@@ -529,6 +544,42 @@ public class ProjectAssessmentAnalysisService
                 return false;
             }
 
+            var templateItems = template.Sections
+                .SelectMany(section => section.Items)
+                .Where(item => !string.IsNullOrWhiteSpace(item.ItemId))
+                .ToDictionary(item => item.ItemId, item => item, StringComparer.OrdinalIgnoreCase);
+
+            if (templateItems.Count == 0)
+            {
+                return false;
+            }
+
+            var columns = CollectEstimationColumns(template, analysis);
+            var normalizedItems = new List<AnalyzedItem>();
+            foreach (var item in analysis.Items)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.ItemId))
+                {
+                    continue;
+                }
+
+                if (!templateItems.TryGetValue(item.ItemId, out var templateItem))
+                {
+                    continue;
+                }
+
+                if (TryNormalizeAnalyzedItem(item, templateItem, columns, references))
+                {
+                    normalizedItems.Add(item);
+                }
+            }
+
+            if (normalizedItems.Count == 0)
+            {
+                return false;
+            }
+
+            analysis.Items = normalizedItems;
             serializedResult = JsonSerializer.Serialize(analysis, _serializationOptions);
             return true;
         }
@@ -538,6 +589,426 @@ public class ProjectAssessmentAnalysisService
             return false;
         }
     }
+
+
+    private IReadOnlyList<string> CollectEstimationColumns(ProjectTemplate template, AnalysisResult analysis)
+    {
+        if (template.EstimationColumns != null && template.EstimationColumns.Count > 0)
+        {
+            return template.EstimationColumns.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var analyzedItem in analysis.Items ?? new List<AnalyzedItem>())
+        {
+            if (analyzedItem?.Estimates == null)
+            {
+                continue;
+            }
+
+            foreach (var key in analyzedItem.Estimates.Keys)
+            {
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    columns.Add(key);
+                }
+            }
+        }
+
+        if (columns.Count == 0)
+        {
+            columns.Add("EffortHours");
+        }
+
+        return columns.ToList();
+    }
+
+    private bool TryNormalizeAnalyzedItem(
+        AnalyzedItem item,
+        TemplateItem templateItem,
+        IReadOnlyList<string> columns,
+        IReadOnlyList<ProjectAssessment> references)
+    {
+        if (columns.Count == 0)
+        {
+            return false;
+        }
+
+        item.IsNeeded ??= true;
+        item.Estimates ??= new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+
+        var diagnostics = item.Diagnostics ?? new ItemDiagnostics();
+        item.Diagnostics = diagnostics;
+
+        var signals = ComplexityScorer.ExtractSignals(templateItem.ItemDetail);
+        diagnostics.Signals = new ItemDiagnosticsSignals
+        {
+            Fields = signals.fields,
+            Integrations = signals.integrations,
+            WorkflowSteps = signals.workflowSteps,
+            HasUpload = signals.hasUpload,
+            HasAuthRole = signals.hasAuthRole,
+            Crud = BuildCrudString(signals)
+        };
+
+        var rawComplexity = CalculateComplexityScore(signals);
+        diagnostics.ComplexityScore = Math.Round(Math.Min(100, rawComplexity), 2, MidpointRounding.AwayFromZero);
+        diagnostics.ScopeFit = item.IsNeeded == true ? "in" : "out";
+        diagnostics.Confidence = Clamp01(diagnostics.Confidence ?? 0.55);
+        diagnostics.JustificationScore = Clamp01(diagnostics.JustificationScore ?? 0);
+        if (!string.IsNullOrEmpty(diagnostics.Justification) && diagnostics.Justification.Length > 120)
+        {
+            diagnostics.Justification = diagnostics.Justification[..120];
+        }
+
+        var category = NormalizeCategory(templateItem.Category);
+        var bands = ResolveBands(category);
+        var requestedSize = NormalizeSizeClass(diagnostics.SizeClass);
+        var finalSize = DetermineSizeClass(category, bands, requestedSize, diagnostics.JustificationScore.Value, signals, rawComplexity);
+        diagnostics.SizeClass = finalSize;
+
+        var crudMultiplier = CalculateCrudMultiplier(signals);
+        var baseHours = GetBandMidpoint(bands, finalSize);
+        var baseWithCrud = baseHours * crudMultiplier;
+
+        var fieldAdd = signals.fields * _estimationPolicy.PerFieldHours;
+        var integrationAdd = signals.integrations * _estimationPolicy.PerIntegrationHours;
+        var uploadAdd = signals.hasUpload ? _estimationPolicy.FileUploadHours : 0;
+        var authAdd = signals.hasAuthRole ? _estimationPolicy.AuthRolesHours : 0;
+        var workflowAdd = signals.workflowSteps * _estimationPolicy.WorkflowStepHours;
+
+        var rawHours = baseWithCrud + fieldAdd + integrationAdd + uploadAdd + authAdd + workflowAdd;
+        var baseForRatio = Math.Max(baseWithCrud, 1e-6);
+
+        diagnostics.Multipliers = new ItemDiagnosticsMultipliers
+        {
+            Crud = Math.Round(crudMultiplier, 3, MidpointRounding.AwayFromZero),
+            Fields = Math.Round(fieldAdd == 0 ? 1 : 1 + fieldAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
+            Integrations = Math.Round(integrationAdd == 0 ? 1 : 1 + integrationAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
+            Upload = Math.Round(uploadAdd == 0 ? 1 : 1 + uploadAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
+            Auth = Math.Round(authAdd == 0 ? 1 : 1 + authAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
+            Workflow = Math.Round(workflowAdd == 0 ? 1 : 1 + workflowAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)
+        };
+
+        var normalizedEstimates = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+        double? referenceBaselineForDiagnostics = null;
+
+        foreach (var column in columns)
+        {
+            if (string.IsNullOrWhiteSpace(column))
+            {
+                continue;
+            }
+
+            if (item.IsNeeded != true)
+            {
+                normalizedEstimates[column] = 0;
+                continue;
+            }
+
+            var referenceStats = CalculateReferenceStats(references, templateItem.ItemId, category, column);
+            var referenceBaseline = ChooseReferenceBaseline(referenceStats.median, referenceStats.geoMean);
+            if (referenceBaselineForDiagnostics == null && referenceBaseline != null)
+            {
+                referenceBaselineForDiagnostics = referenceBaseline;
+            }
+
+            double finalValue = rawHours;
+            if (item.Estimates.TryGetValue(column, out var provided) && provided.HasValue && !double.IsNaN(provided.Value) && !double.IsInfinity(provided.Value))
+            {
+                finalValue = Math.Min(finalValue, provided.Value);
+            }
+
+            var shrunk = EstimationNormalizer.ApplyReferenceShrinkage(finalValue, referenceBaseline, _estimationPolicy);
+            var clamped = EstimationNormalizer.Clamp(shrunk, _estimationPolicy);
+            var rounded = EstimationNormalizer.Round(clamped, _estimationPolicy);
+
+            normalizedEstimates[column] = rounded;
+        }
+
+        if (normalizedEstimates.Count == 0)
+        {
+            return false;
+        }
+
+        diagnostics.ReferenceMedian = referenceBaselineForDiagnostics;
+        item.Estimates = normalizedEstimates;
+
+        var estimateSummary = string.Join(", ", normalizedEstimates.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
+        _logger.LogDebug("Item {ItemId} normalized with size {SizeClass} (category {Category}) => {Estimates}", item.ItemId, diagnostics.SizeClass, category, estimateSummary);
+
+        return true;
+    }
+
+    private (double xs, double s, double m, double l, double xl) ResolveBands(string category)
+    {
+        if (_estimationPolicy.BaseHoursByCategory.TryGetValue(category, out var bands))
+        {
+            return bands;
+        }
+
+        return (4, 8, 16, 32, 56);
+    }
+
+    private static double GetBandMidpoint((double xs, double s, double m, double l, double xl) bands, string sizeClass)
+    {
+        return sizeClass switch
+        {
+            "XS" => bands.xs,
+            "S" => (bands.xs + bands.s) / 2.0,
+            "M" => (bands.s + bands.m) / 2.0,
+            "L" => (bands.m + bands.l) / 2.0,
+            "XL" => (bands.l + bands.xl) / 2.0,
+            _ => bands.s
+        };
+    }
+
+    private string DetermineSizeClass(
+        string category,
+        (double xs, double s, double m, double l, double xl) bands,
+        string requested,
+        double justificationScore,
+        (int fields, int integrations, int workflowSteps, bool hasUpload, bool hasAuthRole, bool hasCrudC, bool hasCrudR, bool hasCrudU, bool hasCrudD) signals,
+        double rawComplexity)
+    {
+        var size = NormalizeSizeClass(requested);
+        var guardActive = category.StartsWith("Adjust Existing", StringComparison.OrdinalIgnoreCase)
+            && _estimationPolicy.CapAdjustCategoriesToMaxM
+            && justificationScore < _estimationPolicy.JustificationScoreThreshold;
+
+        if (string.IsNullOrEmpty(size))
+        {
+            size = MapScoreToSizeClass(rawComplexity, signals);
+        }
+
+        if (guardActive && SizeClassRank(size) > SizeClassRank("M"))
+        {
+            size = "M";
+        }
+
+        if (string.IsNullOrEmpty(size))
+        {
+            size = "S";
+        }
+
+        return size;
+    }
+
+    private static string MapScoreToSizeClass(double complexityScore, (int fields, int integrations, int workflowSteps, bool hasUpload, bool hasAuthRole, bool hasCrudC, bool hasCrudR, bool hasCrudU, bool hasCrudD) signals)
+    {
+        string size = complexityScore switch
+        {
+            <= 8 => "XS",
+            <= 18 => "S",
+            <= 32 => "M",
+            <= 55 => "L",
+            _ => "XL"
+        };
+
+        if (signals.integrations >= 2 && SizeClassRank(size) < SizeClassRank("M"))
+        {
+            size = "M";
+        }
+
+        if (signals.integrations >= 3 && SizeClassRank(size) < SizeClassRank("L"))
+        {
+            size = "L";
+        }
+
+        if (signals.fields >= 25 && SizeClassRank(size) < SizeClassRank("L"))
+        {
+            size = "L";
+        }
+
+        if (signals.fields <= 3 && SizeClassRank(size) > SizeClassRank("S"))
+        {
+            size = "S";
+        }
+
+        return size;
+    }
+
+    private static string NormalizeSizeClass(string? sizeClass)
+    {
+        return sizeClass?.Trim().ToUpperInvariant() switch
+        {
+            "XS" => "XS",
+            "S" => "S",
+            "M" => "M",
+            "L" => "L",
+            "XL" => "XL",
+            _ => string.Empty
+        };
+    }
+
+    private static int SizeClassRank(string sizeClass)
+    {
+        return sizeClass switch
+        {
+            "XS" => 0,
+            "S" => 1,
+            "M" => 2,
+            "L" => 3,
+            "XL" => 4,
+            _ => 1
+        };
+    }
+
+    private static double CalculateComplexityScore((int fields, int integrations, int workflowSteps, bool hasUpload, bool hasAuthRole, bool hasCrudC, bool hasCrudR, bool hasCrudU, bool hasCrudD) signals)
+    {
+        double score = signals.fields * 1.8 + signals.integrations * 15 + signals.workflowSteps * 6;
+        if (signals.hasUpload)
+        {
+            score += 6;
+        }
+
+        if (signals.hasAuthRole)
+        {
+            score += 10;
+        }
+
+        var crudCount = 0;
+        if (signals.hasCrudC) crudCount++;
+        if (signals.hasCrudR) crudCount++;
+        if (signals.hasCrudU) crudCount++;
+        if (signals.hasCrudD) crudCount++;
+        score += crudCount * 4;
+
+        return Math.Min(100, score);
+    }
+
+    private double CalculateCrudMultiplier((int fields, int integrations, int workflowSteps, bool hasUpload, bool hasAuthRole, bool hasCrudC, bool hasCrudR, bool hasCrudU, bool hasCrudD) signals)
+    {
+        double multiplier = 1.0;
+        if (signals.hasCrudC)
+        {
+            multiplier *= _estimationPolicy.CrudCreateMultiplier;
+        }
+
+        if (signals.hasCrudR)
+        {
+            multiplier *= _estimationPolicy.CrudReadMultiplier;
+        }
+
+        if (signals.hasCrudU)
+        {
+            multiplier *= _estimationPolicy.CrudUpdateMultiplier;
+        }
+
+        if (signals.hasCrudD)
+        {
+            multiplier *= _estimationPolicy.CrudDeleteMultiplier;
+        }
+
+        return multiplier;
+    }
+
+    private static string BuildCrudString((int fields, int integrations, int workflowSteps, bool hasUpload, bool hasAuthRole, bool hasCrudC, bool hasCrudR, bool hasCrudU, bool hasCrudD) signals)
+    {
+        var builder = new StringBuilder();
+        if (signals.hasCrudC)
+        {
+            builder.Append('C');
+        }
+
+        if (signals.hasCrudR)
+        {
+            builder.Append('R');
+        }
+
+        if (signals.hasCrudU)
+        {
+            builder.Append('U');
+        }
+
+        if (signals.hasCrudD)
+        {
+            builder.Append('D');
+        }
+
+        return builder.Length == 0 ? "-" : builder.ToString();
+    }
+
+    private (double? median, double? geoMean) CalculateReferenceStats(
+        IReadOnlyList<ProjectAssessment> references,
+        string itemId,
+        string category,
+        string column)
+    {
+        var perItem = new List<double>();
+        var perCategory = new List<double>();
+
+        foreach (var assessment in references ?? Array.Empty<ProjectAssessment>())
+        {
+            foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
+            {
+                foreach (var refItem in section.Items ?? new List<AssessmentItem>())
+                {
+                    if (refItem?.Estimates == null)
+                    {
+                        continue;
+                    }
+
+                    if (!refItem.Estimates.TryGetValue(column, out var value) || !value.HasValue || value.Value <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(refItem.ItemId, itemId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        perItem.Add(value.Value);
+                    }
+                    else if (string.Equals(NormalizeCategory(refItem.Category), category, StringComparison.OrdinalIgnoreCase))
+                    {
+                        perCategory.Add(value.Value);
+                    }
+                }
+            }
+        }
+
+        var source = perItem.Count > 0 ? perItem : perCategory;
+        if (source.Count == 0)
+        {
+            return (null, null);
+        }
+
+        source.Sort();
+        double? median;
+        var mid = source.Count / 2;
+        if (source.Count % 2 == 0)
+        {
+            median = (source[mid - 1] + source[mid]) / 2.0;
+        }
+        else
+        {
+            median = source[mid];
+        }
+
+        double? geoMean = null;
+        var positive = source.Where(v => v > 0).ToList();
+        if (positive.Count > 0)
+        {
+            geoMean = Math.Exp(positive.Sum(Math.Log) / positive.Count);
+        }
+
+        return (median, geoMean);
+    }
+
+    private static double? ChooseReferenceBaseline(double? median, double? geoMean)
+    {
+        if (median.HasValue && geoMean.HasValue)
+        {
+            return Math.Min(median.Value, geoMean.Value);
+        }
+
+        return median ?? geoMean;
+    }
+
+    private static double Clamp01(double value)
+    {
+        return Math.Max(0, Math.Min(1, value));
+    }
+
     private static List<GeneratedAssessmentItem> MapGeneratedItems(IReadOnlyList<GeneratedItemResponse> responses, ProjectTemplate template)
     {
         var result = new List<GeneratedAssessmentItem>();
@@ -800,23 +1271,30 @@ public class ProjectAssessmentAnalysisService
             ReferenceDocuments = BuildGenerationPromptDocuments(referenceDocuments)
         };
 
-        var instructions = analysisMode == AssessmentAnalysisMode.Strict
-            ? "You are a meticulous business analyst reviewing the attached scope document. Translate every explicitly described requirement into backlog items for the sections marked as AI-Generated. Do not invent new scope beyond what the document states."
-            : "You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.";
+        var categoryGuidance = string.Join(", ", AllowedCategories);
+        var instructionsBuilder = new StringBuilder();
+        if (analysisMode == AssessmentAnalysisMode.Strict)
+        {
+            instructionsBuilder.Append("You are a meticulous business analyst reviewing the attached scope document. Translate every explicitly described requirement into backlog items for the sections marked as AI-Generated. Do not invent new scope beyond what the document states.");
+        }
+        else
+        {
+            instructionsBuilder.Append("You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.");
+        }
+
+        instructionsBuilder.Append(' ');
+        instructionsBuilder.Append("You are a senior BA. Extract only in-scope backlog items. Prefer merging trivial UI fragments that don’t materially change estimates. If a function is clearly reusable from references, include [REUSE] tag in itemDetail. Category must be one of {{AllowedCategories}}. Return ONLY JSON array of {itemName,itemDetail,category}.");
+
         if (context.ReferenceDocuments.Count > 0)
         {
-            instructions += analysisMode == AssessmentAnalysisMode.Strict
+            instructionsBuilder.Append(analysisMode == AssessmentAnalysisMode.Strict
                 ? " Use the provided knowledge base summaries only to clarify terminology; never introduce functionality that is absent from the scope document."
-                : " Leverage the provided knowledge base summaries when they clarify requirements or provide helpful precedents.";
+                : " Leverage the provided knowledge base summaries when they clarify requirements or provide helpful precedents.");
         }
-        var categoryGuidance = string.Join(", ", AllowedCategories);
-        var outputRules = $$"""
-        Return ONLY a valid JSON array using the schema [{ "itemName":"...","itemDetail":"...","category":"..." }].
-        Each itemName must be a concise feature title, itemDetail should be a detailed feature describing the expected work (can include what feature(CRUD, Upload, Download), data/ field that will be showed/ managed, etc),
-        and category must be one of: {{categoryGuidance}}.
-        Do not include markdown fences or commentary. Avoid duplicating any items listed in the context.
-        """.Replace("{{categoryGuidance}}", categoryGuidance);
-        return $"{instructions}\\n\\nProject Context:\\n{JsonSerializer.Serialize(context, _serializationOptions)}\\n\\n{outputRules}";
+
+        var instructions = instructionsBuilder.ToString().Replace("{{AllowedCategories}}", categoryGuidance);
+        var outputRules = "Return ONLY JSON array of {itemName,itemDetail,category}. Avoid splitting trivial variants; prefer merge unless estimation impact > S. If similar component exists in references, append tag [REUSE] in itemDetail.";
+        return $"{instructions}\n\nProject Context:\n{JsonSerializer.Serialize(context, _serializationOptions)}\n\n{outputRules}";
     }
 
     private static List<GenerationPromptDocument> BuildGenerationPromptDocuments(
@@ -876,29 +1354,54 @@ public class ProjectAssessmentAnalysisService
                 }).ToList()
             }).ToList(),
             SimilarAssessments = BuildPromptReferences(references, template.EstimationColumns ?? new List<string>()),
-            ReferenceDocuments = BuildPromptDocuments(referenceDocuments)
+            ReferenceDocuments = BuildPromptDocuments(referenceDocuments),
+            Policy = BuildPromptPolicy()
         };
 
-        var instructions = analysisMode == AssessmentAnalysisMode.Strict
-            ? "You are an experienced software project estimator. The backlog items were transcribed directly from the uploaded scope document. Evaluate each item exactly as written and determine whether it remains in scope for this project."
-            : "You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.";
+        var instructionsBuilder = new StringBuilder();
+        if (analysisMode == AssessmentAnalysisMode.Strict)
+        {
+            instructionsBuilder.Append("You are an experienced software project estimator. The backlog items were transcribed directly from the uploaded scope document. Evaluate each item exactly as written and determine whether it remains in scope for this project.");
+        }
+        else
+        {
+            instructionsBuilder.Append("You are an experienced software project estimator. Review every template item provided in the context and decide if it is needed for the uploaded scope document.");
+        }
+
         if (payload.ReferenceDocuments.Count > 0)
         {
-            instructions += analysisMode == AssessmentAnalysisMode.Strict
+            instructionsBuilder.Append(analysisMode == AssessmentAnalysisMode.Strict
                 ? " Use the supplied knowledge base summaries only for clarification; do not broaden the scope beyond the document."
-                : " Consider the supplied knowledge base summaries when they add relevant background or precedent.";
+                : " Consider the supplied knowledge base summaries when they add relevant background or precedent.");
         }
+
         if (payload.SimilarAssessments.Count > 0)
         {
-            instructions += " Use the similar assessment history to calibrate whether items are typically in scope and the scale of effort required for comparable projects.";
+            instructionsBuilder.Append(" Use the similar assessment history to calibrate whether items are typically in scope and the scale of effort required for comparable projects.");
         }
-        var outputRules =
-            """Respond ONLY with a JSON object using the schema {"items":[{"itemId":string,"isNeeded":bool,"estimates":{"<column>":number|null}}]}.""";
-        var estimationGuidance = analysisMode == AssessmentAnalysisMode.Strict
-            ? "Set isNeeded to true when the scope explicitly includes the capability. Only mark false when the scope clearly excludes it. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items."
-            : "Set isNeeded to true when the scope clearly requires the capability. Provide numeric hour estimates for each column or null when there is insufficient information. Evaluate every item exactly once and do not introduce new items.";
 
-        return $"{instructions}\n\nProject Context:\n{JsonSerializer.Serialize(payload, _serializationOptions)}\n\n{outputRules}\n{estimationGuidance}";
+        instructionsBuilder.Append(" Apply the effective estimation policy provided in the context and keep estimates conservative and auditable.");
+
+        var rules = string.Join("
+", new[]
+        {
+            "Rules:",
+            "- Assign sizeClass ∈ {XS,S,M,L,XL} based on scope; prefer smaller class when ambiguous.",
+            "- Use band hours by category (XS,S,M,L,XL) and proposed multipliers. Do NOT exceed referenceMedian×1.10 unless strong justification with justificationScore ≥ 0.7.",
+            "- For ‘Adjust Existing UI’ or ‘Adjust Existing Logic’, cap size at M unless justificationScore ≥ 0.7 with explicit reason.",
+            "- Classify scopeFit as 'in' or 'out' and set isNeeded accordingly. Provide diagnostics for each item: sizeClass, complexityScore (0..100), signals, multipliers, referenceMedian, justification, justificationScore, confidence.",
+            "- Respond ONLY JSON object: { "items":[ ... ] } with numbers in hours (decimals allowed). No markdown.",
+        });
+
+        var estimationGuidance = "Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras(upload/auth/workflow). Server may normalize.";
+
+        return $"{instructionsBuilder}
+
+Project Context:
+{JsonSerializer.Serialize(payload, _serializationOptions)}
+
+{rules}
+{estimationGuidance}";
     }
 
     private async Task<string> RepairJsonAsync(string invalidJson, CancellationToken cancellationToken)
@@ -1110,6 +1613,44 @@ public class ProjectAssessmentAnalysisService
             Step = 1,
             Sections = sections
         };
+    }
+
+
+    private PromptEstimationPolicy BuildPromptPolicy()
+    {
+        var promptPolicy = new PromptEstimationPolicy
+        {
+            CrudCreateMultiplier = _estimationPolicy.CrudCreateMultiplier,
+            CrudReadMultiplier = _estimationPolicy.CrudReadMultiplier,
+            CrudUpdateMultiplier = _estimationPolicy.CrudUpdateMultiplier,
+            CrudDeleteMultiplier = _estimationPolicy.CrudDeleteMultiplier,
+            PerFieldHours = _estimationPolicy.PerFieldHours,
+            PerIntegrationHours = _estimationPolicy.PerIntegrationHours,
+            FileUploadHours = _estimationPolicy.FileUploadHours,
+            AuthRolesHours = _estimationPolicy.AuthRolesHours,
+            WorkflowStepHours = _estimationPolicy.WorkflowStepHours,
+            ReferenceMedianCapMultiplier = _estimationPolicy.ReferenceMedianCapMultiplier,
+            GlobalShrinkageToMedian = _estimationPolicy.GlobalShrinkageToMedian,
+            HardMaxPerItemHours = _estimationPolicy.HardMaxPerItemHours,
+            HardMinPerItemHours = _estimationPolicy.HardMinPerItemHours,
+            RoundToNearestHours = _estimationPolicy.RoundToNearestHours,
+            CapAdjustCategoriesToMaxM = _estimationPolicy.CapAdjustCategoriesToMaxM,
+            JustificationScoreThreshold = _estimationPolicy.JustificationScoreThreshold
+        };
+
+        foreach (var (category, bands) in _estimationPolicy.BaseHoursByCategory)
+        {
+            promptPolicy.BaseHoursByCategory[category] = new List<double>
+            {
+                bands.xs,
+                bands.s,
+                bands.m,
+                bands.l,
+                bands.xl
+            };
+        }
+
+        return promptPolicy;
     }
 
     private static List<PromptDocumentContext> BuildPromptDocuments(IReadOnlyList<AssessmentReferenceDocument> documents)
@@ -1348,6 +1889,7 @@ public class ProjectAssessmentAnalysisService
         public List<PromptSection> Sections { get; set; } = new();
         public List<PromptReference> SimilarAssessments { get; set; } = new();
         public List<PromptDocumentContext> ReferenceDocuments { get; set; } = new();
+        public PromptEstimationPolicy Policy { get; set; } = new();
     }
 
     private sealed class PromptSection
@@ -1384,6 +1926,28 @@ public class ProjectAssessmentAnalysisService
         public List<PromptReferenceItem> Items { get; set; } = new();
     }
 
+
+    private sealed class PromptEstimationPolicy
+    {
+        public Dictionary<string, List<double>> BaseHoursByCategory { get; set; } = new();
+        public double CrudCreateMultiplier { get; set; }
+        public double CrudReadMultiplier { get; set; }
+        public double CrudUpdateMultiplier { get; set; }
+        public double CrudDeleteMultiplier { get; set; }
+        public double PerFieldHours { get; set; }
+        public double PerIntegrationHours { get; set; }
+        public double FileUploadHours { get; set; }
+        public double AuthRolesHours { get; set; }
+        public double WorkflowStepHours { get; set; }
+        public double ReferenceMedianCapMultiplier { get; set; }
+        public double GlobalShrinkageToMedian { get; set; }
+        public double HardMaxPerItemHours { get; set; }
+        public double HardMinPerItemHours { get; set; }
+        public double RoundToNearestHours { get; set; }
+        public bool CapAdjustCategoriesToMaxM { get; set; }
+        public double JustificationScoreThreshold { get; set; }
+    }
+
     private sealed class PromptReferenceItem
     {
         public string ItemId { get; set; } = string.Empty;
@@ -1404,5 +1968,39 @@ public class ProjectAssessmentAnalysisService
         public string ItemId { get; set; } = string.Empty;
         public bool? IsNeeded { get; set; }
         public Dictionary<string, double?>? Estimates { get; set; }
+        public ItemDiagnostics? Diagnostics { get; set; }
+    }
+
+    private sealed class ItemDiagnostics
+    {
+        public string? SizeClass { get; set; }
+        public double? ComplexityScore { get; set; }
+        public ItemDiagnosticsSignals? Signals { get; set; }
+        public ItemDiagnosticsMultipliers? Multipliers { get; set; }
+        public double? ReferenceMedian { get; set; }
+        public string? Justification { get; set; }
+        public double? JustificationScore { get; set; }
+        public double? Confidence { get; set; }
+        public string? ScopeFit { get; set; }
+    }
+
+    private sealed class ItemDiagnosticsSignals
+    {
+        public int Fields { get; set; }
+        public int Integrations { get; set; }
+        public int WorkflowSteps { get; set; }
+        public bool HasUpload { get; set; }
+        public bool HasAuthRole { get; set; }
+        public string Crud { get; set; } = "-";
+    }
+
+    private sealed class ItemDiagnosticsMultipliers
+    {
+        public double Crud { get; set; } = 1;
+        public double Fields { get; set; } = 1;
+        public double Integrations { get; set; } = 1;
+        public double Upload { get; set; } = 1;
+        public double Auth { get; set; } = 1;
+        public double Workflow { get; set; } = 1;
     }
 }
