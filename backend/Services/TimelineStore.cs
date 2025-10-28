@@ -48,6 +48,31 @@ public class TimelineStore
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task LogGenerationAttemptAsync(TimelineGenerationAttempt attempt, CancellationToken cancellationToken)
+    {
+        const string sql = @"INSERT INTO assessment_timeline_attempts (
+                                   assessment_id,
+                                   project_name,
+                                   template_name,
+                                   requested_at,
+                                   raw_response,
+                                   error,
+                                   success)
+                             VALUES (@id, @project, @template, @requested, @raw, @error, @success)";
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", attempt.AssessmentId);
+        cmd.Parameters.AddWithValue("project", attempt.ProjectName ?? string.Empty);
+        cmd.Parameters.AddWithValue("template", attempt.TemplateName ?? string.Empty);
+        cmd.Parameters.AddWithValue("requested", attempt.RequestedAt);
+        cmd.Parameters.Add("raw", NpgsqlDbType.Text).Value = attempt.RawResponse ?? string.Empty;
+        cmd.Parameters.Add("error", NpgsqlDbType.Text).Value = (object?)attempt.Error ?? DBNull.Value;
+        cmd.Parameters.AddWithValue("success", attempt.Success);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<TimelineRecord?> GetAsync(int assessmentId, CancellationToken cancellationToken)
     {
         const string sql = @"SELECT timeline_data FROM assessment_timelines WHERE assessment_id=@id";

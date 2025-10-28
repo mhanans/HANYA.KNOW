@@ -57,7 +57,41 @@ public class TimelineGenerationService
             assessmentId,
             aggregatedTasks.Count);
 
-        var aiTimeline = await GetScheduleFromAiAsync(prompt).ConfigureAwait(false);
+        string rawResponse = string.Empty;
+        AiTimelineResult aiTimeline;
+        try
+        {
+            rawResponse = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
+            aiTimeline = ParseAiTimeline(rawResponse);
+        }
+        catch (JsonException ex)
+        {
+            await LogAttemptSafeAsync(
+                assessmentId,
+                assessment.ProjectName,
+                assessment.TemplateName ?? string.Empty,
+                rawResponse,
+                success: false,
+                error: $"JSON parse error: {ex.Message}",
+                cancellationToken).ConfigureAwait(false);
+
+            _logger.LogError(ex, "AI response was not valid JSON for timeline generation.");
+            throw new InvalidOperationException("AI returned an invalid timeline response.", ex);
+        }
+        catch (InvalidOperationException ex) when (!string.IsNullOrWhiteSpace(rawResponse))
+        {
+            await LogAttemptSafeAsync(
+                assessmentId,
+                assessment.ProjectName,
+                assessment.TemplateName ?? string.Empty,
+                rawResponse,
+                success: false,
+                error: ex.Message,
+                cancellationToken).ConfigureAwait(false);
+
+            _logger.LogError(ex, "AI timeline response could not be parsed for assessment {AssessmentId}.", assessmentId);
+            throw;
+        }
 
         var record = new TimelineRecord
         {
@@ -70,21 +104,74 @@ public class TimelineGenerationService
             ResourceAllocation = aiTimeline.ResourceAllocation
         };
 
-        await _timelineStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _timelineStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await LogAttemptSafeAsync(
+                assessmentId,
+                assessment.ProjectName,
+                assessment.TemplateName ?? string.Empty,
+                rawResponse,
+                success: false,
+                error: $"Failed to persist timeline: {ex.Message}",
+                cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+
+        await LogAttemptSafeAsync(
+            assessmentId,
+            assessment.ProjectName,
+            assessment.TemplateName ?? string.Empty,
+            rawResponse,
+            success: true,
+            error: null,
+            cancellationToken).ConfigureAwait(false);
         return record;
     }
 
-    private async Task<AiTimelineResult> GetScheduleFromAiAsync(string prompt)
+    private Task LogAttemptSafeAsync(
+        int assessmentId,
+        string projectName,
+        string templateName,
+        string rawResponse,
+        bool success,
+        string? error,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse))
+        {
+            return Task.CompletedTask;
+        }
+
+        var attempt = new TimelineGenerationAttempt
+        {
+            AssessmentId = assessmentId,
+            ProjectName = projectName,
+            TemplateName = templateName,
+            RequestedAt = DateTime.UtcNow,
+            RawResponse = rawResponse,
+            Success = success,
+            Error = error
+        };
+
+        return LogAttemptInternalAsync(attempt, cancellationToken);
+    }
+
+    private async Task LogAttemptInternalAsync(TimelineGenerationAttempt attempt, CancellationToken cancellationToken)
     {
         try
         {
-            var response = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
-            return ParseAiTimeline(response);
+            await _timelineStore.LogGenerationAttemptAsync(attempt, cancellationToken).ConfigureAwait(false);
         }
-        catch (JsonException ex)
+        catch (Exception ex)
         {
-            _logger.LogError(ex, "AI response was not valid JSON for timeline generation.");
-            throw new InvalidOperationException("AI returned an invalid timeline response.", ex);
+            _logger.LogWarning(
+                ex,
+                "Failed to record timeline generation attempt for assessment {AssessmentId}.",
+                attempt.AssessmentId);
         }
     }
 
