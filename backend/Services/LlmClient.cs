@@ -120,7 +120,8 @@ public class LlmClient
             Model = model ?? string.Empty,
             ApiKey = apiKey ?? string.Empty,
             OllamaHost = host ?? string.Empty,
-            MaxRetries = _options.MaxRetries
+            MaxRetries = _options.MaxRetries,
+            TimeoutSeconds = _options.TimeoutSeconds
         };
     }
 
