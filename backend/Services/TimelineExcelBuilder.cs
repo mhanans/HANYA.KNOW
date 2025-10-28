@@ -152,26 +152,107 @@ public static class TimelineExcelBuilder
         }
 
         var allocationStartRow = currentRow + 2;
-        worksheet.Cell(allocationStartRow, 1).Value = "Resource Allocation";
-        worksheet.Cell(allocationStartRow, 1).Style.Font.SetBold();
+        var allocationTitleRange = worksheet.Range(
+            allocationStartRow,
+            1,
+            allocationStartRow,
+            totalDays > 0 ? startColumn + totalDays - 1 : leftPaneColumns);
+        allocationTitleRange.Merge();
+        allocationTitleRange.Value = "Resource Allocation";
+        allocationTitleRange.Style.Font.SetBold();
 
         var allocationHeaderRow = allocationStartRow + 1;
-        worksheet.Cell(allocationHeaderRow, 1).Value = "Role";
-        worksheet.Cell(allocationHeaderRow, 2).Value = "Total Man-days";
-        worksheet.Cell(allocationHeaderRow, 3).Value = "Daily Effort";
-        worksheet.Range(allocationHeaderRow, 1, allocationHeaderRow, 3).Style.Fill.SetBackgroundColor(blueFill);
-        worksheet.Range(allocationHeaderRow, 1, allocationHeaderRow, 3).Style.Font.SetBold();
-        worksheet.Range(allocationHeaderRow, 1, allocationHeaderRow, 3).Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+        var roleHeaderRange = worksheet.Range(allocationHeaderRow, 1, allocationHeaderRow, 3);
+        roleHeaderRange.Merge();
+        roleHeaderRange.Value = "Role";
+        roleHeaderRange.Style.Fill.SetBackgroundColor(blueFill);
+        roleHeaderRange.Style.Font.SetBold();
+        roleHeaderRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+        roleHeaderRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+        roleHeaderRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
 
-        var allocationRow = allocationHeaderRow + 1;
-        foreach (var allocation in timeline.ResourceAllocation ?? new List<TimelineResourceAllocationEntry>())
+        var totalHeaderCell = worksheet.Cell(allocationHeaderRow, 4);
+        totalHeaderCell.Value = "Total Man-days";
+        totalHeaderCell.Style.Fill.SetBackgroundColor(blueFill);
+        totalHeaderCell.Style.Font.SetBold();
+        totalHeaderCell.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+        totalHeaderCell.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+        totalHeaderCell.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+
+        if (totalDays > 0)
         {
-            worksheet.Cell(allocationRow, 1).Value = allocation.Role;
-            worksheet.Cell(allocationRow, 2).Value = allocation.TotalManDays;
-            worksheet.Cell(allocationRow, 3).Value = string.Join(", ", allocation.DailyEffort ?? new List<double>());
+            var dailyHeaderRange = worksheet.Range(
+                allocationHeaderRow,
+                startColumn,
+                allocationHeaderRow,
+                startColumn + totalDays - 1);
+            dailyHeaderRange.Merge();
+            dailyHeaderRange.Value = "Daily Effort";
+            dailyHeaderRange.Style.Fill.SetBackgroundColor(blueFill);
+            dailyHeaderRange.Style.Font.SetBold();
+            dailyHeaderRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            dailyHeaderRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+            dailyHeaderRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+        }
 
-            var rowRange = worksheet.Range(allocationRow, 1, allocationRow, 3);
-            rowRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+        var allocationDayHeaderRow = allocationHeaderRow + 1;
+        var roleDayHeaderRange = worksheet.Range(allocationDayHeaderRow, 1, allocationDayHeaderRow, 3);
+        roleDayHeaderRange.Merge();
+        roleDayHeaderRange.Style.Fill.SetBackgroundColor(XLColor.FromHtml("#F3F6FB"));
+        roleDayHeaderRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+
+        var totalDayHeaderCell = worksheet.Cell(allocationDayHeaderRow, 4);
+        totalDayHeaderCell.Style.Fill.SetBackgroundColor(XLColor.FromHtml("#F3F6FB"));
+        totalDayHeaderCell.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+
+        for (var i = 0; i < totalDays; i++)
+        {
+            var cell = worksheet.Cell(allocationDayHeaderRow, startColumn + i);
+            cell.Value = i + 1;
+            cell.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            cell.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+            cell.Style.Fill.SetBackgroundColor(XLColor.FromHtml("#EEF3FB"));
+            cell.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+        }
+
+        var allocationRow = allocationDayHeaderRow + 1;
+        var resourceAllocations = timeline.ResourceAllocation ?? new List<TimelineResourceAllocationEntry>();
+        for (var index = 0; index < resourceAllocations.Count; index++)
+        {
+            var allocation = resourceAllocations[index];
+            var roleRange = worksheet.Range(allocationRow, 1, allocationRow, 3);
+            roleRange.Merge();
+            roleRange.Value = allocation.Role;
+            roleRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+            roleRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+            roleRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+            roleRange.Style.Fill.SetBackgroundColor(index % 2 == 0 ? XLColor.FromHtml("#FFF9E6") : XLColor.FromHtml("#E9F2FB"));
+
+            var totalCell = worksheet.Cell(allocationRow, 4);
+            totalCell.Value = allocation.TotalManDays;
+            totalCell.Style.NumberFormat.Format = "#,##0.00";
+            totalCell.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            totalCell.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+            totalCell.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+            totalCell.Style.Fill.SetBackgroundColor(index % 2 == 0 ? XLColor.FromHtml("#FFF9E6") : XLColor.FromHtml("#E9F2FB"));
+
+            for (var dayIndex = 0; dayIndex < totalDays; dayIndex++)
+            {
+                var effort = dayIndex < (allocation.DailyEffort?.Count ?? 0)
+                    ? allocation.DailyEffort![dayIndex]
+                    : 0d;
+                var cell = worksheet.Cell(allocationRow, startColumn + dayIndex);
+                if (effort > 0)
+                {
+                    cell.Value = effort;
+                    cell.Style.NumberFormat.Format = "0.##";
+                    cell.Style.Fill.SetBackgroundColor(index % 2 == 0 ? yellowFill : blueFill);
+                }
+                cell.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                cell.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                cell.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+            }
+
             allocationRow++;
         }
 
