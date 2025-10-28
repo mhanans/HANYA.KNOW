@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using backend.Configuration;
 using backend.Models;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -13,12 +15,36 @@ namespace backend.Services;
 public class PresalesConfigurationStore
 {
     private readonly string _connectionString;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<PresalesConfigurationStore> _logger;
 
-    public PresalesConfigurationStore(IOptions<PostgresOptions> dbOptions, ILogger<PresalesConfigurationStore> logger)
+    public PresalesConfigurationStore(
+        IOptions<PostgresOptions> dbOptions,
+        ILogger<PresalesConfigurationStore> logger,
+        IConfiguration configuration)
     {
         _connectionString = dbOptions.Value.Postgres ?? string.Empty;
         _logger = logger;
+        _configuration = configuration;
+    }
+
+    public EffectiveEstimationPolicy GetEffectiveEstimationPolicy()
+    {
+        var policy = new EffectiveEstimationPolicy();
+        try
+        {
+            var section = _configuration.GetSection("EffectiveEstimationPolicy");
+            if (section.Exists())
+            {
+                section.Bind(policy);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to bind EffectiveEstimationPolicy from configuration. Using defaults.");
+        }
+
+        return policy;
     }
 
     public async Task<PresalesConfiguration> GetConfigurationAsync(CancellationToken cancellationToken)
