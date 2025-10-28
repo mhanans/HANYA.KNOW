@@ -167,3 +167,8 @@ public class AssessmentReferenceDocument
     public string Source { get; set; } = string.Empty;
     public string? Summary { get; set; }
 }
+
+public class UpdateAssessmentStatusRequest
+{
+    public string Status { get; set; } = string.Empty;
+}

@@ -56,6 +56,7 @@ MVP knowledge base with retrieval augmented generation.
 - `POST /api/tickets` – create a ticket and automatically assign category and PIC via AI; tickets include a `reason` explaining the category choice or why assignment failed
 - `POST /api/assessment/analyze` – create a draft project assessment for the selected template and uploaded scope document
 - `POST /api/assessment/save` – persist assessment edits
+- `POST /api/assessment/{id}/status` – update the status of a saved assessment (for example mark a draft as completed)
 - `GET /api/assessment/{id}/export` – download a saved assessment as Excel
 - `POST /api/tickets/{id}/retry-summary` – regenerate JSON assignment summary for a ticket
 - `GET /api/recommendations` – list CV recommendations
@@ -75,7 +76,7 @@ All requests to the API must include an `X-API-KEY` header matching the `ApiKey`
 - Chat answers include numbered citations with relevance scores.
 - Documents can be tagged with categories for targeted queries; manage categories, upload new PDFs, analyze documents, and filter questions by category.
 - Submit and track support tickets with automatic AI-driven categorization and assignment to available PICs.
-- Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the Presales AI history table for reopening saved assessments (see `docs/pre-sales-ai-project-assessment-engine.md`).
+- Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the Presales AI history table for reopening saved assessments, exporting bundles, or marking drafts as completed without opening the editor (see `docs/pre-sales-ai-project-assessment-engine.md`).
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.
