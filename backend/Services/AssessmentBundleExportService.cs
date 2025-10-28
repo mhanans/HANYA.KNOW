@@ -40,7 +40,10 @@ public class AssessmentBundleExportService
         }
 
         using var workbook = new XLWorkbook();
-        workbook.Worksheets.Clear();
+        foreach (var sheet in workbook.Worksheets.ToList())
+        {
+            sheet.Delete();
+        }
 
         var template = await _templates.GetAsync(assessment.TemplateId).ConfigureAwait(false);
         var assessmentBytes = AssessmentExportBuilder.Build(assessment, template);
