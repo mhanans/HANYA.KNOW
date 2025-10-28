@@ -1382,26 +1382,19 @@ public class ProjectAssessmentAnalysisService
 
         instructionsBuilder.Append(" Apply the effective estimation policy provided in the context and keep estimates conservative and auditable.");
 
-        var rules = string.Join("
-", new[]
+        var rules = string.Join(Environment.NewLine, new[]
         {
             "Rules:",
             "- Assign sizeClass ∈ {XS,S,M,L,XL} based on scope; prefer smaller class when ambiguous.",
             "- Use band hours by category (XS,S,M,L,XL) and proposed multipliers. Do NOT exceed referenceMedian×1.10 unless strong justification with justificationScore ≥ 0.7.",
             "- For ‘Adjust Existing UI’ or ‘Adjust Existing Logic’, cap size at M unless justificationScore ≥ 0.7 with explicit reason.",
             "- Classify scopeFit as 'in' or 'out' and set isNeeded accordingly. Provide diagnostics for each item: sizeClass, complexityScore (0..100), signals, multipliers, referenceMedian, justification, justificationScore, confidence.",
-            "- Respond ONLY JSON object: { "items":[ ... ] } with numbers in hours (decimals allowed). No markdown.",
+            "- Respond ONLY JSON object: { \"items\":[ ... ] } with numbers in hours (decimals allowed). No markdown.",
         });
 
         var estimationGuidance = "Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras(upload/auth/workflow). Server may normalize.";
 
-        return $"{instructionsBuilder}
-
-Project Context:
-{JsonSerializer.Serialize(payload, _serializationOptions)}
-
-{rules}
-{estimationGuidance}";
+        return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{estimationGuidance}";
     }
 
     private async Task<string> RepairJsonAsync(string invalidJson, CancellationToken cancellationToken)
