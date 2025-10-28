@@ -250,6 +250,40 @@ public class AssessmentController : ControllerBase
         return Ok(saved ?? assessment);
     }
 
+    [HttpPost("{id}/status")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<ProjectAssessmentSummary>> UpdateStatus(int id, UpdateAssessmentStatusRequest request)
+    {
+        if (id <= 0)
+        {
+            return BadRequest("A valid assessment id is required.");
+        }
+
+        if (request == null || string.IsNullOrWhiteSpace(request.Status))
+        {
+            return BadRequest("Status is required.");
+        }
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdValue = int.TryParse(userId, out var uid) ? uid : (int?)null;
+        var assessment = await _assessments.GetAsync(id, userIdValue);
+        if (assessment == null)
+        {
+            return NotFound();
+        }
+
+        assessment.Status = request.Status.Trim();
+        await _assessments.SaveAsync(assessment, userIdValue);
+        var updated = await _assessments.GetAsync(id, userIdValue);
+
+        if (updated == null)
+        {
+            return Ok(BuildSummary(assessment));
+        }
+
+        return Ok(BuildSummary(updated));
+    }
+
     [HttpGet("history")]
     [UiAuthorize("pre-sales-assessment-workspace", "admin-presales-history")]
     public async Task<ActionResult<IEnumerable<ProjectAssessmentSummary>>> History()
@@ -390,6 +424,21 @@ public class AssessmentController : ControllerBase
         }
 
         return total;
+    }
+
+    private static ProjectAssessmentSummary BuildSummary(ProjectAssessment assessment)
+    {
+        return new ProjectAssessmentSummary
+        {
+            Id = assessment.Id ?? 0,
+            TemplateId = assessment.TemplateId,
+            TemplateName = assessment.TemplateName ?? string.Empty,
+            ProjectName = assessment.ProjectName ?? string.Empty,
+            Status = string.IsNullOrWhiteSpace(assessment.Status) ? "Draft" : assessment.Status,
+            Step = Math.Max(1, assessment.Step),
+            CreatedAt = assessment.CreatedAt ?? DateTime.UtcNow,
+            LastModifiedAt = assessment.LastModifiedAt
+        };
     }
 }
 

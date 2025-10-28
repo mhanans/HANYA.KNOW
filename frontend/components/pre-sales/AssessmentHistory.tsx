@@ -24,6 +24,7 @@ import LaunchIcon from '@mui/icons-material/Launch';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadIcon from '@mui/icons-material/Download';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import { apiFetch } from '../../lib/api';
 
 export type AssessmentJobStatus =
@@ -111,6 +112,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigationError, setNavigationError] = useState('');
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [markingCompleteId, setMarkingCompleteId] = useState<number | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -316,6 +318,47 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
     []
   );
 
+  const markAssessmentComplete = useCallback(
+    async (id: number) => {
+      setAssessmentsError('');
+      setMarkingCompleteId(id);
+      try {
+        const response = await apiFetch(`/api/assessment/${id}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'Completed' }),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Unable to update assessment status.');
+        }
+        const updated = (await response.json()) as Partial<ProjectAssessmentSummary>;
+        setSavedAssessments(current =>
+          current.map(item => {
+            if (item.id !== id) return item;
+            return {
+              ...item,
+              id: updated.id ?? item.id,
+              templateId: updated.templateId ?? item.templateId,
+              templateName: updated.templateName ?? item.templateName,
+              projectName: updated.projectName ?? item.projectName,
+              status: updated.status ?? 'Completed',
+              step: updated.step ?? item.step,
+              createdAt: updated.createdAt ?? item.createdAt,
+              lastModifiedAt: updated.lastModifiedAt ?? item.lastModifiedAt,
+            };
+          })
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to update assessment status.';
+        setAssessmentsError(message);
+      } finally {
+        setMarkingCompleteId(current => (current === id ? null : current));
+      }
+    },
+    []
+  );
+
   const jobsContent = useMemo(() => {
     if (jobs.length === 0) {
       return (
@@ -422,6 +465,19 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                 <TableCell>{formatTimestamp(row.lastModifiedAt)}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    {row.status?.toLowerCase() !== 'completed' && (
+                      <Tooltip title="Mark as completed">
+                        <span>
+                          <IconButton
+                            color="success"
+                            onClick={() => markAssessmentComplete(row.id)}
+                            disabled={markingCompleteId === row.id || isNavigating}
+                          >
+                            <TaskAltIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Download bundled export">
                       <span>
                         <IconButton
@@ -465,7 +521,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
         </Table>
       </TableContainer>
     );
-  }, [assessmentDeleting, deleteAssessment, downloadingId, handleDownload, handleOpenAssessment, isNavigating, onOpenAssessment, savedAssessments]);
+  }, [assessmentDeleting, deleteAssessment, downloadingId, handleDownload, handleOpenAssessment, isNavigating, markAssessmentComplete, markingCompleteId, onOpenAssessment, savedAssessments]);
 
   return (
     <>
