@@ -257,6 +257,22 @@ public class LlmClient
 
                 throw new InvalidOperationException("Gemini response missing text.");
             }
+            catch (TaskCanceledException ex) when (attempt < options.MaxRetries)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Connection to Gemini API timed out, retrying ({Attempt}/{Max})",
+                    attempt,
+                    options.MaxRetries);
+
+                await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
+            }
+            catch (TaskCanceledException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Connection to Gemini API timed out after {options.MaxRetries} attempts. Please check connection to API server.",
+                    ex);
+            }
             catch (HttpRequestException ex) when (attempt < options.MaxRetries)
             {
                 var delay = ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests
@@ -271,6 +287,12 @@ public class LlmClient
 
                 await Task.Delay(delay);
             }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Connection to Gemini API failed after {options.MaxRetries} attempts. Please check connection to API server.",
+                    ex);
+            }
             catch (Exception ex) when (attempt < options.MaxRetries)
             {
                 _logger.LogWarning(
@@ -280,6 +302,12 @@ public class LlmClient
                     options.MaxRetries);
 
                 await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Connection to Gemini API failed after {options.MaxRetries} attempts. Please check connection to API server.",
+                    ex);
             }
         }
 
