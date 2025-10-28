@@ -61,8 +61,8 @@ interface ProjectAssessmentSummary {
 
 interface AssessmentHistoryProps {
   refreshToken: number;
-  onOpenJob?: (jobId: number) => void | Promise<void>;
-  onOpenAssessment?: (assessmentId: number) => void | Promise<void>;
+  onOpenJob?: (jobId: number) => void | boolean | Promise<void | boolean>;
+  onOpenAssessment?: (assessmentId: number) => void | boolean | Promise<void | boolean>;
 }
 
 const formatTimestamp = (value?: string) => {
@@ -203,7 +203,8 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
       try {
         const result = await Promise.resolve(onOpenJob(id));
         if (result === false) {
-          throw new Error('Navigation was cancelled.');
+          setIsNavigating(false);
+          return;
         }
       } catch (err) {
         const message =
@@ -228,7 +229,8 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
       try {
         const result = await Promise.resolve(onOpenAssessment(id));
         if (result === false) {
-          throw new Error('Navigation was cancelled.');
+          setIsNavigating(false);
+          return;
         }
       } catch (err) {
         const message =
