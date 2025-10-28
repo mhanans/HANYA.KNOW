@@ -100,7 +100,8 @@ public class TimelineGenerationService
             PropertyNameCaseInsensitive = true
         };
 
-        var result = JsonSerializer.Deserialize<AiTimelineResult>(response, options);
+        var jsonPayload = ExtractJsonPayload(response);
+        var result = JsonSerializer.Deserialize<AiTimelineResult>(jsonPayload, options);
         if (result == null)
         {
             throw new InvalidOperationException("AI response could not be parsed into a timeline.");
@@ -109,6 +110,42 @@ public class TimelineGenerationService
         result.Activities ??= new List<TimelineActivity>();
         result.ResourceAllocation ??= new List<TimelineResourceAllocationEntry>();
         return result;
+    }
+
+    private static string ExtractJsonPayload(string response)
+    {
+        var trimmed = response.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return trimmed;
+        }
+
+        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineBreak = trimmed.IndexOf('\n');
+            if (firstLineBreak >= 0)
+            {
+                var withoutFence = trimmed[(firstLineBreak + 1)..];
+                var closingFenceIndex = withoutFence.LastIndexOf("```", StringComparison.Ordinal);
+                if (closingFenceIndex >= 0)
+                {
+                    var fencedContent = withoutFence[..closingFenceIndex].Trim();
+                    if (!string.IsNullOrEmpty(fencedContent))
+                    {
+                        return fencedContent;
+                    }
+                }
+            }
+        }
+
+        var firstBrace = trimmed.IndexOf('{');
+        var lastBrace = trimmed.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace >= firstBrace)
+        {
+            return trimmed.Substring(firstBrace, lastBrace - firstBrace + 1).Trim();
+        }
+
+        return trimmed;
     }
 
     private string ConstructDailySchedulerAiPrompt(
