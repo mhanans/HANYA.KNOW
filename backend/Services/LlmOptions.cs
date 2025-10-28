@@ -7,4 +7,5 @@ public class LlmOptions
     public string Model { get; set; } = string.Empty;
     public string OllamaHost { get; set; } = "http://localhost:11434";
     public int MaxRetries { get; set; } = 3;
+    public int TimeoutSeconds { get; set; } = 300;
 }

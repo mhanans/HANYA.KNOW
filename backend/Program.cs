@@ -1,3 +1,4 @@
+using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Security.Claims;
@@ -19,6 +20,7 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -117,7 +119,13 @@ builder.Services.AddSingleton<CostEstimationService>();
 builder.Services.AddSingleton<AssessmentBundleExportService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<KnowledgeBaseIngestionService>());
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
-builder.Services.AddHttpClient<LlmClient>();
+builder.Services.AddHttpClient<LlmClient>((sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<LlmOptions>>().Value;
+    client.Timeout = options.TimeoutSeconds > 0
+        ? TimeSpan.FromSeconds(options.TimeoutSeconds)
+        : Timeout.InfiniteTimeSpan;
+});
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));
 builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSection("Recommendation"));
 builder.Services.AddMemoryCache();
