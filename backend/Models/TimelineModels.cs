@@ -85,3 +85,14 @@ public class TimelineRecord
     public List<TimelineActivity> Activities { get; set; } = new();
     public List<TimelineResourceAllocationEntry> ResourceAllocation { get; set; } = new();
 }
+
+public class TimelineGenerationAttempt
+{
+    public int AssessmentId { get; set; }
+    public string ProjectName { get; set; } = string.Empty;
+    public string TemplateName { get; set; } = string.Empty;
+    public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
+    public string RawResponse { get; set; } = string.Empty;
+    public string? Error { get; set; }
+    public bool Success { get; set; }
+}

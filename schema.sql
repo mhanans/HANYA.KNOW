@@ -301,6 +301,20 @@ CREATE TABLE IF NOT EXISTS assessment_timelines (
     timeline_data JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS assessment_timeline_attempts (
+    id SERIAL PRIMARY KEY,
+    assessment_id INT NOT NULL REFERENCES project_assessments(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    raw_response TEXT,
+    error TEXT,
+    success BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_timeline_attempts_assessment_id
+    ON assessment_timeline_attempts(assessment_id);
+
 CREATE TABLE IF NOT EXISTS cost_estimations (
     assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
     project_name TEXT NOT NULL,
