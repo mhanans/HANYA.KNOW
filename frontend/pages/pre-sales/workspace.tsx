@@ -648,13 +648,85 @@ export default function AssessmentWorkspace() {
             void refreshJobStatus(jobId);
           }, statusChanged ? 500 : 2000);
         }
+        return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to resume the assessment job.';
         showError(message, 'Resume failed');
         setIsAnalyzing(false);
+        return false;
       }
     },
     [applyJobStatus, loadAssessmentFromJob, refreshJobStatus, showError, stopJobPolling]
+  );
+
+  const deleteJob = useCallback(
+    async (jobId: number) => {
+      stopJobPolling();
+      try {
+        const res = await apiFetch(`/api/assessment/jobs/${jobId}`, { method: 'DELETE' });
+        if (!res.ok && res.status !== 404) {
+          throw new Error(await res.text());
+        }
+
+        setActiveJob(current => (current && current.id === jobId ? null : current));
+        setAssessment(null);
+        setAnalysisLog([]);
+        setProgress(0);
+        setProjectTitle('');
+        setSelectedTemplate('');
+        setExpandedSections({});
+        setSelectedReferenceIds([]);
+        setSelectedDocumentSources([]);
+
+        showSuccess('Assessment job deleted', 'The failed assessment job has been removed.');
+        setIsAnalyzing(false);
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete the assessment job.';
+        showError(message, 'Delete failed');
+        return false;
+      }
+    },
+    [showError, showSuccess, stopJobPolling]
+  );
+
+  const promptJobRecovery = useCallback(
+    async (job: AssessmentJob) => {
+      const statusLabel = job.status.replace(/([a-z])([A-Z])/g, '$1 $2');
+      const details: string[] = [
+        `The assessment job ${job.projectName || 'Untitled Assessment'} is currently marked as ${statusLabel}.`,
+      ];
+      if (job.lastError?.trim()) {
+        details.push(job.lastError.trim());
+      }
+      details.push('Would you like to resume the process or delete this job?');
+
+      const result = await Swal.fire({
+        icon: 'warning',
+        title: 'Resume assessment job?',
+        text: details.join('\n\n'),
+        confirmButtonText: 'Resume',
+        showDenyButton: true,
+        denyButtonText: 'Delete job',
+        showCancelButton: true,
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusConfirm: true,
+      });
+
+      if (result.isDenied) {
+        const deleted = await deleteJob(job.id);
+        return deleted;
+      }
+
+      if (result.isConfirmed) {
+        const resumed = await resumeFailedJob(job.id);
+        return resumed;
+      }
+
+      return false;
+    },
+    [deleteJob, resumeFailedJob]
   );
 
   const loadJob = useCallback(
@@ -672,7 +744,8 @@ export default function AssessmentWorkspace() {
         if (job.status === 'Complete') {
           await loadAssessmentFromJob(jobId);
         } else if (isFailureJobStatus(job.status)) {
-          await resumeFailedJob(jobId);
+          await promptJobRecovery(job);
+          return;
         } else {
           setAssessment(null);
           jobPollTimer.current = setTimeout(() => {
@@ -689,8 +762,8 @@ export default function AssessmentWorkspace() {
     [
       applyJobStatus,
       loadAssessmentFromJob,
+      promptJobRecovery,
       refreshJobStatus,
-      resumeFailedJob,
       showError,
       stopJobPolling,
     ]
