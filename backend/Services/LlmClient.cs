@@ -39,6 +39,7 @@ public class LlmClient
         {
             "gemini" => await CallGeminiAsync(messageList, effective),
             "ollama" => await CallOllamaAsync(messageList, effective),
+            "minimax" => await CallMiniMaxAsync(messageList, effective),
             _ => await CallOpenAiAsync(messageList, effective)
         };
     }
@@ -61,9 +62,16 @@ public class LlmClient
             yield break;
         }
 
-        ValidateOpenAiOptions(effective);
+        var apiUrl = provider == "minimax"
+            ? "https://api.minimax.io/v1"
+            : "https://api.openai.com/v1";
+        var validator = provider == "minimax"
+            ? (Action<LlmOptions>)ValidateMiniMaxOptions
+            : ValidateOpenAiOptions;
 
-        var req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
+        validator(effective);
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", effective.ApiKey);
         req.Content = JsonContent.Create(new
         {
@@ -133,6 +141,14 @@ public class LlmClient
             throw new InvalidOperationException("OpenAI model is not configured.");
     }
 
+    private static void ValidateMiniMaxOptions(LlmOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+            throw new InvalidOperationException("MiniMax API key is not configured.");
+        if (string.IsNullOrWhiteSpace(options.Model))
+            throw new InvalidOperationException("MiniMax model is not configured.");
+    }
+
     private static void ValidateGeminiOptions(LlmOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.ApiKey))
@@ -154,11 +170,21 @@ public class LlmClient
         }
     }
 
-    private async Task<string> CallOpenAiAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
-    {
-        ValidateOpenAiOptions(options);
+    private Task<string> CallOpenAiAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
+        => CallOpenAiCompatibleAsync("https://api.openai.com/v1", messages, options, ValidateOpenAiOptions);
 
-        var req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
+    private Task<string> CallMiniMaxAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
+        => CallOpenAiCompatibleAsync("https://api.minimax.io/v1", messages, options, ValidateMiniMaxOptions);
+
+    private async Task<string> CallOpenAiCompatibleAsync(
+        string baseUrl,
+        IEnumerable<ChatMessage> messages,
+        LlmOptions options,
+        Action<LlmOptions> validator)
+    {
+        validator(options);
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
         req.Content = JsonContent.Create(new
         {

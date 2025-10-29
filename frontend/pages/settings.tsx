@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
-type LlmProvider = 'openai' | 'gemini' | 'ollama';
+type LlmProvider = 'openai' | 'gemini' | 'ollama' | 'minimax';
 
 interface Settings {
   applicationName?: string;
@@ -77,6 +77,7 @@ export default function Settings() {
         >
           <option value="openai">OpenAI (Closed Source)</option>
           <option value="gemini">Gemini (Closed Source)</option>
+          <option value="minimax">MiniMax (Closed Source)</option>
           <option value="ollama">Ollama (Open Source)</option>
         </select>
         <input

@@ -39,7 +39,7 @@ public class SettingsController : ControllerBase
             : settings.LogoUrl.Trim();
 
         var provider = settings.LlmProvider?.Trim().ToLowerInvariant();
-        if (!string.IsNullOrEmpty(provider) && provider is not ("openai" or "gemini" or "ollama"))
+        if (!string.IsNullOrEmpty(provider) && provider is not ("openai" or "gemini" or "ollama" or "minimax"))
             return BadRequest("Unsupported LLM provider.");
         settings.LlmProvider = string.IsNullOrEmpty(provider) ? null : provider;
 
@@ -69,7 +69,7 @@ public class SettingsController : ControllerBase
 
             settings.OllamaHost = hostUri.GetLeftPart(UriPartial.Authority);
         }
-        else if (settings.LlmProvider is "openai" or "gemini")
+        else if (settings.LlmProvider is "openai" or "gemini" or "minimax")
         {
             if (string.IsNullOrWhiteSpace(settings.LlmModel))
                 return BadRequest("Model is required for the selected provider.");
