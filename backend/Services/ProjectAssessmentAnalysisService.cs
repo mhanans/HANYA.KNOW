@@ -15,12 +15,15 @@ using backend.Services.Estimation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace backend.Services;
 
 public class ProjectAssessmentAnalysisService
 {
     private static readonly Uri GeminiBaseUri = new("https://generativelanguage.googleapis.com/");
+    private static readonly Uri MiniMaxBaseUri = new("https://api.minimax.io/v1/");
+    private const string MiniMaxSystemPrompt = "You are a senior business analyst that responds strictly with valid JSON and follows the provided instructions.";
     private static readonly string[] AllowedCategories =
     {
         "New UI",
@@ -37,8 +40,11 @@ public class ProjectAssessmentAnalysisService
     private readonly AssessmentJobStore _jobStore;
     private readonly EffectiveEstimationPolicy _estimationPolicy;
     private readonly HttpClient _httpClient;
-    private readonly string _apiKey;
-    private readonly string _model;
+    private readonly SettingsStore _settingsStore;
+    private readonly LlmOptions _defaultLlmOptions;
+    private readonly string? _configuredApiKey;
+    private readonly string? _configuredModel;
+    private readonly string _configuredProvider;
     private readonly JsonSerializerOptions _deserializationOptions;
     private readonly JsonSerializerOptions _serializationOptions;
     private readonly string _storageRoot;
@@ -47,27 +53,54 @@ public class ProjectAssessmentAnalysisService
         IConfiguration configuration,
         ILogger<ProjectAssessmentAnalysisService> logger,
         AssessmentJobStore jobStore,
-        EffectiveEstimationPolicy estimationPolicy)
+        EffectiveEstimationPolicy estimationPolicy,
+        SettingsStore settingsStore,
+        IOptions<LlmOptions> llmOptions)
     {
         _logger = logger;
         _jobStore = jobStore;
         _estimationPolicy = estimationPolicy;
+        _settingsStore = settingsStore;
+        _defaultLlmOptions = llmOptions.Value;
 
-        _apiKey = configuration["Gemini:ApiKey"]
-                  ?? configuration["GoogleAI:ApiKey"]
-                  ?? configuration["Google:ApiKey"]
-                  ?? configuration["Llm:ApiKey"]
-                  ?? configuration["ApiKey"]
-                  ?? throw new InvalidOperationException("Gemini API key is not configured.");
+        var configuredProvider = configuration["Gemini:Provider"]
+                               ?? configuration["GoogleAI:Provider"]
+                               ?? configuration["Google:Provider"]
+                               ?? configuration["Llm:Provider"]
+                               ?? configuration["Provider"]
+                               ?? _defaultLlmOptions.Provider;
 
-        _model = configuration["Gemini:Model"]
-                 ?? configuration["GoogleAI:Model"]
-                 ?? configuration["Google:Model"]
-                 ?? configuration["Llm:Model"]
-                 ?? configuration["Model"]
-                 ?? "gemini-pro-vision";
+        _configuredApiKey = configuration["Gemini:ApiKey"]
+                            ?? configuration["GoogleAI:ApiKey"]
+                            ?? configuration["Google:ApiKey"]
+                            ?? configuration["Llm:ApiKey"]
+                            ?? configuration["ApiKey"];
 
-        _logger.LogInformation("Using Gemini model {Model} for project assessment analysis", _model);
+        var configuredModel = configuration["Gemini:Model"]
+                              ?? configuration["GoogleAI:Model"]
+                              ?? configuration["Google:Model"]
+                              ?? configuration["Llm:Model"]
+                              ?? configuration["Model"]
+                              ?? _defaultLlmOptions.Model
+                              ?? "gemini-pro-vision";
+
+        if (string.IsNullOrWhiteSpace(configuredModel))
+        {
+            configuredModel = "gemini-pro-vision";
+        }
+
+        _configuredModel = configuredModel;
+        _configuredProvider = string.IsNullOrWhiteSpace(configuredProvider)
+            ? "gemini"
+            : configuredProvider.Trim();
+
+        if (!string.IsNullOrWhiteSpace(_configuredModel))
+        {
+            _logger.LogInformation(
+                "Default LLM configuration for project assessment analysis set to provider {Provider} model {Model}",
+                _configuredProvider,
+                _configuredModel);
+        }
 
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -362,13 +395,26 @@ public class ProjectAssessmentAnalysisService
             await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
 
             var template = JsonSerializer.Deserialize<ProjectTemplate>(job.OriginalTemplateJson, _deserializationOptions) ?? new ProjectTemplate();
-            var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
-            var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, job.AnalysisMode, documentPart);
+            var prompt = BuildItemGenerationPrompt(template, job.ProjectName, referenceDocuments, job.AnalysisMode);
 
             _logger.LogInformation("Starting item generation step for job {JobId}", jobId);
-            var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
-            var rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+            var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+            string rawResponse;
+
+            if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+            {
+                var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
+                var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
+                rawResponse = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
+                var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, job.AnalysisMode, documentPart);
+                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
+                rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+            }
             job.RawGenerationResponse = rawResponse;
 
             if (TryDeserializeGeneratedItems(rawResponse, job, out var serializedItems))
@@ -388,11 +434,11 @@ public class ProjectAssessmentAnalysisService
         {
             throw;
         }
-        catch (GeminiApiException geminiEx)
+        catch (LlmApiException llmEx)
         {
-            _logger.LogError(geminiEx, "Unhandled exception during generation step for job {JobId}", jobId);
+            _logger.LogError(llmEx, "Unhandled exception during generation step for job {JobId}", jobId);
             job.Status = JobStatus.FailedGeneration;
-            job.LastError = geminiEx.UserMessage;
+            job.LastError = llmEx.UserMessage;
         }
         catch (Exception ex)
         {
@@ -432,12 +478,25 @@ public class ProjectAssessmentAnalysisService
             var augmentedTemplate = BuildAugmentedTemplate(template, generatedItems);
             var references = DeserializeReferences(job.ReferenceAssessmentsJson, _deserializationOptions);
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
-            var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
-            var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, documentPart);
+            var prompt = BuildEffortEstimationPrompt(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode);
 
             _logger.LogInformation("Starting effort estimation step for job {JobId}", jobId);
-            var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
-            var rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+            var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+            string rawResponse;
+
+            if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+            {
+                var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
+                var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
+                rawResponse = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
+                var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, documentPart);
+                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
+                rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+            }
             job.RawEstimationResponse = rawResponse;
 
             if (TryDeserializeAnalysis(rawResponse, augmentedTemplate, references, out var serializedResult))
@@ -457,11 +516,11 @@ public class ProjectAssessmentAnalysisService
         {
             throw;
         }
-        catch (GeminiApiException geminiEx)
+        catch (LlmApiException llmEx)
         {
-            _logger.LogError(geminiEx, "Unhandled exception during estimation step for job {JobId}", jobId);
+            _logger.LogError(llmEx, "Unhandled exception during estimation step for job {JobId}", jobId);
             job.Status = JobStatus.FailedEstimation;
-            job.LastError = geminiEx.UserMessage;
+            job.LastError = llmEx.UserMessage;
         }
         catch (Exception ex)
         {
@@ -1171,6 +1230,39 @@ public class ProjectAssessmentAnalysisService
         return (filePath, mimeType);
     }
 
+    private async Task<string> LoadDocumentForPromptAsync(string path, string mimeType, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return string.Empty;
+        }
+
+        await using var stream = File.OpenRead(path);
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, cancellationToken).ConfigureAwait(false);
+        var bytes = memory.ToArray();
+
+        if (bytes.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var decoded = TryDecodeUtf8(bytes);
+        if (!string.IsNullOrEmpty(decoded))
+        {
+            return decoded;
+        }
+
+        var fileName = Path.GetFileName(path);
+        var effectiveMime = string.IsNullOrWhiteSpace(mimeType) ? "application/octet-stream" : mimeType;
+        _logger.LogWarning(
+            "Unable to inline scope document {FileName} ({MimeType}) as text for MiniMax request. Using placeholder metadata.",
+            fileName,
+            effectiveMime);
+
+        return $"[Scope document: {fileName} ({effectiveMime}), {bytes.Length} bytes. Binary content could not be inlined. Focus on instructions and context.]";
+    }
+
     private static async Task<GeminiPart> CreateDocumentPartFromPath(string path, string mimeType, CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(path);
@@ -1185,6 +1277,40 @@ public class ProjectAssessmentAnalysisService
                 Data = data
             }
         };
+    }
+
+    private static string? TryDecodeUtf8(byte[] bytes)
+    {
+        if (bytes == null || bytes.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var text = Encoding.UTF8.GetString(bytes);
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        if (text.IndexOf('\uFFFD') >= 0)
+        {
+            return null;
+        }
+
+        var controlCount = 0;
+        foreach (var ch in text)
+        {
+            if (char.IsControl(ch) && !char.IsWhiteSpace(ch))
+            {
+                controlCount++;
+                if (controlCount > Math.Max(4, text.Length / 40))
+                {
+                    return null;
+                }
+            }
+        }
+
+        return text;
     }
 
     private GenerateContentPayload BuildItemGenerationRequest(
@@ -1397,6 +1523,138 @@ public class ProjectAssessmentAnalysisService
         return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{estimationGuidance}";
     }
 
+    private static string BuildMiniMaxUserPrompt(string instructions, string? additionalContent, string label = "Scope Document")
+    {
+        var trimmedInstructions = string.IsNullOrWhiteSpace(instructions) ? string.Empty : instructions.Trim();
+        if (string.IsNullOrWhiteSpace(additionalContent))
+        {
+            return trimmedInstructions;
+        }
+
+        var builder = new StringBuilder();
+        if (!string.IsNullOrEmpty(trimmedInstructions))
+        {
+            builder.AppendLine(trimmedInstructions);
+            builder.AppendLine();
+        }
+
+        var effectiveLabel = string.IsNullOrWhiteSpace(label) ? "Additional Context" : label.Trim();
+        builder.AppendLine($"{effectiveLabel}:");
+        builder.AppendLine(additionalContent.Trim());
+        return builder.ToString();
+    }
+
+    private async Task<LlmConfiguration> ResolveLlmConfigurationAsync()
+    {
+        var settings = await _settingsStore.GetAsync().ConfigureAwait(false);
+
+        var provider = string.IsNullOrWhiteSpace(settings.LlmProvider)
+            ? null
+            : settings.LlmProvider;
+        var apiKey = string.IsNullOrWhiteSpace(settings.LlmApiKey)
+            ? null
+            : settings.LlmApiKey;
+        var model = string.IsNullOrWhiteSpace(settings.LlmModel)
+            ? null
+            : settings.LlmModel;
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            provider = string.IsNullOrWhiteSpace(_defaultLlmOptions.Provider)
+                ? _configuredProvider
+                : _defaultLlmOptions.Provider;
+        }
+
+        provider = string.IsNullOrWhiteSpace(provider)
+            ? "gemini"
+            : provider.Trim();
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            apiKey = string.IsNullOrWhiteSpace(_defaultLlmOptions.ApiKey)
+                ? _configuredApiKey
+                : _defaultLlmOptions.ApiKey;
+        }
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            model = string.IsNullOrWhiteSpace(_defaultLlmOptions.Model)
+                ? _configuredModel
+                : _defaultLlmOptions.Model;
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("LLM API key is not configured. Please update the LLM settings.");
+        }
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            model = string.Equals(provider, "minimax", StringComparison.OrdinalIgnoreCase)
+                ? "MiniMax-M2"
+                : "gemini-pro-vision";
+        }
+
+        return new LlmConfiguration(provider, apiKey!, model!);
+    }
+
+    private async Task<string> SendMiniMaxRequestAsync(string userPrompt, LlmConfiguration config, CancellationToken cancellationToken)
+    {
+        var path = "chat/completions";
+        var requestUri = new Uri(MiniMaxBaseUri, path);
+        using var request = new HttpRequestMessage(HttpMethod.Post, requestUri);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+        var sanitizedPrompt = string.IsNullOrWhiteSpace(userPrompt) ? string.Empty : userPrompt.Trim();
+
+        var payload = new MiniMaxChatCompletionRequest
+        {
+            Model = config.Model,
+            Messages = new List<MiniMaxChatMessage>
+            {
+                new() { Role = "system", Content = MiniMaxSystemPrompt },
+                new() { Role = "user", Content = sanitizedPrompt }
+            },
+            Temperature = 0.2,
+            MaxTokens = 4096,
+            ResponseFormat = new MiniMaxResponseFormat { Type = "json_object" }
+        };
+
+        var payloadJson = JsonSerializer.Serialize(payload, _serializationOptions);
+        request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+
+        _logger.LogInformation("[Presales AI] Request to {Path}: {Payload}", $"minimax/{path}", payloadJson);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation("[Presales AI] Response from {Path}: {Content}", $"minimax/{path}", content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorMessage = TryExtractErrorMessage(content) ?? response.ReasonPhrase ?? "MiniMax API request failed.";
+            throw new LlmApiException("MiniMax", path, response.StatusCode, errorMessage, content);
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            _logger.LogWarning("MiniMax API returned an empty response for path {Path}", path);
+            return string.Empty;
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<MiniMaxChatCompletionResponse>(content, _deserializationOptions);
+            var text = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+            return text?.Trim() ?? string.Empty;
+        }
+        catch (JsonException jsonEx)
+        {
+            _logger.LogError(jsonEx, "Failed to deserialize MiniMax response for path {Path}. Raw content: {Content}", path, content);
+            throw new InvalidOperationException($"MiniMax API returned an unexpected payload for '{path}': {content}", jsonEx);
+        }
+    }
+
     private async Task<string> RepairJsonAsync(string invalidJson, CancellationToken cancellationToken)
     {
         var prompt = "Correct any syntax errors in the following text to make it a perfectly valid JSON object. Do not alter the data or content within the JSON structure. Respond ONLY with the corrected JSON object.";
@@ -1419,14 +1677,23 @@ public class ProjectAssessmentAnalysisService
             }
         };
 
-        var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{_model}:generateContent", request, cancellationToken).ConfigureAwait(false);
-        var raw = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+        var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+
+        if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+        {
+            var userPrompt = BuildMiniMaxUserPrompt(prompt, invalidJson, "Invalid JSON");
+            var response = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            return CleanResponse(response);
+        }
+
+        var geminiResponse = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
+        var raw = ExtractTextResponse(geminiResponse)?.Trim() ?? string.Empty;
         return CleanResponse(raw);
     }
 
-    private async Task<T?> SendGeminiRequestAsync<T>(string path, object body, CancellationToken cancellationToken)
+    private async Task<T?> SendGeminiRequestAsync<T>(string path, object body, string apiKey, CancellationToken cancellationToken)
     {
-        var fullUri = new Uri(GeminiBaseUri, $"{path}?key={_apiKey}");
+        var fullUri = new Uri(GeminiBaseUri, $"{path}?key={apiKey}");
         using var request = new HttpRequestMessage(HttpMethod.Post, fullUri);
         var payload = JsonSerializer.Serialize(body, _serializationOptions);
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
@@ -1444,7 +1711,7 @@ public class ProjectAssessmentAnalysisService
         {
             var errorMessage = TryExtractErrorMessage(content) ?? response.ReasonPhrase ?? "Gemini API request failed.";
             _logger.LogError("Gemini API request failed. Path: {Path}, Status: {StatusCode}, Body: {Content}", path, response.StatusCode, content);
-            throw new GeminiApiException(path, response.StatusCode, errorMessage, content);
+            throw new LlmApiException("Gemini", path, response.StatusCode, errorMessage, content);
         }
 
         if (string.IsNullOrWhiteSpace(content))
@@ -1822,6 +2089,65 @@ public class ProjectAssessmentAnalysisService
         public string ItemName { get; set; } = string.Empty;
         public string ItemDetail { get; set; } = string.Empty;
         public string Category { get; set; } = string.Empty;
+    }
+
+    private sealed record LlmConfiguration(string Provider, string ApiKey, string Model);
+
+    private sealed class MiniMaxChatCompletionRequest
+    {
+        [JsonPropertyName("model")]
+        public string Model { get; set; } = string.Empty;
+
+        [JsonPropertyName("messages")]
+        public List<MiniMaxChatMessage> Messages { get; set; } = new();
+
+        [JsonPropertyName("temperature")]
+        public double Temperature { get; set; }
+            = 0.2;
+
+        [JsonPropertyName("max_tokens")]
+        public int MaxTokens { get; set; }
+            = 4096;
+
+        [JsonPropertyName("response_format")]
+        public MiniMaxResponseFormat? ResponseFormat { get; set; }
+            = new();
+    }
+
+    private sealed class MiniMaxChatMessage
+    {
+        [JsonPropertyName("role")]
+        public string Role { get; set; } = string.Empty;
+
+        [JsonPropertyName("content")]
+        public string Content { get; set; } = string.Empty;
+    }
+
+    private sealed class MiniMaxResponseFormat
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = string.Empty;
+    }
+
+    private sealed class MiniMaxChatCompletionResponse
+    {
+        [JsonPropertyName("choices")]
+        public List<MiniMaxChoice>? Choices { get; set; }
+            = new();
+    }
+
+    private sealed class MiniMaxChoice
+    {
+        [JsonPropertyName("message")]
+        public MiniMaxMessage? Message { get; set; }
+            = new();
+    }
+
+    private sealed class MiniMaxMessage
+    {
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+            = string.Empty;
     }
 
     private sealed class GenerateContentPayload
