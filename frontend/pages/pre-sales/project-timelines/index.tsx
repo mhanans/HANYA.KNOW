@@ -16,6 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import { apiFetch } from '../../../lib/api';
+import Swal from 'sweetalert2';
 
 interface TimelineAssessmentSummary {
   assessmentId: number;
@@ -86,7 +87,23 @@ export default function ProjectTimelinesPage() {
         await loadData();
         router.push(`/pre-sales/project-timelines/${assessmentId}`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to generate timeline');
+        const message = err instanceof Error ? err.message : 'Failed to generate timeline';
+        setError(message);
+        const result = await Swal.fire({
+          icon: 'warning',
+          title: 'Resume timeline generation?',
+          text: message,
+          confirmButtonText: 'Resume',
+          cancelButtonText: 'Dismiss',
+          showCancelButton: true,
+          reverseButtons: true,
+          focusCancel: true,
+        });
+        if (result.isConfirmed) {
+          setTimeout(() => {
+            void handleGenerate(assessmentId);
+          }, 0);
+        }
       } finally {
         setGeneratingId(null);
       }
