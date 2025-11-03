@@ -136,6 +136,17 @@ interface AssessmentJob {
   lastModifiedAt?: string;
 }
 
+interface AssessmentJobSummary {
+  id: number;
+  projectName: string;
+  templateId: number;
+  templateName?: string;
+  status: AssessmentJobStatus;
+  step?: number;
+  createdAt?: string;
+  lastModifiedAt?: string;
+}
+
 type AnalysisModeOption = 'interpretive' | 'strict';
 
 const statusOptions: AssessmentStatus[] = ['Draft', 'Completed'];
@@ -170,6 +181,7 @@ const failureJobStatuses: AssessmentJobStatus[] = ['FailedGeneration', 'FailedEs
 
 const isTerminalJobStatus = (status: AssessmentJobStatus) => terminalJobStatuses.includes(status);
 const isFailureJobStatus = (status: AssessmentJobStatus) => failureJobStatuses.includes(status);
+const isOutstandingJobStatus = (status: AssessmentJobStatus) => status !== 'Complete';
 
 const jobStatusStepNumber: Record<AssessmentJobStatus, number> = {
   Pending: 2,
@@ -428,6 +440,7 @@ export default function AssessmentWorkspace() {
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
+  const outstandingJobCheckRef = useRef(false);
 
   const showError = useCallback((message: string, title = 'Something went wrong') => {
     if (!message) return;
@@ -863,6 +876,8 @@ export default function AssessmentWorkspace() {
   }, [selectedTemplate, showError]);
 
   useEffect(() => {
+    if (!router.isReady) return;
+
     const jobParam = router.query.jobId;
     if (jobParam) {
       const jobId = Array.isArray(jobParam) ? Number(jobParam[0]) : Number(jobParam);
@@ -881,8 +896,31 @@ export default function AssessmentWorkspace() {
         router.replace('/pre-sales/workspace', undefined, { shallow: true });
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.query.jobId, router.query.assessmentId]);
+  }, [loadAssessment, loadJob, router]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (router.query.jobId || router.query.assessmentId) return;
+    if (outstandingJobCheckRef.current) return;
+    outstandingJobCheckRef.current = true;
+
+    const checkOutstandingJob = async () => {
+      try {
+        const res = await apiFetch('/api/assessment/jobs');
+        if (!res.ok) return;
+        const data: AssessmentJobSummary[] = await res.json();
+        if (!Array.isArray(data) || data.length === 0) return;
+        const outstanding = data.find(job => job?.status && isOutstandingJobStatus(job.status));
+        if (!outstanding) return;
+        await loadJob(outstanding.id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to check for in-progress assessments.';
+        showError(message, 'Unable to resume assessment');
+      }
+    };
+
+    void checkOutstandingJob();
+  }, [loadJob, router, showError]);
 
   useEffect(() => {
     if (!assessment) return;
