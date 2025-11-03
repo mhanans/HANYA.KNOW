@@ -113,6 +113,7 @@ builder.Services.AddSingleton<PresalesConfigurationStore>();
 builder.Services.AddSingleton(sp => sp.GetRequiredService<PresalesConfigurationStore>().GetEffectiveEstimationPolicy());
 builder.Services.AddSingleton<ProjectAssessmentAnalysisService>();
 builder.Services.AddSingleton<TimelineStore>();
+builder.Services.AddSingleton<TimelineEstimationReferenceStore>();
 builder.Services.AddSingleton<TimelineGenerationService>();
 builder.Services.AddSingleton<CostEstimationConfigurationStore>();
 builder.Services.AddSingleton<CostEstimationStore>();

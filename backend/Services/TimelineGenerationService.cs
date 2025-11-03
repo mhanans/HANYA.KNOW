@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -14,6 +15,7 @@ public class TimelineGenerationService
     private readonly ProjectAssessmentStore _assessments;
     private readonly PresalesConfigurationStore _configurationStore;
     private readonly TimelineStore _timelineStore;
+    private readonly TimelineEstimationReferenceStore _timelineReferenceStore;
     private readonly LlmClient _llmClient;
     private readonly ILogger<TimelineGenerationService> _logger;
 
@@ -21,12 +23,14 @@ public class TimelineGenerationService
         ProjectAssessmentStore assessments,
         PresalesConfigurationStore configurationStore,
         TimelineStore timelineStore,
+        TimelineEstimationReferenceStore timelineReferenceStore,
         LlmClient llmClient,
         ILogger<TimelineGenerationService> logger)
     {
         _assessments = assessments;
         _configurationStore = configurationStore;
         _timelineStore = timelineStore;
+        _timelineReferenceStore = timelineReferenceStore;
         _llmClient = llmClient;
         _logger = logger;
     }
@@ -51,7 +55,8 @@ public class TimelineGenerationService
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline.");
         }
 
-        var prompt = ConstructDailySchedulerAiPrompt(aggregatedTasks, config);
+        var referenceData = await _timelineReferenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
+        var prompt = ConstructDailySchedulerAiPrompt(aggregatedTasks, config, referenceData);
         _logger.LogInformation(
             "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
             assessmentId,
@@ -397,21 +402,75 @@ public class TimelineGenerationService
 
     private string ConstructDailySchedulerAiPrompt(
         Dictionary<string, (string DetailName, double ManDays)> tasks,
-        PresalesConfiguration config)
+        PresalesConfiguration config,
+        IReadOnlyList<TimelineEstimationReference> references)
     {
-        var taskDetailsForPrompt = tasks.Select(kvp =>
+        var taskMetadata = tasks.Select(kvp =>
         {
             var taskKey = kvp.Key;
             var manDays = kvp.Value.ManDays;
             var roles = config.TaskRoles
                 .Where(tr => tr.TaskKey.Equals(taskKey, StringComparison.OrdinalIgnoreCase))
                 .Select(tr => tr.RoleName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var actorString = roles.Any() ? string.Join(", ", roles) : "Unassigned";
             var activityGroup = config.TaskActivities
                 .FirstOrDefault(ta => ta.TaskKey.Equals(taskKey, StringComparison.OrdinalIgnoreCase))?.ActivityName ?? "Unmapped";
-            return $"  - Task: \"{taskKey}\", ManDays: {manDays:F2}, Actor(s): \"{actorString}\", Group: \"{activityGroup}\"";
-        });
+            return new
+            {
+                TaskKey = taskKey,
+                ManDays = manDays,
+                Roles = roles,
+                ActorString = actorString,
+                ActivityGroup = activityGroup
+            };
+        })
+        .OrderBy(t => t.ActivityGroup, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(t => t.TaskKey, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+        var taskDetailsForPrompt = taskMetadata.Select(t =>
+            $"  - Task: \"{t.TaskKey}\", ManDays: {t.ManDays.ToString("F2", CultureInfo.InvariantCulture)}, Actor(s): \"{t.ActorString}\", Group: \"{t.ActivityGroup}\"");
+
+        var phaseSummaries = taskMetadata
+            .GroupBy(t => t.ActivityGroup, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var roles = group
+                    .SelectMany(x => x.Roles)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var resourceCount = roles.Count > 0 ? roles.Count : 1;
+                var roleSummary = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
+                return new
+                {
+                    ActivityGroup = group.First().ActivityGroup,
+                    TotalManHours = group.Sum(x => x.ManDays * 8d),
+                    ResourceCount = resourceCount,
+                    RoleSummary = roleSummary
+                };
+            })
+            .OrderBy(s => s.ActivityGroup, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var phaseSummaryText = phaseSummaries.Count > 0
+            ? string.Join("\n", phaseSummaries.Select(summary =>
+                $"    - Group: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString("F0", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
+            : "    - (No grouped task information available.)";
+
+        var referenceTableEntries = (references ?? Array.Empty<TimelineEstimationReference>())
+            .OrderBy(r => r.PhaseName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(r => r.InputManHours)
+            .Select(r =>
+                $"    - {r.PhaseName}, {r.InputManHours} hours, {r.InputResourceCount} resources => {r.OutputDurationDays} days")
+            .ToList();
+
+        var referenceTableText = referenceTableEntries.Count > 0
+            ? string.Join("\n", referenceTableEntries)
+            : "    - (No reference data configured. Apply conservative sequencing and buffering when estimating durations.)";
 
         var allRoles = config.Roles.Select(r => $"\"{r.RoleName}\"").ToList();
 
@@ -419,18 +478,25 @@ public class TimelineGenerationService
         You are an expert Project Management AI. Your task is to generate a detailed, day-based project schedule in a specific JSON format based on a list of tasks.
 
         **CRITICAL INSTRUCTIONS:**
-        1.  **UNIT IS DAYS:** The entire schedule is based on a sequence of working days (Day 1, Day 2, ...).
-        2.  **SCHEDULING RULES:**
-            - Project phases ('Group') are strictly sequential. 'Analysis & Design' must finish before 'Application Development' begins.
-            - Tasks ('Task') within the same phase may overlap when it shortens the schedule.
+        1.  **PRIORITIZE THE REFERENCE TABLE:** You MUST use the 'Reference Table for Duration Estimation' below as your primary guide for calculating the calendar duration of each project phase ('Group'). Match the closest entry by total man-hours and resource count and honour its duration even if tasks could theoretically run in parallel.
+        2.  **UNIT IS DAYS:** The entire schedule is based on a sequence of working days (Day 1, Day 2, ...).
+        3.  **SCHEDULING RULES:**
+            - Project phases ('Group') are strictly sequential unless the reference table indicates otherwise. Complete earlier phases before starting later ones.
+            - Tasks ('Task') within the same phase may overlap when it shortens the schedule, but the overall phase length should remain aligned with the reference duration.
             - If a task requires more man-days than its duration, assume multiple team members with the same role can work in parallel. Choose a duration that reflects the headcount you assign (e.g., 6 man-days with 3 available Devs can be finished in 2 days).
-        3.  **DURATION:** For each task, choose `durationDays = max(1, CEILING(ManDays / headcountAssignedForThatTask))`. If only one person is allocated, use `CEILING(ManDays)`.
-        4.  **RESOURCE ALLOCATION (HEADCOUNT PER DAY):**
+        4.  **DURATION LOGIC:** Within each phase, set each task's `durationDays` so that the phase's total span respects the chosen reference duration. Use `max(1, CEILING(ManDays / headcountAssignedForThatTask))` to size individual tasks, and stretch or overlap tasks as needed to fit the phase duration.
+        5.  **RESOURCE ALLOCATION (HEADCOUNT PER DAY):**
             - The `dailyEffort` array for each role must contain one number per project day (`totalDurationDays`).
             - Each entry represents the number of people for that role on that day (values like 0, 0.5, 1, 2, ... are valid).
             - When multiple actors share a task, divide the task's daily man-days evenly among them.
             - **SPECIAL RULE:** 'PM' and 'Architect' roles must appear with at least 0.5 effort from Day 1 until the project ends.
-        5.  **JSON OUTPUT:** You MUST return ONLY a single, minified JSON object with NO commentary or explanations. The structure must be EXACTLY as follows.
+        6.  **JSON OUTPUT:** You MUST return ONLY a single, minified JSON object with NO commentary or explanations. The structure must be EXACTLY as follows.
+
+        **Reference Table for Duration Estimation:**
+{referenceTableText}
+
+        **PHASE SUMMARIES (match to the reference table):**
+{phaseSummaryText}
 
         **TASK LIST:**
         {string.Join("\n", taskDetailsForPrompt)}
