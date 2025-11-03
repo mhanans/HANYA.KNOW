@@ -31,6 +31,7 @@ public class UiStore
         "role-ui",
         "tickets",
         "pic-summary",
+        "timeline-estimation-references",
         "settings"
     };
 

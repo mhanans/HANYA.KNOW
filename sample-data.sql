@@ -26,6 +26,7 @@ INSERT INTO ui_pages (key) VALUES
   ('role-ui'),
   ('tickets'),
   ('pic-summary'),
+  ('timeline-estimation-references'),
   ('settings')
 ON CONFLICT DO NOTHING;
 
@@ -44,6 +45,12 @@ ON CONFLICT DO NOTHING;
 INSERT INTO role_ui (role_id, ui_id)
 SELECT r.id, u.id FROM roles r CROSS JOIN ui_pages u
 WHERE r.name = 'admin'
+ON CONFLICT DO NOTHING;
+
+-- Timeline estimation reference samples
+INSERT INTO timeline_estimation_references (phase_name, input_man_hours, input_resource_count, output_duration_days) VALUES
+  ('Application Development', 120, 2, 25),
+  ('Testing & Bug Fixing', 80, 2, 15)
 ON CONFLICT DO NOTHING;
 
 -- Ticket categories
