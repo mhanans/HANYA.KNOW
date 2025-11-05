@@ -30,6 +30,7 @@ public class AssessmentJobStore
                                     project_name,
                                     template_id,
                                     analysis_mode,
+                                    output_language,
                                     status,
                                     step,
                                     scope_document_path,
@@ -48,6 +49,7 @@ public class AssessmentJobStore
                                     @projectName,
                                     @templateId,
                                     @analysisMode,
+                                    @outputLanguage,
                                     @status,
                                     @step,
                                     @scopeDocumentPath,
@@ -70,6 +72,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("projectName", job.ProjectName ?? string.Empty);
         cmd.Parameters.AddWithValue("templateId", job.TemplateId);
         cmd.Parameters.AddWithValue("analysisMode", job.AnalysisMode.ToString());
+        cmd.Parameters.AddWithValue("outputLanguage", job.OutputLanguage.ToString());
         cmd.Parameters.AddWithValue("status", job.Status.ToString());
         cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
@@ -104,6 +107,7 @@ public class AssessmentJobStore
                                      aj.project_name,
                                      aj.template_id,
                                      aj.analysis_mode,
+                                     aj.output_language,
                                      aj.status,
                                      aj.step,
                                      aj.scope_document_path,
@@ -145,6 +149,7 @@ public class AssessmentJobStore
                               SET project_name=@projectName,
                                   template_id=@templateId,
                                   analysis_mode=@analysisMode,
+                                  output_language=@outputLanguage,
                                   status=@status,
                                   step=@step,
                                   scope_document_path=@scopeDocumentPath,
@@ -167,6 +172,7 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("projectName", job.ProjectName ?? string.Empty);
         cmd.Parameters.AddWithValue("templateId", job.TemplateId);
         cmd.Parameters.AddWithValue("analysisMode", job.AnalysisMode.ToString());
+        cmd.Parameters.AddWithValue("outputLanguage", job.OutputLanguage.ToString());
         cmd.Parameters.AddWithValue("status", job.Status.ToString());
         cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
@@ -199,6 +205,7 @@ public class AssessmentJobStore
                                      aj.project_name,
                                      aj.template_id,
                                      COALESCE(pt.template_name, '') AS template_name,
+                                     aj.output_language,
                                      aj.status,
                                      aj.step,
                                      aj.created_at,
@@ -222,10 +229,11 @@ public class AssessmentJobStore
                 ProjectName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
                 TemplateId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
                 TemplateName = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                Status = ParseStatus(reader.IsDBNull(4) ? null : reader.GetString(4)),
-                Step = reader.IsDBNull(5) ? 1 : Math.Max(1, reader.GetInt32(5)),
-                CreatedAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6),
-                LastModifiedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7)
+                OutputLanguage = ParseLanguage(reader.IsDBNull(4) ? null : reader.GetString(4)),
+                Status = ParseStatus(reader.IsDBNull(5) ? null : reader.GetString(5)),
+                Step = reader.IsDBNull(6) ? 1 : Math.Max(1, reader.GetInt32(6)),
+                CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7),
+                LastModifiedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8)
             });
         }
 
@@ -248,7 +256,8 @@ public class AssessmentJobStore
     private static AssessmentJob Map(NpgsqlDataReader reader)
     {
         var analysisMode = ParseAnalysisMode(reader.IsDBNull(3) ? null : reader.GetString(3));
-        var status = ParseStatus(reader.IsDBNull(4) ? null : reader.GetString(4));
+        var outputLanguage = ParseLanguage(reader.IsDBNull(4) ? null : reader.GetString(4));
+        var status = ParseStatus(reader.IsDBNull(5) ? null : reader.GetString(5));
 
         return new AssessmentJob
         {
@@ -256,21 +265,22 @@ public class AssessmentJobStore
             ProjectName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
             TemplateId = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
             AnalysisMode = analysisMode,
+            OutputLanguage = outputLanguage,
             Status = status,
-            Step = reader.IsDBNull(5) ? 1 : Math.Max(1, reader.GetInt32(5)),
-            ScopeDocumentPath = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
-            ScopeDocumentMimeType = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
-            OriginalTemplateJson = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
-            ReferenceAssessmentsJson = reader.IsDBNull(9) ? null : reader.GetString(9),
-            ReferenceDocumentsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
-            RawGenerationResponse = reader.IsDBNull(11) ? null : reader.GetString(11),
-            GeneratedItemsJson = reader.IsDBNull(12) ? null : reader.GetString(12),
-            RawEstimationResponse = reader.IsDBNull(13) ? null : reader.GetString(13),
-            FinalAnalysisJson = reader.IsDBNull(14) ? null : reader.GetString(14),
-            LastError = reader.IsDBNull(15) ? null : reader.GetString(15),
-            CreatedAt = reader.IsDBNull(16) ? DateTime.UtcNow : reader.GetDateTime(16),
-            LastModifiedAt = reader.IsDBNull(17) ? DateTime.UtcNow : reader.GetDateTime(17),
-            TemplateName = reader.FieldCount > 18 && !reader.IsDBNull(18) ? reader.GetString(18) : string.Empty
+            Step = reader.IsDBNull(6) ? 1 : Math.Max(1, reader.GetInt32(6)),
+            ScopeDocumentPath = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+            ScopeDocumentMimeType = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+            OriginalTemplateJson = reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
+            ReferenceAssessmentsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
+            ReferenceDocumentsJson = reader.IsDBNull(11) ? null : reader.GetString(11),
+            RawGenerationResponse = reader.IsDBNull(12) ? null : reader.GetString(12),
+            GeneratedItemsJson = reader.IsDBNull(13) ? null : reader.GetString(13),
+            RawEstimationResponse = reader.IsDBNull(14) ? null : reader.GetString(14),
+            FinalAnalysisJson = reader.IsDBNull(15) ? null : reader.GetString(15),
+            LastError = reader.IsDBNull(16) ? null : reader.GetString(16),
+            CreatedAt = reader.IsDBNull(17) ? DateTime.UtcNow : reader.GetDateTime(17),
+            LastModifiedAt = reader.IsDBNull(18) ? DateTime.UtcNow : reader.GetDateTime(18),
+            TemplateName = reader.FieldCount > 19 && !reader.IsDBNull(19) ? reader.GetString(19) : string.Empty
         };
     }
 
@@ -292,6 +302,27 @@ public class AssessmentJobStore
         }
 
         return AssessmentAnalysisMode.Interpretive;
+    }
+
+    private static AssessmentLanguage ParseLanguage(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return AssessmentLanguage.Indonesian;
+        }
+
+        if (Enum.TryParse<AssessmentLanguage>(value, true, out var parsed))
+        {
+            return parsed;
+        }
+
+        if (string.Equals(value, "en", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "english", StringComparison.OrdinalIgnoreCase))
+        {
+            return AssessmentLanguage.English;
+        }
+
+        return AssessmentLanguage.Indonesian;
     }
 
     private async Task<string> TryGetTemplateNameAsync(int templateId, CancellationToken cancellationToken)

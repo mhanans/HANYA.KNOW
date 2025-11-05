@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS assessment_jobs (
     project_name TEXT NOT NULL DEFAULT '',
     template_id INT NOT NULL REFERENCES project_templates(id) ON DELETE CASCADE,
     analysis_mode TEXT NOT NULL DEFAULT 'Interpretive',
+    output_language TEXT NOT NULL DEFAULT 'Indonesian',
     status TEXT NOT NULL,
     step INT NOT NULL DEFAULT 1,
     scope_document_path TEXT NOT NULL,

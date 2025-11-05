@@ -42,6 +42,7 @@ export interface AssessmentJobSummary {
   templateId: number;
   templateName: string;
   projectName: string;
+  outputLanguage?: 'Indonesian' | 'English';
   status: AssessmentJobStatus;
   step?: number;
   createdAt?: string;

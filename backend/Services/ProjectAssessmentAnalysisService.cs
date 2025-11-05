@@ -129,6 +129,7 @@ public class ProjectAssessmentAnalysisService
         string projectName,
         IFormFile scopeDocument,
         AssessmentAnalysisMode analysisMode,
+        AssessmentLanguage outputLanguage,
         IReadOnlyList<ProjectAssessment>? referenceAssessments,
         IReadOnlyList<AssessmentReferenceDocument>? referenceDocuments,
         CancellationToken cancellationToken)
@@ -146,6 +147,7 @@ public class ProjectAssessmentAnalysisService
             TemplateId = requestedTemplateId,
             TemplateName = template?.TemplateName ?? string.Empty,
             AnalysisMode = analysisMode,
+            OutputLanguage = outputLanguage,
             Status = JobStatus.Pending,
             ScopeDocumentPath = storedPath,
             ScopeDocumentMimeType = mimeType,
@@ -396,7 +398,7 @@ public class ProjectAssessmentAnalysisService
 
             var template = JsonSerializer.Deserialize<ProjectTemplate>(job.OriginalTemplateJson, _deserializationOptions) ?? new ProjectTemplate();
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
-            var prompt = BuildItemGenerationPrompt(template, job.ProjectName, referenceDocuments, job.AnalysisMode);
+            var prompt = BuildItemGenerationPrompt(template, job.ProjectName, referenceDocuments, job.AnalysisMode, job.OutputLanguage);
 
             _logger.LogInformation("Starting item generation step for job {JobId}", jobId);
             var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
@@ -411,7 +413,7 @@ public class ProjectAssessmentAnalysisService
             else
             {
                 var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
-                var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, job.AnalysisMode, documentPart);
+                var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, job.AnalysisMode, job.OutputLanguage, documentPart);
                 var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
                 rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
             }
@@ -478,7 +480,7 @@ public class ProjectAssessmentAnalysisService
             var augmentedTemplate = BuildAugmentedTemplate(template, generatedItems);
             var references = DeserializeReferences(job.ReferenceAssessmentsJson, _deserializationOptions);
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
-            var prompt = BuildEffortEstimationPrompt(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode);
+            var prompt = BuildEffortEstimationPrompt(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, job.OutputLanguage);
 
             _logger.LogInformation("Starting effort estimation step for job {JobId}", jobId);
             var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
@@ -493,7 +495,7 @@ public class ProjectAssessmentAnalysisService
             else
             {
                 var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
-                var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, documentPart);
+                var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, job.OutputLanguage, documentPart);
                 var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
                 rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
             }
@@ -1318,9 +1320,10 @@ public class ProjectAssessmentAnalysisService
         string projectName,
         IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
         AssessmentAnalysisMode analysisMode,
+        AssessmentLanguage outputLanguage,
         GeminiPart documentPart)
     {
-        var prompt = BuildItemGenerationPrompt(template, projectName, referenceDocuments, analysisMode);
+        var prompt = BuildItemGenerationPrompt(template, projectName, referenceDocuments, analysisMode, outputLanguage);
         return new GenerateContentPayload
         {
             Contents = new List<GeminiContent>
@@ -1347,9 +1350,10 @@ public class ProjectAssessmentAnalysisService
         IReadOnlyList<ProjectAssessment> references,
         IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
         AssessmentAnalysisMode analysisMode,
+        AssessmentLanguage outputLanguage,
         GeminiPart documentPart)
     {
-        var prompt = BuildEffortEstimationPrompt(template, projectName, references, referenceDocuments, analysisMode);
+        var prompt = BuildEffortEstimationPrompt(template, projectName, references, referenceDocuments, analysisMode, outputLanguage);
         return new GenerateContentPayload
         {
             Contents = new List<GeminiContent>
@@ -1374,7 +1378,8 @@ public class ProjectAssessmentAnalysisService
         ProjectTemplate template,
         string projectName,
         IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
-        AssessmentAnalysisMode analysisMode)
+        AssessmentAnalysisMode analysisMode,
+        AssessmentLanguage outputLanguage)
     {
         var sections = template.Sections
             .Where(s => string.Equals(s.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
@@ -1410,6 +1415,12 @@ public class ProjectAssessmentAnalysisService
 
         instructionsBuilder.Append(' ');
         instructionsBuilder.Append("You are a senior BA. Extract only in-scope backlog items. Prefer merging trivial UI fragments that don’t materially change estimates. If a function is clearly reusable from references, include [REUSE] tag in itemDetail. Category must be one of {{AllowedCategories}}. Return ONLY JSON array of {itemName,itemDetail,category}.");
+
+        var languageInstruction = outputLanguage == AssessmentLanguage.Indonesian
+            ? "Return itemName and itemDetail written in Bahasa Indonesia."
+            : "Return itemName and itemDetail written in English.";
+        instructionsBuilder.Append(' ');
+        instructionsBuilder.Append(languageInstruction);
 
         if (context.ReferenceDocuments.Count > 0)
         {
@@ -1462,7 +1473,8 @@ public class ProjectAssessmentAnalysisService
         string projectName,
         IReadOnlyList<ProjectAssessment> references,
         IReadOnlyList<AssessmentReferenceDocument> referenceDocuments,
-        AssessmentAnalysisMode analysisMode)
+        AssessmentAnalysisMode analysisMode,
+        AssessmentLanguage outputLanguage)
     {
         var payload = new PromptPayload
         {
@@ -1507,6 +1519,11 @@ public class ProjectAssessmentAnalysisService
         }
 
         instructionsBuilder.Append(" Apply the effective estimation policy provided in the context and keep estimates conservative and auditable.");
+
+        instructionsBuilder.Append(' ');
+        instructionsBuilder.Append(outputLanguage == AssessmentLanguage.Indonesian
+            ? "Provide justification, signals, and textual diagnostics in Bahasa Indonesia."
+            : "Provide justification, signals, and textual diagnostics in English.");
 
         var rules = string.Join(Environment.NewLine, new[]
         {

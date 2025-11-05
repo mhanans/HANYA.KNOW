@@ -123,12 +123,15 @@ interface KnowledgeDocumentOption {
   hasSummary: boolean;
 }
 
+type OutputLanguageOption = 'indonesian' | 'english';
+
 interface AssessmentJob {
   id: number;
   projectName: string;
   templateId: number;
   templateName: string;
   analysisMode?: 'Interpretive' | 'Strict';
+  outputLanguage?: 'Indonesian' | 'English';
   status: AssessmentJobStatus;
   step?: number;
   lastError?: string | null;
@@ -141,6 +144,7 @@ interface AssessmentJobSummary {
   projectName: string;
   templateId: number;
   templateName?: string;
+  outputLanguage?: 'Indonesian' | 'English';
   status: AssessmentJobStatus;
   step?: number;
   createdAt?: string;
@@ -437,10 +441,33 @@ export default function AssessmentWorkspace() {
   const [selectedDocumentSources, setSelectedDocumentSources] = useState<string[]>([]);
   const [templateColumns, setTemplateColumns] = useState<string[]>([]);
   const [analysisMode, setAnalysisMode] = useState<AnalysisModeOption>('interpretive');
+  const [outputLanguage, setOutputLanguage] = useState<OutputLanguageOption>('indonesian');
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
   const outstandingJobCheckRef = useRef(false);
+
+  const resolveOutputLanguage = useCallback((language?: string | null): OutputLanguageOption => {
+    if (!language) {
+      return 'indonesian';
+    }
+
+    const normalized = language.trim().toLowerCase();
+    if (normalized.startsWith('en')) {
+      return 'english';
+    }
+    if (normalized.includes('english')) {
+      return 'english';
+    }
+    if (normalized.startsWith('id')) {
+      return 'indonesian';
+    }
+    if (normalized.includes('indonesia')) {
+      return 'indonesian';
+    }
+
+    return 'indonesian';
+  }, []);
 
   const showError = useCallback((message: string, title = 'Something went wrong') => {
     if (!message) return;
@@ -474,6 +501,7 @@ export default function AssessmentWorkspace() {
       if (job.analysisMode) {
         setAnalysisMode(job.analysisMode === 'Strict' ? 'strict' : 'interpretive');
       }
+      setOutputLanguage(resolveOutputLanguage(job.outputLanguage));
 
       const currentStepNumber = jobStatusStepNumber[job.status];
       const steps: string[] = [];
@@ -556,7 +584,7 @@ export default function AssessmentWorkspace() {
       lastJobStatusRef.current = job.status;
       return { previousStatus, statusChanged };
     },
-    [setAnalysisMode, showError, showSuccess]
+    [resolveOutputLanguage, setAnalysisMode, showError, showSuccess]
   );
 
   const refreshSimilarAssessments = useCallback(async () => {
@@ -690,6 +718,7 @@ export default function AssessmentWorkspace() {
         setExpandedSections({});
         setSelectedReferenceIds([]);
         setSelectedDocumentSources([]);
+        setOutputLanguage('indonesian');
 
         showSuccess('Assessment job deleted', 'The failed assessment job has been removed.');
         setIsAnalyzing(false);
@@ -1093,6 +1122,7 @@ export default function AssessmentWorkspace() {
         formData.append('referenceDocumentSources', source);
       });
       formData.append('analysisMode', analysisMode === 'strict' ? 'Strict' : 'Interpretive');
+      formData.append('outputLanguage', outputLanguage === 'english' ? 'English' : 'Indonesian');
       const res = await apiFetch('/api/assessment/analyze', { method: 'POST', body: formData });
       if (!res.ok) throw new Error(await res.text());
       const job: AssessmentJob = await res.json();
@@ -1320,54 +1350,83 @@ export default function AssessmentWorkspace() {
               )}
             />
 
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={2}
-              alignItems={{ xs: 'stretch', md: 'center' }}
-            >
-              <Button
-                component="label"
-                variant="outlined"
-                startIcon={<UploadFileIcon />}
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Stack
+                direction={{ xs: 'column', lg: 'row' }}
+                spacing={3}
+                alignItems={{ xs: 'stretch', lg: 'center' }}
               >
-                {file ? file.name : 'Upload scope document'}
-                <input hidden type="file" accept=".pdf,.doc,.docx" onChange={handleFileChange} />
-              </Button>
-              <FormControl
-                component="fieldset"
-                sx={{ minWidth: { md: 260 }, alignSelf: { xs: 'stretch', md: 'flex-start' } }}
-              >
-                <FormLabel component="legend">Analysis mode</FormLabel>
-                <RadioGroup
-                  row
-                  value={analysisMode}
-                  onChange={event => setAnalysisMode(event.target.value as AnalysisModeOption)}
+                <Button
+                  component="label"
+                  variant="outlined"
+                  startIcon={<UploadFileIcon />}
+                  sx={{ alignSelf: { xs: 'stretch', lg: 'flex-start' } }}
                 >
-                  <FormControlLabel
-                    value="interpretive"
-                    control={<Radio />}
-                    label="AI interpret scope"
-                  />
-                  <FormControlLabel
-                    value="strict"
-                    control={<Radio />}
-                    label="Strict scope only"
-                  />
-                </RadioGroup>
-                <FormHelperText>
-                  Choose whether the AI can infer new items or must mirror the scope document.
-                </FormHelperText>
-              </FormControl>
-              <Box flexGrow={1} />
-              <LoadingButton
-                variant="contained"
-                onClick={startAnalysis}
-                loading={isAnalyzing}
-                disabled={!selectedTemplate || !file}
-              >
-                Start Analysis
-              </LoadingButton>
-            </Stack>
+                  {file ? file.name : 'Upload scope document'}
+                  <input hidden type="file" accept=".pdf,.doc,.docx" onChange={handleFileChange} />
+                </Button>
+
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={3}
+                  flex={1}
+                >
+                  <FormControl component="fieldset" sx={{ flex: 1 }}>
+                    <FormLabel component="legend">Analysis mode</FormLabel>
+                    <RadioGroup
+                      row
+                      value={analysisMode}
+                      onChange={event => setAnalysisMode(event.target.value as AnalysisModeOption)}
+                    >
+                      <FormControlLabel
+                        value="interpretive"
+                        control={<Radio />}
+                        label="AI interpret scope"
+                      />
+                      <FormControlLabel
+                        value="strict"
+                        control={<Radio />}
+                        label="Strict scope only"
+                      />
+                    </RadioGroup>
+                    <FormHelperText>
+                      Choose whether the AI can infer new items or must mirror the scope document.
+                    </FormHelperText>
+                  </FormControl>
+
+                  <FormControl component="fieldset" sx={{ flex: 1 }}>
+                    <FormLabel component="legend">Output language</FormLabel>
+                    <RadioGroup
+                      row
+                      value={outputLanguage}
+                      onChange={event =>
+                        setOutputLanguage(event.target.value as OutputLanguageOption)
+                      }
+                    >
+                      <FormControlLabel
+                        value="indonesian"
+                        control={<Radio />}
+                        label="Bahasa Indonesia"
+                      />
+                      <FormControlLabel value="english" control={<Radio />} label="English" />
+                    </RadioGroup>
+                    <FormHelperText>
+                      AI-generated items, descriptions, and notes will use the selected language.
+                    </FormHelperText>
+                  </FormControl>
+                </Stack>
+
+                <LoadingButton
+                  variant="contained"
+                  onClick={startAnalysis}
+                  loading={isAnalyzing}
+                  disabled={!selectedTemplate || !file}
+                  sx={{ alignSelf: { xs: 'stretch', lg: 'flex-start' }, minWidth: { lg: 180 } }}
+                >
+                  Start Analysis
+                </LoadingButton>
+              </Stack>
+            </Paper>
 
             {analysisLog.length > 0 && (
               <Stack spacing={1}>

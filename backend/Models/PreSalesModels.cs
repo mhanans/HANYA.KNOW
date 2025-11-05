@@ -19,6 +19,7 @@ public class AssessmentJob
     public int TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
     public AssessmentAnalysisMode AnalysisMode { get; set; } = AssessmentAnalysisMode.Interpretive;
+    public AssessmentLanguage OutputLanguage { get; set; } = AssessmentLanguage.Indonesian;
     public JobStatus Status { get; set; } = JobStatus.Pending;
     public int Step { get; set; } = 1;
     public string ScopeDocumentPath { get; set; } = string.Empty;
@@ -62,6 +63,7 @@ public class AssessmentJobSummary
     public string ProjectName { get; set; } = string.Empty;
     public int TemplateId { get; set; }
     public string TemplateName { get; set; } = string.Empty;
+    public AssessmentLanguage OutputLanguage { get; set; } = AssessmentLanguage.Indonesian;
     public JobStatus Status { get; set; } = JobStatus.Pending;
     public int Step { get; set; } = 1;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -85,6 +87,12 @@ public enum AssessmentAnalysisMode
 {
     Interpretive,
     Strict
+}
+
+public enum AssessmentLanguage
+{
+    Indonesian,
+    English
 }
 
 public class TemplateSection
