@@ -77,6 +77,7 @@ public class AssessmentController : ControllerBase
 
         var referenceDocuments = await LoadReferenceDocumentsAsync(request.ReferenceDocumentSources, HttpContext.RequestAborted);
         var analysisMode = ParseAnalysisMode(request.AnalysisMode);
+        var outputLanguage = ParseOutputLanguage(request.OutputLanguage);
 
         try
         {
@@ -86,6 +87,7 @@ public class AssessmentController : ControllerBase
                 request.ProjectName ?? string.Empty,
                 request.File!,
                 analysisMode,
+                outputLanguage,
                 referenceAssessments,
                 referenceDocuments,
                 HttpContext.RequestAborted);
@@ -172,6 +174,36 @@ public class AssessmentController : ControllerBase
         }
 
         return AssessmentAnalysisMode.Interpretive;
+    }
+
+    private static AssessmentLanguage ParseOutputLanguage(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return AssessmentLanguage.Indonesian;
+        }
+
+        var trimmed = value.Trim();
+        if (Enum.TryParse<AssessmentLanguage>(trimmed, true, out var parsed))
+        {
+            return parsed;
+        }
+
+        if (string.Equals(trimmed, "id", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "bahasa", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "indonesia", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "bahasa indonesia", StringComparison.OrdinalIgnoreCase))
+        {
+            return AssessmentLanguage.Indonesian;
+        }
+
+        if (string.Equals(trimmed, "en", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "english", StringComparison.OrdinalIgnoreCase))
+        {
+            return AssessmentLanguage.English;
+        }
+
+        return AssessmentLanguage.Indonesian;
     }
 
     [HttpDelete("jobs/{jobId}")]
@@ -450,4 +482,5 @@ public class AssessmentAnalyzeRequest
     public List<int> ReferenceAssessmentIds { get; set; } = new();
     public List<string> ReferenceDocumentSources { get; set; } = new();
     public string? AnalysisMode { get; set; }
+    public string? OutputLanguage { get; set; }
 }
