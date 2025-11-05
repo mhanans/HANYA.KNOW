@@ -13,9 +13,7 @@ using backend.Configuration;
 using backend.Models;
 using backend.Services.Estimation;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace backend.Services;
 
@@ -40,67 +38,21 @@ public class ProjectAssessmentAnalysisService
     private readonly AssessmentJobStore _jobStore;
     private readonly EffectiveEstimationPolicy _estimationPolicy;
     private readonly HttpClient _httpClient;
-    private readonly SettingsStore _settingsStore;
-    private readonly LlmOptions _defaultLlmOptions;
-    private readonly string? _configuredApiKey;
-    private readonly string? _configuredModel;
-    private readonly string _configuredProvider;
+    private readonly AiProviderResolver _providerResolver;
     private readonly JsonSerializerOptions _deserializationOptions;
     private readonly JsonSerializerOptions _serializationOptions;
     private readonly string _storageRoot;
 
     public ProjectAssessmentAnalysisService(
-        IConfiguration configuration,
         ILogger<ProjectAssessmentAnalysisService> logger,
         AssessmentJobStore jobStore,
         EffectiveEstimationPolicy estimationPolicy,
-        SettingsStore settingsStore,
-        IOptions<LlmOptions> llmOptions)
+        AiProviderResolver providerResolver)
     {
         _logger = logger;
         _jobStore = jobStore;
         _estimationPolicy = estimationPolicy;
-        _settingsStore = settingsStore;
-        _defaultLlmOptions = llmOptions.Value;
-
-        var configuredProvider = configuration["Gemini:Provider"]
-                               ?? configuration["GoogleAI:Provider"]
-                               ?? configuration["Google:Provider"]
-                               ?? configuration["Llm:Provider"]
-                               ?? configuration["Provider"]
-                               ?? _defaultLlmOptions.Provider;
-
-        _configuredApiKey = configuration["Gemini:ApiKey"]
-                            ?? configuration["GoogleAI:ApiKey"]
-                            ?? configuration["Google:ApiKey"]
-                            ?? configuration["Llm:ApiKey"]
-                            ?? configuration["ApiKey"];
-
-        var configuredModel = configuration["Gemini:Model"]
-                              ?? configuration["GoogleAI:Model"]
-                              ?? configuration["Google:Model"]
-                              ?? configuration["Llm:Model"]
-                              ?? configuration["Model"]
-                              ?? _defaultLlmOptions.Model
-                              ?? "gemini-pro-vision";
-
-        if (string.IsNullOrWhiteSpace(configuredModel))
-        {
-            configuredModel = "gemini-pro-vision";
-        }
-
-        _configuredModel = configuredModel;
-        _configuredProvider = string.IsNullOrWhiteSpace(configuredProvider)
-            ? "gemini"
-            : configuredProvider.Trim();
-
-        if (!string.IsNullOrWhiteSpace(_configuredModel))
-        {
-            _logger.LogInformation(
-                "Default LLM configuration for project assessment analysis set to provider {Provider} model {Model}",
-                _configuredProvider,
-                _configuredModel);
-        }
+        _providerResolver = providerResolver;
 
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -401,20 +353,27 @@ public class ProjectAssessmentAnalysisService
             var prompt = BuildItemGenerationPrompt(template, job.ProjectName, referenceDocuments, job.AnalysisMode, job.OutputLanguage);
 
             _logger.LogInformation("Starting item generation step for job {JobId}", jobId);
-            var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+            var llmConfig = await ResolveLlmConfigurationAsync(AiProcesses.PresalesItemGeneration).ConfigureAwait(false);
             string rawResponse;
+            var providerKey = llmConfig.Provider.ToLowerInvariant();
 
-            if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+            if (providerKey == "minimax")
             {
                 var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
                 var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
                 rawResponse = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
             }
+            else if (providerKey == "ollama")
+            {
+                var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
+                var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
+                rawResponse = await SendOllamaRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            }
             else
             {
                 var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
                 var request = BuildItemGenerationRequest(template, job.ProjectName, referenceDocuments, job.AnalysisMode, job.OutputLanguage, documentPart);
-                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
+                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey!, cancellationToken).ConfigureAwait(false);
                 rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
             }
             job.RawGenerationResponse = rawResponse;
@@ -454,6 +413,72 @@ public class ProjectAssessmentAnalysisService
         }
     }
 
+    private async Task<string> SendOllamaRequestAsync(string userPrompt, LlmConfiguration config, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(config.Host))
+        {
+            throw new InvalidOperationException("Ollama host is not configured for the presales workflow.");
+        }
+
+        var baseUri = new Uri(config.Host, UriKind.Absolute);
+        var requestUri = new Uri(baseUri, "/api/chat");
+        using var request = new HttpRequestMessage(HttpMethod.Post, requestUri);
+
+        var sanitizedPrompt = string.IsNullOrWhiteSpace(userPrompt) ? string.Empty : userPrompt.Trim();
+        var payload = new
+        {
+            model = config.Model,
+            messages = new[]
+            {
+                new { role = "system", content = MiniMaxSystemPrompt },
+                new { role = "user", content = sanitizedPrompt }
+            },
+            stream = false
+        };
+
+        var serialized = JsonSerializer.Serialize(payload, _serializationOptions);
+        request.Content = new StringContent(serialized, Encoding.UTF8, "application/json");
+
+        _logger.LogInformation("[Presales AI] Request to Ollama: {Payload}", serialized);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation("[Presales AI] Response from Ollama: {Content}", content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = TryExtractErrorMessage(content) ?? response.ReasonPhrase ?? "Ollama API request failed.";
+            throw new LlmApiException("Ollama", requestUri.AbsolutePath, response.StatusCode, error, content);
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            if (document.RootElement.TryGetProperty("message", out var message) &&
+                message.TryGetProperty("content", out var messageContent))
+            {
+                return messageContent.GetString()?.Trim() ?? string.Empty;
+            }
+
+            if (document.RootElement.TryGetProperty("response", out var responseText))
+            {
+                return responseText.GetString()?.Trim() ?? string.Empty;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse Ollama response as JSON. Returning raw content.");
+        }
+
+        return content.Trim();
+    }
+
     private async Task ExecuteEffortEstimationStepAsync(int jobId, CancellationToken cancellationToken)
     {
         var job = await _jobStore.GetAsync(jobId, cancellationToken).ConfigureAwait(false);
@@ -483,20 +508,27 @@ public class ProjectAssessmentAnalysisService
             var prompt = BuildEffortEstimationPrompt(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, job.OutputLanguage);
 
             _logger.LogInformation("Starting effort estimation step for job {JobId}", jobId);
-            var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+            var llmConfig = await ResolveLlmConfigurationAsync(AiProcesses.PresalesEffortEstimation).ConfigureAwait(false);
             string rawResponse;
+            var providerKey = llmConfig.Provider.ToLowerInvariant();
 
-            if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+            if (providerKey == "minimax")
             {
                 var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
                 var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
                 rawResponse = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
             }
+            else if (providerKey == "ollama")
+            {
+                var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
+                var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
+                rawResponse = await SendOllamaRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            }
             else
             {
                 var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken).ConfigureAwait(false);
                 var request = BuildEffortEstimationRequest(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, job.OutputLanguage, documentPart);
-                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
+                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey!, cancellationToken).ConfigureAwait(false);
                 rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
             }
             job.RawEstimationResponse = rawResponse;
@@ -1561,58 +1593,34 @@ public class ProjectAssessmentAnalysisService
         return builder.ToString();
     }
 
-    private async Task<LlmConfiguration> ResolveLlmConfigurationAsync()
+    private async Task<LlmConfiguration> ResolveLlmConfigurationAsync(string process)
     {
-        var settings = await _settingsStore.GetAsync().ConfigureAwait(false);
+        var resolved = await _providerResolver.ResolveAsync(process).ConfigureAwait(false);
+        var provider = resolved.Provider?.Trim() ?? "gemini";
 
-        var provider = string.IsNullOrWhiteSpace(settings.LlmProvider)
-            ? null
-            : settings.LlmProvider;
-        var apiKey = string.IsNullOrWhiteSpace(settings.LlmApiKey)
-            ? null
-            : settings.LlmApiKey;
-        var model = string.IsNullOrWhiteSpace(settings.LlmModel)
-            ? null
-            : settings.LlmModel;
-
-        if (string.IsNullOrWhiteSpace(provider))
+        if (string.IsNullOrWhiteSpace(resolved.Model))
         {
-            provider = string.IsNullOrWhiteSpace(_defaultLlmOptions.Provider)
-                ? _configuredProvider
-                : _defaultLlmOptions.Provider;
+            throw new InvalidOperationException($"LLM model is not configured for process '{process}'.");
         }
 
-        provider = string.IsNullOrWhiteSpace(provider)
-            ? "gemini"
-            : provider.Trim();
-
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (string.Equals(provider, "ollama", StringComparison.OrdinalIgnoreCase))
         {
-            apiKey = string.IsNullOrWhiteSpace(_defaultLlmOptions.ApiKey)
-                ? _configuredApiKey
-                : _defaultLlmOptions.ApiKey;
+            if (string.IsNullOrWhiteSpace(resolved.Host))
+            {
+                throw new InvalidOperationException("Ollama host is not configured for the presales workflow.");
+            }
+        }
+        else if (string.Equals(provider, "gemini", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(provider, "minimax", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(provider, "openai", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(resolved.ApiKey))
+            {
+                throw new InvalidOperationException($"LLM API key is required for provider '{provider}'.");
+            }
         }
 
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            model = string.IsNullOrWhiteSpace(_defaultLlmOptions.Model)
-                ? _configuredModel
-                : _defaultLlmOptions.Model;
-        }
-
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new InvalidOperationException("LLM API key is not configured. Please update the LLM settings.");
-        }
-
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            model = string.Equals(provider, "minimax", StringComparison.OrdinalIgnoreCase)
-                ? "MiniMax-M2"
-                : "gemini-pro-vision";
-        }
-
-        return new LlmConfiguration(provider, apiKey!, model!);
+        return new LlmConfiguration(provider, resolved.ApiKey, resolved.Model, resolved.Host);
     }
 
     private async Task<string> SendMiniMaxRequestAsync(string userPrompt, LlmConfiguration config, CancellationToken cancellationToken)
@@ -1620,7 +1628,7 @@ public class ProjectAssessmentAnalysisService
         var path = "chat/completions";
         var requestUri = new Uri(MiniMaxBaseUri, path);
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUri);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey!);
 
         var sanitizedPrompt = string.IsNullOrWhiteSpace(userPrompt) ? string.Empty : userPrompt.Trim();
 
@@ -1694,16 +1702,24 @@ public class ProjectAssessmentAnalysisService
             }
         };
 
-        var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+        var llmConfig = await ResolveLlmConfigurationAsync(AiProcesses.PresalesJsonRepair).ConfigureAwait(false);
+        var providerKey = llmConfig.Provider.ToLowerInvariant();
 
-        if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+        if (providerKey == "minimax")
         {
             var userPrompt = BuildMiniMaxUserPrompt(prompt, invalidJson, "Invalid JSON");
             var response = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
             return CleanResponse(response);
         }
 
-        var geminiResponse = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken).ConfigureAwait(false);
+        if (providerKey == "ollama")
+        {
+            var userPrompt = BuildMiniMaxUserPrompt(prompt, invalidJson, "Invalid JSON");
+            var response = await SendOllamaRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            return CleanResponse(response);
+        }
+
+        var geminiResponse = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey!, cancellationToken).ConfigureAwait(false);
         var raw = ExtractTextResponse(geminiResponse)?.Trim() ?? string.Empty;
         return CleanResponse(raw);
     }
@@ -2108,7 +2124,7 @@ public class ProjectAssessmentAnalysisService
         public string Category { get; set; } = string.Empty;
     }
 
-    private sealed record LlmConfiguration(string Provider, string ApiKey, string Model);
+    private sealed record LlmConfiguration(string Provider, string? ApiKey, string Model, string? Host);
 
     private sealed class MiniMaxChatCompletionRequest
     {

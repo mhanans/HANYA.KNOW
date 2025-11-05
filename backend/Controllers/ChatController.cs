@@ -93,7 +93,7 @@ The user has asked the following question: "{user_question}"
         string answer;
         try
         {
-            answer = await _llm.GenerateAsync(ragPayload.History);
+            answer = await _llm.GenerateAsync(ragPayload.History, AiProcesses.ChatConversation);
         }
         catch (Exception ex)
         {
@@ -186,7 +186,7 @@ The user has asked the following question: "{user_question}"
         string answer;
         try
         {
-            answer = await _llm.GenerateAsync(history);
+            answer = await _llm.GenerateAsync(history, AiProcesses.ChatConversation);
         }
         catch (Exception ex)
         {
@@ -264,7 +264,7 @@ The user has asked the following question: "{user_question}"
 
         try
         {
-            await foreach (var token in _llm.GenerateStreamAsync(ragPayload.History))
+            await foreach (var token in _llm.GenerateStreamAsync(ragPayload.History, AiProcesses.ChatConversation))
             {
                 var payload = JsonSerializer.Serialize(token);
                 sb.Append(token);
