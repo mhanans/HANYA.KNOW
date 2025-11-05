@@ -904,6 +904,32 @@ export default function AssessmentWorkspace() {
     };
   }, [selectedTemplate, showError]);
 
+  const loadAssessment = useCallback(
+    async (id: number) => {
+      stopJobPolling();
+      lastJobStatusRef.current = null;
+      setActiveJob(null);
+      setIsAnalyzing(false);
+      setProgress(0);
+      setAnalysisLog([]);
+      setLoadingAssessment(true);
+      try {
+        const res = await apiFetch(`/api/assessment/${id}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data: ProjectAssessment = await res.json();
+        setAssessment(normalizeAssessment(data));
+        setSelectedTemplate(data.templateId);
+        setProjectTitle(data.projectName);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load the assessment.';
+        showError(message, 'Unable to load assessment');
+      } finally {
+        setLoadingAssessment(false);
+      }
+    },
+    [showError, stopJobPolling]
+  );
+
   useEffect(() => {
     if (!router.isReady) return;
 
@@ -1190,29 +1216,6 @@ export default function AssessmentWorkspace() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to export the assessment.';
       showError(message, 'Export failed');
-    }
-  };
-
-  const loadAssessment = async (id: number) => {
-    stopJobPolling();
-    lastJobStatusRef.current = null;
-    setActiveJob(null);
-    setIsAnalyzing(false);
-    setProgress(0);
-    setAnalysisLog([]);
-    setLoadingAssessment(true);
-    try {
-      const res = await apiFetch(`/api/assessment/${id}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data: ProjectAssessment = await res.json();
-      setAssessment(normalizeAssessment(data));
-      setSelectedTemplate(data.templateId);
-      setProjectTitle(data.projectName);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load the assessment.';
-      showError(message, 'Unable to load assessment');
-    } finally {
-      setLoadingAssessment(false);
     }
   };
 
