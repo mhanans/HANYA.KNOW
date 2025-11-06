@@ -2322,11 +2322,11 @@ public class ProjectAssessmentAnalysisService
 
     private sealed class ItemDiagnosticsSignals
     {
-        public int Fields { get; set; }
-        public int Integrations { get; set; }
-        public int WorkflowSteps { get; set; }
-        public bool HasUpload { get; set; }
-        public bool HasAuthRole { get; set; }
+        public int? Fields { get; set; }
+        public int? Integrations { get; set; }
+        public int? WorkflowSteps { get; set; }
+        public bool? HasUpload { get; set; }
+        public bool? HasAuthRole { get; set; }
         public string Crud { get; set; } = "-";
     }
 
