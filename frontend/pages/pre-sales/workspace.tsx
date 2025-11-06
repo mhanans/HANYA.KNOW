@@ -739,7 +739,9 @@ export default function AssessmentWorkspace() {
         `The assessment job ${job.projectName || 'Untitled Assessment'} is currently marked as ${statusLabel}.`,
       ];
       if (job.lastError?.trim()) {
-        details.push(job.lastError.trim());
+        const firstLine = job.lastError.trim().split(/\r?\n/)[0];
+        const trimmedLine = firstLine.length > 180 ? `${firstLine.slice(0, 177)}…` : firstLine;
+        details.push(`Last error: ${trimmedLine}`);
       }
       details.push('Would you like to resume the process or delete this job?');
 
