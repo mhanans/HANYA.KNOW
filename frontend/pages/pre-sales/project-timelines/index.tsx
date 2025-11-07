@@ -26,6 +26,9 @@ interface TimelineAssessmentSummary {
   lastModifiedAt?: string;
   hasTimeline: boolean;
   timelineGeneratedAt?: string;
+  hasTimelineEstimation: boolean;
+  timelineEstimationGeneratedAt?: string;
+  timelineEstimationScale?: string | null;
 }
 
 const formatDate = (value?: string) => {
@@ -47,6 +50,7 @@ export default function ProjectTimelinesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<number | null>(null);
+  const [estimatingId, setEstimatingId] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -68,6 +72,45 @@ export default function ProjectTimelinesPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleGenerateEstimation = useCallback(
+    async (assessmentId: number) => {
+      if (!assessmentId) return;
+      setEstimatingId(assessmentId);
+      setError(null);
+      try {
+        const res = await apiFetch('/api/timeline-estimations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assessmentId }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Failed to generate timeline estimation');
+        }
+        await loadData();
+        router.push(`/pre-sales/timeline-estimator/${assessmentId}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to generate timeline estimation';
+        setError(message);
+        await Swal.fire({
+          icon: 'error',
+          title: 'Timeline estimation failed',
+          text: message,
+        });
+      } finally {
+        setEstimatingId(null);
+      }
+    },
+    [loadData, router]
+  );
+
+  const handleViewEstimation = useCallback(
+    (assessmentId: number) => {
+      router.push(`/pre-sales/timeline-estimator/${assessmentId}`);
+    },
+    [router]
+  );
 
   const handleGenerate = useCallback(
     async (assessmentId: number) => {
@@ -157,14 +200,17 @@ export default function ProjectTimelinesPage() {
               <TableCell>Template</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Last Modified</TableCell>
+              <TableCell>Timeline Estimator</TableCell>
               <TableCell>Timeline</TableCell>
-              <TableCell align="right">Action</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {rows.map(row => {
-              const buttonLabel = row.hasTimeline ? 'View Timeline' : 'Generate Timeline';
+              const estimationLabel = row.hasTimelineEstimation ? 'View Estimate' : 'Generate Estimate';
+              const timelineLabel = row.hasTimeline ? 'View Timeline' : 'Generate Timeline';
               const isGenerating = generatingId === row.assessmentId;
+              const isEstimating = estimatingId === row.assessmentId;
               return (
                 <TableRow key={row.assessmentId} hover>
                   <TableCell>{row.projectName || 'Untitled Project'}</TableCell>
@@ -178,6 +224,22 @@ export default function ProjectTimelinesPage() {
                   </TableCell>
                   <TableCell>{formatDate(row.lastModifiedAt)}</TableCell>
                   <TableCell>
+                    {row.hasTimelineEstimation ? (
+                      <Stack spacing={0.5}>
+                        <Chip
+                          color="info"
+                          size="small"
+                          label={row.timelineEstimationScale ? `Scale: ${row.timelineEstimationScale}` : 'Ready'}
+                        />
+                        <Typography variant="caption">
+                          {formatDate(row.timelineEstimationGeneratedAt)}
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <Chip color="warning" size="small" label="Pending" />
+                    )}
+                  </TableCell>
+                  <TableCell>
                     {row.hasTimeline ? (
                       <Stack spacing={0.5}>
                         <Chip color="success" size="small" label="Ready" />
@@ -188,15 +250,35 @@ export default function ProjectTimelinesPage() {
                     )}
                   </TableCell>
                   <TableCell align="right">
-                    <Button
-                      variant="contained"
-                      color={row.hasTimeline ? 'secondary' : 'primary'}
-                      size="small"
-                      disabled={isGenerating}
-                      onClick={() => (row.hasTimeline ? handleView(row.assessmentId) : handleGenerate(row.assessmentId))}
-                    >
-                      {isGenerating ? 'Generating…' : buttonLabel}
-                    </Button>
+                    <Stack spacing={1} direction="column" alignItems="flex-end">
+                      <Button
+                        variant="contained"
+                        color={row.hasTimelineEstimation ? 'secondary' : 'primary'}
+                        size="small"
+                        disabled={isEstimating || isGenerating}
+                        onClick={() =>
+                          row.hasTimelineEstimation
+                            ? handleViewEstimation(row.assessmentId)
+                            : handleGenerateEstimation(row.assessmentId)
+                        }
+                      >
+                        {isEstimating ? 'Estimating…' : estimationLabel}
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color={row.hasTimeline ? 'secondary' : 'primary'}
+                        size="small"
+                        disabled={isGenerating || !row.hasTimelineEstimation}
+                        onClick={() =>
+                          row.hasTimeline
+                            ? handleView(row.assessmentId)
+                            : handleGenerate(row.assessmentId)
+                        }
+                        title={row.hasTimelineEstimation ? undefined : 'Generate an estimator first'}
+                      >
+                        {isGenerating ? 'Generating…' : timelineLabel}
+                      </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               );
@@ -205,7 +287,18 @@ export default function ProjectTimelinesPage() {
         </Table>
       </TableContainer>
     );
-  }, [loading, error, rows, generatingId, handleGenerate, handleView, loadData]);
+  }, [
+    loading,
+    error,
+    rows,
+    generatingId,
+    estimatingId,
+    handleGenerate,
+    handleView,
+    handleGenerateEstimation,
+    handleViewEstimation,
+    loadData,
+  ]);
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>

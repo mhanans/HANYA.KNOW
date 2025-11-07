@@ -44,8 +44,18 @@ Blueprint ini menjadi referensi tunggal untuk tim Pre-Sales dalam mengimplementa
 ## 3. Arsitektur Teknis & Alur Agen
 1. **Agent 1 — Document Ingestion:** mengubah file unggahan menjadi teks terstruktur.
 2. **Agent 2 — Template Matching & Applicability:** menentukan `is_needed` per item template.
-3. **Agent 3 — Hierarchical Estimation & RAG:** menarik data historis via Vector DB dan meminta Gemini untuk estimasi per kolom.
-4. **Agent 4 — Feedback & Refinement (async):** menyimpan hasil final ke Vector DB sebagai pembelajaran.
+3. **Agent 3 — Timeline Estimator:** merangkum hasil asesmen menjadi estimasi timeline terstruktur sebelum diteruskan ke generator timeline.
+4. **Agent 4 — Timeline Generation:** menyusun urutan fase proyek berdasarkan output estimator, termasuk fase paralel atau bertumpuk.
+5. **Agent 5 — Estimated Cost Generation:** menghitung biaya dengan mempertimbangkan jadwal final dan kebutuhan peran.
+6. **Agent 6 — Feedback & Refinement (async):** menyimpan hasil final ke Vector DB sebagai pembelajaran.
+
+### 3.1 Timeline Estimator Service
+- **Input:** hasil asesmen dari Workspace (scope dan kebutuhan per item).
+- **Proses:**
+  - Membaca tabel referensi `timeline_estimator_reference` dengan struktur berikut: `Id`, `ProjectScale (Long|Medium|Short)`, `DurationPerPhase` (JSON detail setiap fase), `TotalDuration`, `ResourcePerRole` (Dev, PM, BA).
+  - Menggunakan kemiripan karakteristik (skala proyek, kompleksitas item, kebutuhan resource) untuk menyusun estimasi timeline awal.
+- **Output:** tabel estimasi baru dengan format yang sama (`Project`, `ProjectScale`, `DurationPerPhase`, `TotalDuration`, `ResourcePerRole`). Total durasi tidak harus sama dengan penjumlahan tiap fase karena fase dapat berjalan paralel atau tumpang tindih.
+- **Catatan:** timeline generator wajib memakai output ini; asesmen tidak boleh langsung melompat ke timeline generation tanpa proses estimator.
 
 ### Endpoint API
 - `GET /api/templates` dan `GET /api/templates/{id}`

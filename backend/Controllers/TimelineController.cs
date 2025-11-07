@@ -16,15 +16,18 @@ public class TimelineController : ControllerBase
 {
     private readonly ProjectAssessmentStore _assessments;
     private readonly TimelineStore _timelineStore;
+    private readonly TimelineEstimationStore _estimationStore;
     private readonly TimelineGenerationService _generationService;
 
     public TimelineController(
         ProjectAssessmentStore assessments,
         TimelineStore timelineStore,
+        TimelineEstimationStore estimationStore,
         TimelineGenerationService generationService)
     {
         _assessments = assessments;
         _timelineStore = timelineStore;
+        _estimationStore = estimationStore;
         _generationService = generationService;
     }
 
@@ -41,10 +44,12 @@ public class TimelineController : ControllerBase
             .ToList();
 
         var summaries = await _timelineStore.ListSummariesAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        var estimationSummaries = await _estimationStore.ListSummariesAsync(HttpContext.RequestAborted).ConfigureAwait(false);
         var results = completed
             .Select(a =>
             {
                 summaries.TryGetValue(a.Id, out var existing);
+                estimationSummaries.TryGetValue(a.Id, out var estimation);
                 return new TimelineAssessmentSummary
                 {
                     AssessmentId = a.Id,
@@ -53,7 +58,10 @@ public class TimelineController : ControllerBase
                     Status = a.Status,
                     LastModifiedAt = a.LastModifiedAt,
                     HasTimeline = existing?.HasTimeline ?? false,
-                    TimelineGeneratedAt = existing?.TimelineGeneratedAt
+                    TimelineGeneratedAt = existing?.TimelineGeneratedAt,
+                    HasTimelineEstimation = estimation != null,
+                    TimelineEstimationGeneratedAt = estimation?.GeneratedAt,
+                    TimelineEstimationScale = estimation?.ProjectScale
                 };
             })
             .OrderByDescending(r => r.LastModifiedAt ?? DateTime.MinValue)
