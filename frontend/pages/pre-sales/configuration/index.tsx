@@ -64,8 +64,26 @@ const emptyConfig: PresalesConfiguration = {
 };
 
 const toNumber = (value: string, fallback = 0) => {
-  const parsed = parseFloat(value);
+  if (!value) return fallback;
+  const sanitized = value.replace(/[^0-9,.-]/g, '');
+  if (!sanitized) return fallback;
+  const hasComma = sanitized.includes(',');
+  let normalized = sanitized;
+  if (hasComma) {
+    normalized = sanitized.replace(/\./g, '').replace(/,/g, '.');
+  } else {
+    const thousandSeparated = /^\d{1,3}(\.\d{3})+$/.test(sanitized);
+    if (thousandSeparated) {
+      normalized = sanitized.replace(/\./g, '');
+    }
+  }
+  const parsed = parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const formatIDR = (value?: number | null) => {
+  if (value === null || value === undefined) return '';
+  return new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 };
 
 const resolveDefaultRateCardKey = (config?: CostEstimationConfiguration | null) => {
@@ -310,7 +328,10 @@ export default function PresalesConfigurationPage() {
   const addRole = () =>
     setConfig(prev => ({
       ...prev,
-      roles: [...prev.roles, { roleName: '', expectedLevel: '', costPerDay: 0, monthlySalary: 0, ratePerDay: 0 }],
+      roles: [
+        ...prev.roles,
+        { roleName: '', expectedLevel: '', costPerDay: 0, monthlySalary: undefined, ratePerDay: undefined },
+      ],
     }));
   const addActivity = () => setConfig(prev => ({ ...prev, activities: [...prev.activities, { activityName: '', displayOrder: prev.activities.length + 1 }] }));
   const addTaskActivity = () => setConfig(prev => ({ ...prev, taskActivities: [...prev.taskActivities, { taskKey: '', activityName: '' }] }));
@@ -465,7 +486,6 @@ export default function PresalesConfigurationPage() {
                       <TableRow>
                         <TableCell>Role Name</TableCell>
                         <TableCell>Expected Level</TableCell>
-                        <TableCell>Timeline Cost / Day</TableCell>
                         <TableCell>Monthly Salary (IDR)</TableCell>
                         <TableCell>Billing Rate / Day</TableCell>
                         <TableCell align="right">Actions</TableCell>
@@ -496,30 +516,20 @@ export default function PresalesConfigurationPage() {
                           <TextField
                             fullWidth
                             size="small"
-                            type="number"
-                            value={role.costPerDay}
-                            inputProps={{ min: 0, step: 50 }}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'costPerDay', event.target.value)}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            type="number"
-                            value={role.monthlySalary ?? 0}
-                            inputProps={{ min: 0, step: 500000 }}
+                            value={formatIDR(role.monthlySalary)}
+                            inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
                             onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
+                            placeholder="e.g. 15.000.000"
                           />
                         </TableCell>
                         <TableCell>
                           <TextField
                             fullWidth
                             size="small"
-                            type="number"
-                            value={role.ratePerDay ?? 0}
-                            inputProps={{ min: 0, step: 50000 }}
+                            value={formatIDR(role.ratePerDay)}
+                            inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
                             onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
+                            placeholder="e.g. 1.500.000"
                           />
                         </TableCell>
                         <TableCell align="right">
