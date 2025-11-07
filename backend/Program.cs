@@ -132,6 +132,7 @@ builder.Services.AddHttpClient<LlmClient>((sp, client) =>
 });
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection("Chat"));
 builder.Services.Configure<RecommendationOptions>(builder.Configuration.GetSection("Recommendation"));
+builder.Services.Configure<PresalesWorkflowOptions>(builder.Configuration.GetSection(PresalesWorkflowOptions.SectionName));
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
 builder.Services.Configure<SourceCodeOptions>(builder.Configuration.GetSection("SourceCode"));
