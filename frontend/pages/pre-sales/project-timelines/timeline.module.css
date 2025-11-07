@@ -10,7 +10,9 @@
 .timelineTable td {
   border: 1px solid rgba(148, 163, 184, 0.25);
   padding: 0 12px;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   font-size: 0.875rem;
   height: 40px;
   vertical-align: middle;
