@@ -84,24 +84,50 @@ public class TimelineEstimationReferencesController : ControllerBase
             return "Request body is required.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.PhaseName))
+        if (string.IsNullOrWhiteSpace(request.ProjectScale))
         {
-            return "PhaseName is required.";
+            return "ProjectScale is required.";
         }
 
-        if (request.InputManHours <= 0)
+        if (request.TotalDurationDays <= 0)
         {
-            return "InputManHours must be greater than zero.";
+            return "TotalDurationDays must be greater than zero.";
         }
 
-        if (request.InputResourceCount <= 0)
+        if (request.PhaseDurations == null || request.PhaseDurations.Count == 0)
         {
-            return "InputResourceCount must be greater than zero.";
+            return "At least one phase duration is required.";
         }
 
-        if (request.OutputDurationDays <= 0)
+        foreach (var (phase, duration) in request.PhaseDurations)
         {
-            return "OutputDurationDays must be greater than zero.";
+            if (string.IsNullOrWhiteSpace(phase))
+            {
+                return "PhaseDurations cannot contain empty phase names.";
+            }
+
+            if (duration <= 0)
+            {
+                return $"Phase '{phase}' must have a duration greater than zero.";
+            }
+        }
+
+        if (request.ResourceAllocation == null || request.ResourceAllocation.Count == 0)
+        {
+            return "ResourceAllocation must contain at least one role.";
+        }
+
+        foreach (var (role, headcount) in request.ResourceAllocation)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+            {
+                return "ResourceAllocation cannot contain empty role names.";
+            }
+
+            if (headcount <= 0)
+            {
+                return $"Role '{role}' must have a headcount greater than zero.";
+            }
         }
 
         return null;
@@ -110,19 +136,43 @@ public class TimelineEstimationReferencesController : ControllerBase
 
 public class TimelineEstimationReferenceRequest
 {
-    public string PhaseName { get; set; } = string.Empty;
-    public int InputManHours { get; set; }
-    public int InputResourceCount { get; set; }
-    public int OutputDurationDays { get; set; }
+    public string ProjectScale { get; set; } = string.Empty;
+    public Dictionary<string, int>? PhaseDurations { get; set; }
+    public int TotalDurationDays { get; set; }
+    public Dictionary<string, double>? ResourceAllocation { get; set; }
 
     public TimelineEstimationReference ToEntity()
     {
+        var phases = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (PhaseDurations != null)
+        {
+            foreach (var (key, value) in PhaseDurations)
+            {
+                if (!string.IsNullOrWhiteSpace(key) && value > 0)
+                {
+                    phases[key.Trim()] = value;
+                }
+            }
+        }
+
+        var resources = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (ResourceAllocation != null)
+        {
+            foreach (var (key, value) in ResourceAllocation)
+            {
+                if (!string.IsNullOrWhiteSpace(key) && value > 0)
+                {
+                    resources[key.Trim()] = value;
+                }
+            }
+        }
+
         return new TimelineEstimationReference
         {
-            PhaseName = PhaseName.Trim(),
-            InputManHours = InputManHours,
-            InputResourceCount = InputResourceCount,
-            OutputDurationDays = OutputDurationDays
+            ProjectScale = ProjectScale.Trim(),
+            PhaseDurations = phases,
+            TotalDurationDays = TotalDurationDays,
+            ResourceAllocation = resources
         };
     }
 }

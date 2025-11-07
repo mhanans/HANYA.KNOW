@@ -1,26 +1,49 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
-interface TimelineReference {
+interface TimelineReferenceResponse {
   id: number;
-  phaseName: string;
-  inputManHours: number;
-  inputResourceCount: number;
-  outputDurationDays: number;
+  projectScale: string;
+  totalDurationDays: number;
+  phaseDurations: Record<string, number>;
+  resourceAllocation: Record<string, number>;
+}
+
+interface TimelineReference extends TimelineReferenceResponse {
+  phaseDurationsText: string;
+  resourceAllocationText: string;
 }
 
 interface TimelineReferenceDraft {
-  phaseName: string;
-  inputManHours: number;
-  inputResourceCount: number;
-  outputDurationDays: number;
+  projectScale: string;
+  totalDurationDays: number;
+  phaseDurationsText: string;
+  resourceAllocationText: string;
 }
 
+const stringify = (value: Record<string, number>) => JSON.stringify(value, null, 2);
+
 const emptyDraft: TimelineReferenceDraft = {
-  phaseName: '',
-  inputManHours: 40,
-  inputResourceCount: 1,
-  outputDurationDays: 5,
+  projectScale: 'Medium',
+  totalDurationDays: 30,
+  phaseDurationsText: '{\n  "Discovery": 5,\n  "Development": 15,\n  "Testing": 10\n}',
+  resourceAllocationText: '{\n  "Dev": 4,\n  "PM": 1,\n  "BA": 1\n}',
+};
+
+const parseObject = (text: string) => {
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Value must be a JSON object.');
+  }
+  const result: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(parsed)) {
+    const numberValue = Number(raw);
+    if (!Number.isFinite(numberValue) || numberValue <= 0) {
+      throw new Error(`Invalid numeric value for key "${key}".`);
+    }
+    result[key] = numberValue;
+  }
+  return result;
 };
 
 export default function TimelineReferencesPage() {
@@ -29,6 +52,13 @@ export default function TimelineReferencesPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const transform = (items: TimelineReferenceResponse[]) =>
+    items.map(item => ({
+      ...item,
+      phaseDurationsText: stringify(item.phaseDurations),
+      resourceAllocationText: stringify(item.resourceAllocation),
+    }));
+
   const load = async () => {
     setLoading(true);
     try {
@@ -36,8 +66,8 @@ export default function TimelineReferencesPage() {
       if (!response.ok) {
         throw new Error(await response.text());
       }
-      const items: TimelineReference[] = await response.json();
-      setReferences(items);
+      const items: TimelineReferenceResponse[] = await response.json();
+      setReferences(transform(items));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -55,10 +85,17 @@ export default function TimelineReferencesPage() {
     event.preventDefault();
     setError('');
     try {
+      const phaseDurations = parseObject(newReference.phaseDurationsText);
+      const resourceAllocation = parseObject(newReference.resourceAllocationText);
       const response = await apiFetch('/api/timeline-estimation-references', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newReference),
+        body: JSON.stringify({
+          projectScale: newReference.projectScale,
+          totalDurationDays: newReference.totalDurationDays,
+          phaseDurations,
+          resourceAllocation,
+        }),
       });
       if (!response.ok) {
         throw new Error(await response.text());
@@ -73,10 +110,17 @@ export default function TimelineReferencesPage() {
   const updateReference = async (reference: TimelineReference) => {
     setError('');
     try {
+      const phaseDurations = parseObject(reference.phaseDurationsText);
+      const resourceAllocation = parseObject(reference.resourceAllocationText);
       const response = await apiFetch(`/api/timeline-estimation-references/${reference.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reference),
+        body: JSON.stringify({
+          projectScale: reference.projectScale,
+          totalDurationDays: reference.totalDurationDays,
+          phaseDurations,
+          resourceAllocation,
+        }),
       });
       if (!response.ok) {
         throw new Error(await response.text());
@@ -102,76 +146,57 @@ export default function TimelineReferencesPage() {
     }
   };
 
-  const handleNewNumberChange = (key: keyof TimelineReferenceDraft, value: string) => {
-    const parsed = Number(value);
-    setNewReference(prev => ({ ...prev, [key]: Number.isNaN(parsed) ? 0 : parsed }));
-  };
-
-  const handleExistingNumberChange = (id: number, key: keyof TimelineReference, value: string) => {
-    const parsed = Number(value);
-    setReferences(prev =>
-      prev.map(ref =>
-        ref.id === id
-          ? {
-              ...ref,
-              [key]: Number.isNaN(parsed) ? 0 : parsed,
-            }
-          : ref
-      )
-    );
-  };
-
   return (
     <div className="page-container">
-      <h1>Timeline Duration Reference Table</h1>
+      <h1>Timeline Estimator References</h1>
       <p className="page-description">
-        Maintain the historical rules that teach the AI how to transform man-hours and resource counts into realistic calendar
-        durations for each phase.
+        Configure historical project scales, phase durations, and headcount patterns that the AI timeline estimator should rely on before
+        generating execution schedules.
       </p>
 
       <form className="card" onSubmit={handleSubmit} style={{ marginBottom: '24px' }}>
         <h2>Add New Reference</h2>
         <div className="form-grid">
           <label>
-            <span>Phase Name</span>
+            <span>Project Scale</span>
             <input
               className="form-input"
-              value={newReference.phaseName}
-              onChange={event => setNewReference(prev => ({ ...prev, phaseName: event.target.value }))}
-              placeholder="e.g., Application Development"
+              value={newReference.projectScale}
+              onChange={event => setNewReference(prev => ({ ...prev, projectScale: event.target.value }))}
+              placeholder="e.g., Short, Medium, Long"
               required
             />
           </label>
           <label>
-            <span>Total Man-Hours</span>
+            <span>Total Duration (Days)</span>
             <input
               className="form-input"
               type="number"
               min={1}
-              value={newReference.inputManHours}
-              onChange={event => handleNewNumberChange('inputManHours', event.target.value)}
+              value={newReference.totalDurationDays}
+              onChange={event => setNewReference(prev => ({ ...prev, totalDurationDays: Number(event.target.value) || 0 }))}
               required
             />
           </label>
-          <label>
-            <span>Resource Count</span>
-            <input
+          <label style={{ gridColumn: '1 / span 2' }}>
+            <span>Phase Durations (JSON Object)</span>
+            <textarea
               className="form-input"
-              type="number"
-              min={1}
-              value={newReference.inputResourceCount}
-              onChange={event => handleNewNumberChange('inputResourceCount', event.target.value)}
+              rows={4}
+              value={newReference.phaseDurationsText}
+              onChange={event => setNewReference(prev => ({ ...prev, phaseDurationsText: event.target.value }))}
+              placeholder='{"Discovery": 5, "Development": 15}'
               required
             />
           </label>
-          <label>
-            <span>Duration (Days)</span>
-            <input
+          <label style={{ gridColumn: '1 / span 2' }}>
+            <span>Resource Allocation (JSON Object)</span>
+            <textarea
               className="form-input"
-              type="number"
-              min={1}
-              value={newReference.outputDurationDays}
-              onChange={event => handleNewNumberChange('outputDurationDays', event.target.value)}
+              rows={4}
+              value={newReference.resourceAllocationText}
+              onChange={event => setNewReference(prev => ({ ...prev, resourceAllocationText: event.target.value }))}
+              placeholder='{"Dev": 4, "PM": 1}'
               required
             />
           </label>
@@ -188,16 +213,17 @@ export default function TimelineReferencesPage() {
 
       <div className="card table-wrapper">
         <h2>Existing References</h2>
+        {error && <p className="error-text">{error}</p>}
         {loading ? (
           <p>Loading reference data...</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Phase</th>
-                <th>Man-Hours</th>
-                <th>Resources</th>
-                <th>Duration (Days)</th>
+                <th>Project Scale</th>
+                <th>Total Duration (Days)</th>
+                <th>Phase Durations (JSON)</th>
+                <th>Resource Allocation (JSON)</th>
                 <th style={{ width: '160px' }}>Actions</th>
               </tr>
             </thead>
@@ -214,12 +240,17 @@ export default function TimelineReferencesPage() {
                     <td>
                       <input
                         className="form-input"
-                        value={reference.phaseName}
+                        value={reference.projectScale}
                         onChange={event =>
                           setReferences(prev =>
-                            prev.map(ref => (ref.id === reference.id ? { ...ref, phaseName: event.target.value } : ref))
+                            prev.map(ref =>
+                              ref.id === reference.id
+                                ? { ...ref, projectScale: event.target.value }
+                                : ref
+                            )
                           )
                         }
+                        required
                       />
                     </td>
                     <td>
@@ -227,33 +258,58 @@ export default function TimelineReferencesPage() {
                         className="form-input"
                         type="number"
                         min={1}
-                        value={reference.inputManHours}
-                        onChange={event => handleExistingNumberChange(reference.id, 'inputManHours', event.target.value)}
+                        value={reference.totalDurationDays}
+                        onChange={event =>
+                          setReferences(prev =>
+                            prev.map(ref =>
+                              ref.id === reference.id
+                                ? { ...ref, totalDurationDays: Number(event.target.value) || 0 }
+                                : ref
+                            )
+                          )
+                        }
+                        required
                       />
                     </td>
                     <td>
-                      <input
+                      <textarea
                         className="form-input"
-                        type="number"
-                        min={1}
-                        value={reference.inputResourceCount}
-                        onChange={event => handleExistingNumberChange(reference.id, 'inputResourceCount', event.target.value)}
+                        rows={4}
+                        value={reference.phaseDurationsText}
+                        onChange={event =>
+                          setReferences(prev =>
+                            prev.map(ref =>
+                              ref.id === reference.id
+                                ? { ...ref, phaseDurationsText: event.target.value }
+                                : ref
+                            )
+                          )
+                        }
+                        required
                       />
                     </td>
                     <td>
-                      <input
+                      <textarea
                         className="form-input"
-                        type="number"
-                        min={1}
-                        value={reference.outputDurationDays}
-                        onChange={event => handleExistingNumberChange(reference.id, 'outputDurationDays', event.target.value)}
+                        rows={4}
+                        value={reference.resourceAllocationText}
+                        onChange={event =>
+                          setReferences(prev =>
+                            prev.map(ref =>
+                              ref.id === reference.id
+                                ? { ...ref, resourceAllocationText: event.target.value }
+                                : ref
+                            )
+                          )
+                        }
+                        required
                       />
                     </td>
-                    <td style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn btn-primary" onClick={() => updateReference(reference)}>
+                    <td className="table-actions">
+                      <button type="button" className="btn btn-primary" onClick={() => updateReference(reference)}>
                         Save
                       </button>
-                      <button className="btn btn-danger" onClick={() => deleteReference(reference.id)}>
+                      <button type="button" className="btn btn-danger" onClick={() => deleteReference(reference.id)}>
                         Delete
                       </button>
                     </td>
@@ -263,7 +319,6 @@ export default function TimelineReferencesPage() {
             </tbody>
           </table>
         )}
-        {error && <p className="error">{error}</p>}
       </div>
     </div>
   );

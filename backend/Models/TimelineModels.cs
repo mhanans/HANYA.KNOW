@@ -12,11 +12,46 @@ public class TimelineAssessmentSummary
     public DateTime? LastModifiedAt { get; set; }
     public bool HasTimeline { get; set; }
     public DateTime? TimelineGeneratedAt { get; set; }
+    public bool HasTimelineEstimation { get; set; }
+    public DateTime? TimelineEstimationGeneratedAt { get; set; }
+    public string? TimelineEstimationScale { get; set; }
 }
 
 public class TimelineGenerationRequest
 {
     public int AssessmentId { get; set; }
+}
+
+public class TimelineEstimationRequest
+{
+    public int AssessmentId { get; set; }
+}
+
+public class TimelineEstimationRecord
+{
+    public int AssessmentId { get; set; }
+    public string ProjectName { get; set; } = string.Empty;
+    public string TemplateName { get; set; } = string.Empty;
+    public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+    public string ProjectScale { get; set; } = string.Empty;
+    public int TotalDurationDays { get; set; }
+    public List<TimelinePhaseEstimate> Phases { get; set; } = new();
+    public List<TimelineRoleEstimate> Roles { get; set; } = new();
+    public string SequencingNotes { get; set; } = string.Empty;
+}
+
+public class TimelinePhaseEstimate
+{
+    public string PhaseName { get; set; } = string.Empty;
+    public int DurationDays { get; set; }
+    public string SequenceType { get; set; } = "Serial";
+}
+
+public class TimelineRoleEstimate
+{
+    public string Role { get; set; } = string.Empty;
+    public double EstimatedHeadcount { get; set; }
+    public double TotalManDays { get; set; }
 }
 
 public class PresalesRole

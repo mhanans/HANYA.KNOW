@@ -76,7 +76,7 @@ All requests to the API must include an `X-API-KEY` header matching the `ApiKey`
 - Chat answers include numbered citations with relevance scores.
 - Documents can be tagged with categories for targeted queries; manage categories, upload new PDFs, analyze documents, and filter questions by category.
 - Submit and track support tickets with automatic AI-driven categorization and assignment to available PICs.
-- Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the Presales AI history table for reopening saved assessments, exporting bundles, or marking drafts as completed without opening the editor (see `docs/pre-sales-ai-project-assessment-engine.md`).
+- Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the Presales AI history table for reopening saved assessments, exporting bundles, or marking drafts as completed without opening the editor (see `docs/pre-sales-ai-project-assessment-engine.md`). The workspace now routes assessments through a **Timeline Estimator** service before timeline and cost generation: `Presales Workspace → Timeline Estimator → Timeline Generation → Estimated Cost Generation`. The estimator derives a structured timeline summary from assessment data using historical reference projects, so the total duration may differ from the sum of per-phase durations when phases run in parallel or overlap.
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.

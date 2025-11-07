@@ -1,0 +1,521 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
+using backend.Models;
+using Microsoft.Extensions.Logging;
+
+namespace backend.Services;
+
+public class TimelineEstimatorService
+{
+    private readonly ProjectAssessmentStore _assessments;
+    private readonly PresalesConfigurationStore _configurationStore;
+    private readonly TimelineEstimationReferenceStore _referenceStore;
+    private readonly TimelineEstimationStore _estimationStore;
+    private readonly LlmClient _llmClient;
+    private readonly ILogger<TimelineEstimatorService> _logger;
+
+    public TimelineEstimatorService(
+        ProjectAssessmentStore assessments,
+        PresalesConfigurationStore configurationStore,
+        TimelineEstimationReferenceStore referenceStore,
+        TimelineEstimationStore estimationStore,
+        LlmClient llmClient,
+        ILogger<TimelineEstimatorService> logger)
+    {
+        _assessments = assessments;
+        _configurationStore = configurationStore;
+        _referenceStore = referenceStore;
+        _estimationStore = estimationStore;
+        _llmClient = llmClient;
+        _logger = logger;
+    }
+
+    public async Task<TimelineEstimationRecord> GenerateAsync(
+        int assessmentId,
+        int? userId,
+        CancellationToken cancellationToken)
+    {
+        var assessment = await _assessments.GetAsync(assessmentId, userId).ConfigureAwait(false);
+        if (assessment == null)
+        {
+            throw new KeyNotFoundException($"Assessment {assessmentId} was not found.");
+        }
+
+        if (!string.Equals(assessment.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Timeline estimation requires a completed assessment.");
+        }
+
+        var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        var aggregatedTasks = AssessmentTaskAggregator.AggregateTasks(assessment);
+        if (aggregatedTasks.Count == 0)
+        {
+            throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline estimate.");
+        }
+
+        var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
+        var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
+        var references = await _referenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
+
+        var prompt = BuildEstimatorPrompt(assessment, aggregatedTasks, activityManDays, roleManDays, references);
+        string rawResponse = string.Empty;
+        TimelineEstimationRecord estimation;
+
+        try
+        {
+            rawResponse = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
+            var parsed = ParseAiEstimation(rawResponse);
+            estimation = MapFromAiResult(parsed);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "AI response for timeline estimation was not valid JSON. Falling back to heuristic estimation.");
+            estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "AI timeline estimation could not be parsed. Falling back to heuristic estimation.");
+            estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI timeline estimation failed. Falling back to heuristic estimation.");
+            estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
+        }
+
+        estimation.AssessmentId = assessmentId;
+        estimation.ProjectName = assessment.ProjectName;
+        estimation.TemplateName = assessment.TemplateName ?? string.Empty;
+        estimation.GeneratedAt = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(estimation.SequencingNotes))
+        {
+            estimation.SequencingNotes = "Total duration differs from summed phases due to assumed overlaps between phases.";
+        }
+
+        await _estimationStore.SaveAsync(estimation, cancellationToken).ConfigureAwait(false);
+        return estimation;
+    }
+
+    private TimelineEstimationRecord MapFromAiResult(AiTimelineEstimationResult result)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException("AI response did not contain an estimation result.");
+        }
+
+        var phases = (result.Phases ?? new List<AiPhaseEstimate>())
+            .Where(p => !string.IsNullOrWhiteSpace(p.PhaseName))
+            .Select(p => new TimelinePhaseEstimate
+            {
+                PhaseName = p.PhaseName.Trim(),
+                DurationDays = Math.Max(1, p.DurationDays),
+                SequenceType = NormaliseSequenceType(p.SequenceType)
+            })
+            .ToList();
+
+        var roles = (result.Roles ?? new List<AiRoleEstimate>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.Role))
+            .Select(r => new TimelineRoleEstimate
+            {
+                Role = r.Role.Trim(),
+                EstimatedHeadcount = Math.Round(Math.Max(0.1, r.EstimatedHeadcount), 2),
+                TotalManDays = Math.Round(Math.Max(0, r.TotalManDays), 2)
+            })
+            .ToList();
+
+        var totalDuration = Math.Max(1, result.TotalDurationDays);
+        return new TimelineEstimationRecord
+        {
+            ProjectScale = string.IsNullOrWhiteSpace(result.ProjectScale) ? "Unknown" : result.ProjectScale.Trim(),
+            TotalDurationDays = totalDuration,
+            Phases = phases,
+            Roles = roles,
+            SequencingNotes = result.SequencingNotes?.Trim() ?? string.Empty
+        };
+    }
+
+    private TimelineEstimationRecord BuildFallbackEstimate(
+        Dictionary<string, double> activityManDays,
+        Dictionary<string, double> roleManDays,
+        IReadOnlyList<TimelineEstimationReference> references)
+    {
+        var totalManDays = activityManDays.Values.Sum();
+        var projectScale = DetermineProjectScale(totalManDays, references);
+        var reference = references
+            .FirstOrDefault(r => string.Equals(r.ProjectScale, projectScale, StringComparison.OrdinalIgnoreCase))
+            ?? references.FirstOrDefault();
+
+        int totalDuration;
+        if (reference != null && reference.TotalDurationDays > 0)
+        {
+            var referencePhaseTotal = reference.PhaseDurations.Values.Sum();
+            var ratio = referencePhaseTotal > 0 ? totalManDays / referencePhaseTotal : 1;
+            ratio = double.IsFinite(ratio) ? Math.Clamp(ratio, 0.6, 1.6) : 1;
+            totalDuration = Math.Max(1, (int)Math.Round(reference.TotalDurationDays * ratio));
+        }
+        else
+        {
+            totalDuration = Math.Max(1, (int)Math.Ceiling(totalManDays));
+        }
+
+        var phases = BuildFallbackPhases(activityManDays, reference, totalDuration);
+        var roles = BuildFallbackRoles(roleManDays, totalDuration);
+        var sumPhaseDurations = phases.Sum(p => p.DurationDays);
+        var notes = BuildFallbackNotes(reference, totalDuration, sumPhaseDurations);
+
+        return new TimelineEstimationRecord
+        {
+            ProjectScale = projectScale,
+            TotalDurationDays = totalDuration,
+            Phases = phases,
+            Roles = roles,
+            SequencingNotes = notes
+        };
+    }
+
+    private static List<TimelinePhaseEstimate> BuildFallbackPhases(
+        Dictionary<string, double> activityManDays,
+        TimelineEstimationReference? reference,
+        int totalDuration)
+    {
+        if (activityManDays.Count == 0)
+        {
+            return new List<TimelinePhaseEstimate>
+            {
+                new()
+                {
+                    PhaseName = "Overall Delivery",
+                    DurationDays = totalDuration,
+                    SequenceType = "Serial"
+                }
+            };
+        }
+
+        var totalManDays = activityManDays.Values.Sum();
+        var hasOverlap = reference != null && reference.PhaseDurations.Values.Sum() > reference.TotalDurationDays;
+        var orderedActivities = activityManDays
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var phases = new List<TimelinePhaseEstimate>();
+
+        foreach (var (phaseName, manDays) in orderedActivities)
+        {
+            var share = totalManDays > 0 ? manDays / totalManDays : 1d / orderedActivities.Count;
+            var baseline = (int)Math.Max(1, Math.Round(totalDuration * share));
+            if (reference != null && reference.PhaseDurations.TryGetValue(phaseName, out var referenceDuration))
+            {
+                baseline = (int)Math.Max(1, Math.Round((baseline + referenceDuration) / 2d));
+            }
+
+            var sequenceType = InferSequenceType(phaseName, hasOverlap);
+            phases.Add(new TimelinePhaseEstimate
+            {
+                PhaseName = phaseName,
+                DurationDays = baseline,
+                SequenceType = sequenceType
+            });
+        }
+
+        return phases;
+    }
+
+    private static List<TimelineRoleEstimate> BuildFallbackRoles(
+        Dictionary<string, double> roleManDays,
+        int totalDuration)
+    {
+        var roles = new List<TimelineRoleEstimate>();
+        foreach (var (role, manDays) in roleManDays.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (manDays <= 0)
+            {
+                continue;
+            }
+
+            var headcount = totalDuration > 0 ? manDays / totalDuration : manDays;
+            if (headcount > 0 && headcount < 0.5)
+            {
+                headcount = 0.5;
+            }
+
+            roles.Add(new TimelineRoleEstimate
+            {
+                Role = role,
+                EstimatedHeadcount = Math.Round(headcount, 2),
+                TotalManDays = Math.Round(manDays, 2)
+            });
+        }
+
+        if (roles.Count == 0)
+        {
+            roles.Add(new TimelineRoleEstimate
+            {
+                Role = "General",
+                EstimatedHeadcount = Math.Max(1, totalDuration / 10d),
+                TotalManDays = Math.Round(Math.Max(1, totalDuration * 1.5), 2)
+            });
+        }
+
+        return roles;
+    }
+
+    private static string BuildFallbackNotes(
+        TimelineEstimationReference? reference,
+        int totalDuration,
+        int summedPhaseDurations)
+    {
+        var notes = new List<string>();
+        if (reference != null)
+        {
+            var referenceSum = reference.PhaseDurations.Values.Sum();
+            if (referenceSum != reference.TotalDurationDays)
+            {
+                notes.Add($"Historical {reference.ProjectScale} projects show phase overlap (sum {referenceSum}d vs total {reference.TotalDurationDays}d).");
+            }
+        }
+
+        if (summedPhaseDurations != totalDuration)
+        {
+            notes.Add($"Total duration ({totalDuration}d) differs from summed phases ({summedPhaseDurations}d) to account for parallel/subsequent work.");
+        }
+
+        if (notes.Count == 0)
+        {
+            notes.Add("Assuming primarily serial sequencing due to limited overlap data.");
+        }
+
+        return string.Join(" ", notes);
+    }
+
+    private static string DetermineProjectScale(
+        double totalManDays,
+        IReadOnlyList<TimelineEstimationReference> references)
+    {
+        if (references.Count > 0)
+        {
+            var ordered = references
+                .GroupBy(r => r.ProjectScale, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new
+                {
+                    Scale = group.Key,
+                    AverageDuration = group.Average(r => r.TotalDurationDays)
+                })
+                .OrderBy(entry => entry.AverageDuration)
+                .ToList();
+
+            if (ordered.Count > 0)
+            {
+                var normalized = totalManDays <= 0 ? ordered.First() : ordered.LastOrDefault(e => totalManDays >= e.AverageDuration) ?? ordered.Last();
+                return normalized.Scale ?? "Unknown";
+            }
+        }
+
+        if (totalManDays <= 60)
+        {
+            return "Short";
+        }
+
+        if (totalManDays <= 120)
+        {
+            return "Medium";
+        }
+
+        return "Long";
+    }
+
+    private static string InferSequenceType(string phaseName, bool hasOverlap)
+    {
+        if (!hasOverlap)
+        {
+            return phaseName.Contains("test", StringComparison.OrdinalIgnoreCase)
+                ? "Subsequent"
+                : "Serial";
+        }
+
+        if (phaseName.Contains("deploy", StringComparison.OrdinalIgnoreCase) || phaseName.Contains("launch", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Subsequent";
+        }
+
+        if (phaseName.Contains("plan", StringComparison.OrdinalIgnoreCase) || phaseName.Contains("prep", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Serial";
+        }
+
+        return "Parallel";
+    }
+
+    private string BuildEstimatorPrompt(
+        ProjectAssessment assessment,
+        Dictionary<string, (string DetailName, double ManDays)> tasks,
+        Dictionary<string, double> activityManDays,
+        Dictionary<string, double> roleManDays,
+        IReadOnlyList<TimelineEstimationReference> references)
+    {
+        var taskLines = tasks.Select(kvp =>
+            $"  - Task: \"{kvp.Key}\" => {kvp.Value.ManDays.ToString("F2", CultureInfo.InvariantCulture)} man-days");
+        var activityLines = activityManDays.Select(kvp =>
+            $"  - Phase: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
+        var roleLines = roleManDays.Select(kvp =>
+            $"  - Role: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
+        var referenceLines = (references ?? Array.Empty<TimelineEstimationReference>())
+            .OrderBy(r => r.ProjectScale, StringComparer.OrdinalIgnoreCase)
+            .Select(r =>
+            {
+                var phaseSummary = string.Join(", ", r.PhaseDurations
+                    .OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(k => $"{k.Key}: {k.Value}d"));
+                var resourceSummary = string.Join(", ", r.ResourceAllocation
+                    .OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(k => $"{k.Key}: {k.Value.ToString("F1", CultureInfo.InvariantCulture)}"));
+                return $"  - Scale {r.ProjectScale}: {phaseSummary} | Total: {r.TotalDurationDays}d | Resources: {resourceSummary}";
+            });
+
+        return $@"
+        You are an expert project planning AI. Based on the assessment data provided, generate an estimated timeline summary that will guide a downstream scheduling agent.
+
+        **Inputs:**
+        - Project: {assessment.ProjectName}
+        - Template: {assessment.TemplateName}
+        - Aggregated Task Effort:
+{string.Join("\n", taskLines)}
+        - Phase Effort Summary:
+{string.Join("\n", activityLines)}
+        - Role Effort Summary:
+{string.Join("\n", roleLines)}
+        - Historical Reference Table:
+{string.Join("\n", referenceLines)}
+
+        **Requirements:**
+        1. Determine the project scale (Long, Medium, Short) using both the total man-days and the historical reference table.
+        2. Provide duration (in days) for each phase. Highlight whether the phase is best handled Serial, Subsequent, or Parallel. Use 'Subsequent' when a phase starts only after another completes but can partially overlap. Use 'Parallel' when it runs concurrently.
+        3. Produce a total project duration in days. This value may differ from the sum of the individual phase durations because of overlaps or staging. Explicitly note this fact in the sequencing notes.
+        4. Estimate the headcount requirement per role (e.g. Dev, PM, BA) based on the man-days and your total duration. Include total man-days per role for traceability.
+        5. Output strictly valid minified JSON with the following structure and no surrounding text:
+           {{
+             ""projectScale"": ""Medium"",
+             ""totalDurationDays"": 45,
+             ""sequencingNotes"": ""Total shorter than sum because development and testing overlap by 5 days."",
+             ""phases"": [
+               {{ ""phaseName"": ""Discovery"", ""durationDays"": 5, ""sequenceType"": ""Serial"" }}
+             ],
+             ""roles"": [
+               {{ ""role"": ""Dev"", ""estimatedHeadcount"": 3.5, ""totalManDays"": 80 }}
+             ]
+           }}
+        ""sequenceType"" MUST be one of ""Serial"", ""Subsequent"", or ""Parallel"".
+        ""sequencingNotes"" must clearly mention if total duration differs from the sum of phase durations and why.
+        Return only the JSON object.";
+    }
+
+    private static AiTimelineEstimationResult ParseAiEstimation(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            throw new InvalidOperationException("AI returned an empty estimation response.");
+        }
+
+        var trimmed = response.Trim();
+        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineBreak = trimmed.IndexOf('\n');
+            if (firstLineBreak >= 0)
+            {
+                trimmed = trimmed[(firstLineBreak + 1)..];
+                var closingFenceIndex = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+                if (closingFenceIndex >= 0)
+                {
+                    trimmed = trimmed[..closingFenceIndex];
+                }
+            }
+        }
+
+        var firstBrace = trimmed.IndexOf('{');
+        var lastBrace = trimmed.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace >= firstBrace)
+        {
+            trimmed = trimmed.Substring(firstBrace, lastBrace - firstBrace + 1);
+        }
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        var result = JsonSerializer.Deserialize<AiTimelineEstimationResult>(trimmed, options);
+        if (result == null)
+        {
+            throw new InvalidOperationException("Failed to deserialize AI estimation result.");
+        }
+
+        return result;
+    }
+
+    private static string NormaliseSequenceType(string? sequenceType)
+    {
+        if (string.IsNullOrWhiteSpace(sequenceType))
+        {
+            return "Serial";
+        }
+
+        var value = sequenceType.Trim();
+        if (value.Equals("Parallel", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Parallel";
+        }
+
+        if (value.Equals("Subsequent", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Subsequent";
+        }
+
+        return "Serial";
+    }
+
+    private sealed class AiTimelineEstimationResult
+    {
+        [JsonPropertyName("projectScale")]
+        public string ProjectScale { get; set; } = string.Empty;
+
+        [JsonPropertyName("totalDurationDays")]
+        public int TotalDurationDays { get; set; }
+
+        [JsonPropertyName("sequencingNotes")]
+        public string SequencingNotes { get; set; } = string.Empty;
+
+        [JsonPropertyName("phases")]
+        public List<AiPhaseEstimate> Phases { get; set; } = new();
+
+        [JsonPropertyName("roles")]
+        public List<AiRoleEstimate> Roles { get; set; } = new();
+    }
+
+    private sealed class AiPhaseEstimate
+    {
+        [JsonPropertyName("phaseName")]
+        public string PhaseName { get; set; } = string.Empty;
+
+        [JsonPropertyName("durationDays")]
+        public int DurationDays { get; set; }
+
+        [JsonPropertyName("sequenceType")]
+        public string SequenceType { get; set; } = "Serial";
+    }
+
+    private sealed class AiRoleEstimate
+    {
+        [JsonPropertyName("role")]
+        public string Role { get; set; } = string.Empty;
+
+        [JsonPropertyName("estimatedHeadcount")]
+        public double EstimatedHeadcount { get; set; }
+
+        [JsonPropertyName("totalManDays")]
+        public double TotalManDays { get; set; }
+    }
+}

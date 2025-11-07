@@ -318,11 +318,20 @@ CREATE INDEX IF NOT EXISTS idx_assessment_timeline_attempts_assessment_id
 
 CREATE TABLE IF NOT EXISTS timeline_estimation_references (
     id SERIAL PRIMARY KEY,
-    phase_name TEXT NOT NULL,
-    input_man_hours INT NOT NULL CHECK (input_man_hours > 0),
-    input_resource_count INT NOT NULL CHECK (input_resource_count > 0),
-    output_duration_days INT NOT NULL CHECK (output_duration_days > 0),
-    UNIQUE (phase_name, input_man_hours, input_resource_count)
+    project_scale TEXT NOT NULL CHECK (project_scale <> ''),
+    phase_durations JSONB NOT NULL,
+    total_duration_days INT NOT NULL CHECK (total_duration_days > 0),
+    resource_allocation JSONB NOT NULL,
+    CHECK (json_typeof(phase_durations) = 'object'),
+    CHECK (json_typeof(resource_allocation) = 'object')
+);
+
+CREATE TABLE IF NOT EXISTS assessment_timeline_estimations (
+    assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    estimation_data JSONB NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS cost_estimations (
