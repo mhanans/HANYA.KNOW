@@ -640,6 +640,12 @@ public class ProjectAssessmentAnalysisService
                 return false;
             }
 
+            foreach (var normalized in normalizedItems)
+            {
+                normalized.Diagnostics = null;
+                normalized.IsNeeded ??= true;
+            }
+
             analysis.Items = normalizedItems;
             serializedResult = JsonSerializer.Serialize(analysis, _serializationOptions);
             return true;
