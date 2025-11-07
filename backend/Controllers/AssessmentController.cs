@@ -4,11 +4,13 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using backend.Models;
+using backend.Models.Configuration;
 using backend.Middleware;
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace backend.Controllers;
 
@@ -22,6 +24,7 @@ public class AssessmentController : ControllerBase
     private readonly AssessmentBundleExportService _bundleExport;
     private readonly VectorStore _vectorStore;
     private readonly ILogger<AssessmentController> _logger;
+    private readonly PresalesWorkflowOptions _workflowOptions;
 
     public AssessmentController(
         ProjectTemplateStore templates,
@@ -29,6 +32,7 @@ public class AssessmentController : ControllerBase
         ProjectAssessmentAnalysisService analysisService,
         AssessmentBundleExportService bundleExport,
         VectorStore vectorStore,
+        IOptions<PresalesWorkflowOptions> workflowOptions,
         ILogger<AssessmentController> logger)
     {
         _templates = templates;
@@ -36,6 +40,7 @@ public class AssessmentController : ControllerBase
         _analysisService = analysisService;
         _bundleExport = bundleExport;
         _vectorStore = vectorStore;
+        _workflowOptions = workflowOptions?.Value ?? new PresalesWorkflowOptions();
         _logger = logger;
     }
 
@@ -70,7 +75,29 @@ public class AssessmentController : ControllerBase
             referenceAssessments = await _assessments.GetByIdsAsync(request.ReferenceAssessmentIds, userIdValue);
         }
 
+        var defaultReferenceId = _workflowOptions.DefaultReferenceAssessmentId;
+        var hasConfiguredDefault = defaultReferenceId.HasValue && defaultReferenceId.Value > 0;
+
         if (referenceAssessments == null || referenceAssessments.Count == 0)
+        {
+            if (hasConfiguredDefault)
+            {
+                var defaultReference = await _assessments.GetAsync(defaultReferenceId!.Value, userId: null);
+                if (defaultReference != null)
+                {
+                    referenceAssessments = new List<ProjectAssessment> { defaultReference };
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Configured default reference assessment {DefaultReferenceId} was not found. Continuing without default references.",
+                        defaultReferenceId.Value);
+                    referenceAssessments = Array.Empty<ProjectAssessment>();
+                }
+            }
+        }
+
+        if ((referenceAssessments == null || referenceAssessments.Count == 0) && !hasConfiguredDefault)
         {
             referenceAssessments = await _assessments.GetRecentAsync(userIdValue, limit: 3);
         }
