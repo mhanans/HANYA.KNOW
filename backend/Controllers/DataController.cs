@@ -117,7 +117,7 @@ namespace backend.Controllers;
                 row++;
             }
             var prompt = $"You are a data analyst. Given the following table data:\n{sb}\nQuestion: {req.Query}";
-            var answer = await _llm.GenerateAsync(prompt);
+            var answer = await _llm.GenerateAsync(prompt, AiProcesses.DataAnswering);
             return Ok(new { answer });
         }
         catch (Exception ex)
@@ -165,7 +165,7 @@ namespace backend.Controllers;
             }
             reader.Close();
             var prompt = $"You are a data analyst. Given the following data:\n{sb}\nQuestion: {query}";
-            var answer = await _llm.GenerateAsync(prompt);
+            var answer = await _llm.GenerateAsync(prompt, AiProcesses.DataAnalysis);
             return Ok(new { answer });
         }
         catch (Exception ex)

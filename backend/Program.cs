@@ -123,6 +123,8 @@ builder.Services.AddSingleton<CostEstimationService>();
 builder.Services.AddSingleton<AssessmentBundleExportService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<KnowledgeBaseIngestionService>());
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
+builder.Services.Configure<AiProviderOptions>(builder.Configuration.GetSection("AiProviders"));
+builder.Services.AddSingleton<AiProviderResolver>();
 builder.Services.AddHttpClient<LlmClient>((sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<LlmOptions>>().Value;

@@ -7,32 +7,29 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace backend.Services;
 
 public class LlmClient
 {
     private readonly HttpClient _http;
-    private readonly LlmOptions _options;
     private readonly ILogger<LlmClient> _logger;
-    private readonly SettingsStore _settings;
+    private readonly AiProviderResolver _resolver;
 
-    public LlmClient(HttpClient http, IOptions<LlmOptions> options, ILogger<LlmClient> logger, SettingsStore settings)
+    public LlmClient(HttpClient http, ILogger<LlmClient> logger, AiProviderResolver resolver)
     {
         _http = http;
-        _options = options.Value;
         _logger = logger;
-        _settings = settings;
+        _resolver = resolver;
     }
 
-    public Task<string> GenerateAsync(string prompt)
-        => GenerateAsync(new[] { new ChatMessage("user", prompt) });
+    public Task<string> GenerateAsync(string prompt, string? process = null)
+        => GenerateAsync(new[] { new ChatMessage("user", prompt) }, process);
 
-    public async Task<string> GenerateAsync(IEnumerable<ChatMessage> messages)
+    public async Task<string> GenerateAsync(IEnumerable<ChatMessage> messages, string? process = null)
     {
         var messageList = messages.ToList();
-        var effective = await GetEffectiveOptionsAsync();
+        var effective = await _resolver.ResolveAsync(process).ConfigureAwait(false);
         var provider = effective.Provider.ToLowerInvariant();
 
         return provider switch
@@ -44,13 +41,13 @@ public class LlmClient
         };
     }
 
-    public IAsyncEnumerable<string> GenerateStreamAsync(string prompt)
-        => GenerateStreamAsync(new[] { new ChatMessage("user", prompt) });
+    public IAsyncEnumerable<string> GenerateStreamAsync(string prompt, string? process = null)
+        => GenerateStreamAsync(new[] { new ChatMessage("user", prompt) }, process);
 
-    public async IAsyncEnumerable<string> GenerateStreamAsync(IEnumerable<ChatMessage> messages)
+    public async IAsyncEnumerable<string> GenerateStreamAsync(IEnumerable<ChatMessage> messages, string? process = null)
     {
         var messageList = messages.ToList();
-        var effective = await GetEffectiveOptionsAsync();
+        var effective = await _resolver.ResolveAsync(process).ConfigureAwait(false);
         var provider = effective.Provider.ToLowerInvariant();
 
         if (provider is "gemini" or "ollama")
@@ -66,13 +63,13 @@ public class LlmClient
             ? "https://api.minimax.io/v1"
             : "https://api.openai.com/v1";
         var validator = provider == "minimax"
-            ? (Action<LlmOptions>)ValidateMiniMaxOptions
+            ? (Action<ResolvedAiProvider>)ValidateMiniMaxOptions
             : ValidateOpenAiOptions;
 
         validator(effective);
 
         var req = new HttpRequestMessage(HttpMethod.Post, $"{apiUrl}/chat/completions");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", effective.ApiKey);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", effective.ApiKey!);
         req.Content = JsonContent.Create(new
         {
             model = effective.Model,
@@ -106,34 +103,7 @@ public class LlmClient
         }
     }
 
-    private async Task<LlmOptions> GetEffectiveOptionsAsync()
-    {
-        var settings = await _settings.GetAsync();
-        var provider = string.IsNullOrWhiteSpace(settings.LlmProvider)
-            ? _options.Provider
-            : settings.LlmProvider;
-        var model = string.IsNullOrWhiteSpace(settings.LlmModel)
-            ? _options.Model
-            : settings.LlmModel;
-        var apiKey = string.IsNullOrEmpty(settings.LlmApiKey)
-            ? _options.ApiKey
-            : settings.LlmApiKey;
-        var host = string.IsNullOrWhiteSpace(settings.OllamaHost)
-            ? _options.OllamaHost
-            : settings.OllamaHost;
-
-        return new LlmOptions
-        {
-            Provider = string.IsNullOrWhiteSpace(provider) ? "openai" : provider,
-            Model = model ?? string.Empty,
-            ApiKey = apiKey ?? string.Empty,
-            OllamaHost = host ?? string.Empty,
-            MaxRetries = _options.MaxRetries,
-            TimeoutSeconds = _options.TimeoutSeconds
-        };
-    }
-
-    private static void ValidateOpenAiOptions(LlmOptions options)
+    private static void ValidateOpenAiOptions(ResolvedAiProvider options)
     {
         if (string.IsNullOrWhiteSpace(options.ApiKey))
             throw new InvalidOperationException("OpenAI API key is not configured.");
@@ -141,7 +111,7 @@ public class LlmClient
             throw new InvalidOperationException("OpenAI model is not configured.");
     }
 
-    private static void ValidateMiniMaxOptions(LlmOptions options)
+    private static void ValidateMiniMaxOptions(ResolvedAiProvider options)
     {
         if (string.IsNullOrWhiteSpace(options.ApiKey))
             throw new InvalidOperationException("MiniMax API key is not configured.");
@@ -149,7 +119,7 @@ public class LlmClient
             throw new InvalidOperationException("MiniMax model is not configured.");
     }
 
-    private static void ValidateGeminiOptions(LlmOptions options)
+    private static void ValidateGeminiOptions(ResolvedAiProvider options)
     {
         if (string.IsNullOrWhiteSpace(options.ApiKey))
             throw new InvalidOperationException("Gemini API key is not configured.");
@@ -157,35 +127,35 @@ public class LlmClient
             throw new InvalidOperationException("Gemini model is not configured.");
     }
 
-    private static void ValidateOllamaOptions(LlmOptions options)
+    private static void ValidateOllamaOptions(ResolvedAiProvider options)
     {
         if (string.IsNullOrWhiteSpace(options.Model))
             throw new InvalidOperationException("Ollama model is not configured.");
-        if (string.IsNullOrWhiteSpace(options.OllamaHost))
+        if (string.IsNullOrWhiteSpace(options.Host))
             throw new InvalidOperationException("Ollama host is not configured.");
-        if (!Uri.TryCreate(options.OllamaHost, UriKind.Absolute, out var uri) ||
+        if (!Uri.TryCreate(options.Host, UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
             throw new InvalidOperationException("Ollama host must be an absolute HTTP or HTTPS URL.");
         }
     }
 
-    private Task<string> CallOpenAiAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
+    private Task<string> CallOpenAiAsync(IEnumerable<ChatMessage> messages, ResolvedAiProvider options)
         => CallOpenAiCompatibleAsync("https://api.openai.com/v1", messages, options, ValidateOpenAiOptions);
 
-    private Task<string> CallMiniMaxAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
+    private Task<string> CallMiniMaxAsync(IEnumerable<ChatMessage> messages, ResolvedAiProvider options)
         => CallOpenAiCompatibleAsync("https://api.minimax.io/v1", messages, options, ValidateMiniMaxOptions);
 
     private async Task<string> CallOpenAiCompatibleAsync(
         string baseUrl,
         IEnumerable<ChatMessage> messages,
-        LlmOptions options,
-        Action<LlmOptions> validator)
+        ResolvedAiProvider options,
+        Action<ResolvedAiProvider> validator)
     {
         validator(options);
 
         var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey!);
         req.Content = JsonContent.Create(new
         {
             model = options.Model,
@@ -197,7 +167,7 @@ public class LlmClient
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
     }
 
-    private async Task<string> CallGeminiAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
+    private async Task<string> CallGeminiAsync(IEnumerable<ChatMessage> messages, ResolvedAiProvider options)
     {
         ValidateGeminiOptions(options);
 
@@ -342,11 +312,11 @@ public class LlmClient
             $"Connection to Gemini API failed after {options.MaxRetries} attempts. Please check connection to API server.");
     }
 
-    private async Task<string> CallOllamaAsync(IEnumerable<ChatMessage> messages, LlmOptions options)
+    private async Task<string> CallOllamaAsync(IEnumerable<ChatMessage> messages, ResolvedAiProvider options)
     {
         ValidateOllamaOptions(options);
 
-        var baseUri = new Uri(options.OllamaHost, UriKind.Absolute);
+        var baseUri = new Uri(options.Host!, UriKind.Absolute);
         var url = new Uri(baseUri, "/api/chat");
 
         var res = await _http.PostAsJsonAsync(url, new

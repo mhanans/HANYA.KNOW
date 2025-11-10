@@ -111,7 +111,7 @@ public class RecommendationController : ControllerBase
             .AppendLine("CVs:")
             .AppendLine(context)
             .ToString();
-        return await _llm.GenerateAsync(prompt);
+        return await _llm.GenerateAsync(prompt, AiProcesses.RecommendationSummary);
     }
 
     private async Task<string> SummarizeCandidatesAsync(string raw)
@@ -121,7 +121,7 @@ public class RecommendationController : ControllerBase
             .AppendLine("If not possible, return an empty array.")
             .AppendLine(raw)
             .ToString();
-        var json = (await _llm.GenerateAsync(prompt)).Trim();
+        var json = (await _llm.GenerateAsync(prompt, AiProcesses.RecommendationExtraction)).Trim();
 
         if (json.StartsWith("```"))
         {

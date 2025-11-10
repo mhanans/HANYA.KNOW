@@ -53,7 +53,7 @@ Detail: {ticket.Detail}";
         string summaryJson = string.Empty;
         try
         {
-            raw = await _llm.GenerateAsync(prompt);
+            raw = await _llm.GenerateAsync(prompt, AiProcesses.TicketAutoAssignment);
             try { summaryJson = await SummarizeAsync(raw); } catch { }
             await _results.AddAsync(ticket.Id, raw, summaryJson);
 
@@ -198,7 +198,7 @@ Detail: {ticket.Detail}";
             .AppendLine("If not possible, return an empty object.")
             .AppendLine(raw)
             .ToString();
-        var json = (await _llm.GenerateAsync(prompt)).Trim();
+        var json = (await _llm.GenerateAsync(prompt, AiProcesses.TicketSummary)).Trim();
 
         if (json.StartsWith("```"))
         {

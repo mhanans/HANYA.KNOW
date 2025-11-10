@@ -79,7 +79,7 @@ public class TimelineGenerationService
         AiTimelineResult aiTimeline;
         try
         {
-            rawResponse = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
+            rawResponse = await _llmClient.GenerateAsync(prompt, AiProcesses.TimelineGeneration).ConfigureAwait(false);
             aiTimeline = ParseAiTimeline(rawResponse);
         }
         catch (JsonException ex)

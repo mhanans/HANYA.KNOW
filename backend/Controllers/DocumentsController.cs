@@ -62,7 +62,7 @@ public class DocumentsController : ControllerBase
         string summary;
         try
         {
-            summary = await _llm.GenerateAsync(prompt);
+            summary = await _llm.GenerateAsync(prompt, AiProcesses.DocumentSummary);
         }
         catch (Exception ex)
         {
