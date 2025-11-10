@@ -1525,6 +1525,13 @@ public class ProjectAssessmentAnalysisService
         }
 
         instructionsBuilder.Append(" Apply the effective estimation policy provided in the context and keep estimates conservative and auditable.");
+        instructionsBuilder.AppendLine();
+        instructionsBuilder.AppendLine("Critical Flaw to Correct: Do not calculate a single total effort and apply it to every column. Instead, analyze the work required for each item and distribute effort only among the roles that actually contribute to that work.");
+        instructionsBuilder.AppendLine("New Estimation Thought Process (follow these steps for each item):");
+        instructionsBuilder.AppendLine("1. Analyze the Task: Review itemName and itemDetail to understand the nature and scope of the work.");
+        instructionsBuilder.AppendLine("2. Identify Involved Roles: Determine which estimation columns correspond to the roles needed (e.g., UI or frontend implies FE and Requirement; database or API implies BE, Requirement, and possibly Architect or Setup; UAT or acceptance scripts imply Business Analyst or QA).");
+        instructionsBuilder.AppendLine("3. Distribute Effort: Estimate the total hours required based on complexity, then allocate those hours proportionally across the relevant columns you identified.");
+        instructionsBuilder.AppendLine("4. Set Irrelevant Columns to Zero: Any column without an involved role must be assigned 0 hours for that item.");
 
         instructionsBuilder.Append(' ');
         instructionsBuilder.Append(outputLanguage == AssessmentLanguage.Indonesian
@@ -1534,6 +1541,9 @@ public class ProjectAssessmentAnalysisService
         var rules = string.Join(Environment.NewLine, new[]
         {
             "Rules:",
+            "- (CRITICAL RULE) Your primary task is to distribute effort. For each item, determine the relevant EstimationColumns based on the work described. Assign effort hours ONLY to these relevant columns. All other columns for that item MUST be 0.",
+            "- The sum of the hours across all columns for an item should reflect its total complexity.",
+            "- Analyze ItemName and ItemDetail to infer roles. 'UI' implies FE Developer. 'Database' or 'API' implies BE Developer. 'Requirement' implies Business Analyst. 'Test Scenario' implies QA/Analyst.",
             "- Assign sizeClass ∈ {XS,S,M,L,XL} based on scope; prefer smaller class when ambiguous.",
             "- Use band hours by category (XS,S,M,L,XL) and proposed multipliers. Do NOT exceed referenceMedian×1.10 unless strong justification with justificationScore ≥ 0.7.",
             "- For ‘Adjust Existing UI’ or ‘Adjust Existing Logic’, cap size at M unless justificationScore ≥ 0.7 with explicit reason.",
@@ -1541,9 +1551,31 @@ public class ProjectAssessmentAnalysisService
             "- Respond ONLY JSON object: { \"items\":[ ... ] } with numbers in hours (decimals allowed). No markdown.",
         });
 
+        var examples = string.Join(Environment.NewLine, new[]
+        {
+            "Examples of Correct vs. Incorrect Output:",
+            "Example 1: UI-heavy Task",
+            "Item: ItemId: \"2A.1\", ItemName: \"User Registration UI\"",
+            "Estimation Columns: [\"Requirement\", \"SIT\", \"Setup\", \"BE\", \"FE\"]",
+            "INCORRECT (Current Behavior): {\"Requirement\": 12, \"SIT\": 12, \"Setup\": 12, \"BE\": 12, \"FE\": 12}",
+            "CORRECT (Desired Behavior): {\"Requirement\": 1, \"SIT\": 2, \"Setup\": 0, \"BE\": 4, \"FE\": 8}",
+            "Justification: 1 hour for BA requirement, 8 hours for FE to build the UI, 4 hours for BE to create/adjust the endpoint, 2 hours for QA to test in SIT. Setup is not involved, so it's 0.",
+            "Example 2: Architect-specific Task",
+            "Item: ItemId: \"1.1\", ItemName: \"System Setup\"",
+            "Estimation Columns: [\"Requirement\", \"SIT\", \"Setup\", \"BE\", \"FE\"]",
+            "INCORRECT (Current Behavior): {\"Requirement\": 4, \"SIT\": 4, \"Setup\": 4, \"BE\": 4, \"FE\": 4}",
+            "CORRECT (Desired Behavior): {\"Requirement\": 0, \"SIT\": 0, \"Setup\": 4, \"BE\": 0, \"FE\": 0}",
+            "Justification: This is a pure setup task performed by an Architect. No other roles are involved.",
+            "Example 3: Backend-heavy Task",
+            "Item: ItemId: \"custom-1\", ItemName: \"Payment Gateway Integration\"",
+            "Estimation Columns: [\"Requirement\", \"SIT\", \"Setup\", \"BE\", \"FE\"]",
+            "CORRECT (Desired Behavior): {\"Requirement\": 4, \"SIT\": 8, \"Setup\": 0, \"BE\": 24, \"FE\": 2}",
+            "Justification: This is a complex backend task. Significant time for BA requirements and QA testing (SIT). Minimal FE work is needed to connect the UI."
+        });
+
         var estimationGuidance = "Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras(upload/auth/workflow). Server may normalize.";
 
-        return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{estimationGuidance}";
+        return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{examples}{Environment.NewLine}{estimationGuidance}";
     }
 
     private static string BuildMiniMaxUserPrompt(string instructions, string? additionalContent, string label = "Scope Document")
