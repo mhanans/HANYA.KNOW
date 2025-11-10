@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -511,8 +512,13 @@ public class TimelineGenerationService
             })
             .ToList();
 
-        var taskDetailsForPrompt = columnMetadata.Select(meta =>
-            $"  - Estimation Column: \"{meta.Column}\" => {meta.ManDays.ToString(\"F2\", CultureInfo.InvariantCulture)} man-days | Roles: \"{meta.ActorString}\" | Activities: \"{meta.ActivitySummary}\"");
+        var taskDetailsForPrompt = columnMetadata.Select(meta => string.Format(
+            CultureInfo.InvariantCulture,
+            "  - Estimation Column: \"{0}\" => {1:F2} man-days | Roles: \"{2}\" | Activities: \"{3}\"",
+            meta.Column,
+            meta.ManDays,
+            meta.ActorString,
+            meta.ActivitySummary));
 
         var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
         var phaseSummaries = activityManDays
@@ -574,71 +580,86 @@ public class TimelineGenerationService
                 $"    - {r.Role}: {r.EstimatedHeadcount.ToString(\"F1\", CultureInfo.InvariantCulture)} headcount (Total Man-Days: {r.TotalManDays.ToString(\"F1\", CultureInfo.InvariantCulture)})")
             .DefaultIfEmpty("    - (No role guidance available.)");
 
-        var estimatorSummaryText = $@"
-        **TIMELINE ESTIMATOR SUMMARY:**
-        - Project Scale: {estimation.ProjectScale}
-        - Total Duration Target: {estimation.TotalDurationDays} days
-        - Sequencing Guidance: {estimation.SequencingNotes}
-{string.Join("\n", estimatorPhaseLines)}
+        var estimatorSummaryLines = new List<string>
+        {
+            "        **TIMELINE ESTIMATOR SUMMARY:**",
+            $"        - Project Scale: {estimation.ProjectScale}",
+            $"        - Total Duration Target: {estimation.TotalDurationDays} days",
+            $"        - Sequencing Guidance: {estimation.SequencingNotes ?? string.Empty}".TrimEnd()
+        };
 
-        **RESOURCE HEADCOUNT GUIDANCE:**
-{string.Join("\n", estimatorRoleLines)}
-        ";
+        estimatorSummaryLines.AddRange(estimatorPhaseLines);
+        estimatorSummaryLines.Add(string.Empty);
+        estimatorSummaryLines.Add("        **RESOURCE HEADCOUNT GUIDANCE:**");
+        estimatorSummaryLines.AddRange(estimatorRoleLines);
+
+        var estimatorSummaryText = string.Join(Environment.NewLine, estimatorSummaryLines);
 
         var allRoles = config.Roles.Select(r => $"\"{r.RoleName}\"").ToList();
 
-        return $@"
-        You are an expert Project Management AI. Your task is to generate a detailed, day-based project schedule in a specific JSON format based on a list of tasks.
+        var promptBuilder = new StringBuilder();
 
-        **CRITICAL INSTRUCTIONS:**
-        1.  **START WITH THE TIMELINE ESTIMATOR SUMMARY:** Respect the project scale, total duration target, sequencing notes, and phase durations estimated by the Timeline Estimator. The final schedule's total duration must stay aligned with the estimator's target. If you adjust a phase duration, justify it by referencing the estimator's sequencing guidance.
-        2.  **REFERENCE HISTORICAL DATA:** Use the 'Reference Table for Duration Estimation' below to validate or refine each phase duration. When the estimator's phase duration differs from the summed activity durations, prefer the estimator guidance and explain overlaps via task start dates.
-        2.  **UNIT IS DAYS:** The entire schedule is based on a sequence of working days (Day 1, Day 2, ...).
-        3.  **SCHEDULING RULES:**
-            - Honour the estimator's sequencing: phases marked 'Serial' must not overlap; 'Subsequent' phases may have limited overlap when justified; 'Parallel' phases should overlap to reflect concurrent work.
-            - Tasks ('Task') within the same phase may overlap when it shortens the schedule, but the overall phase length should remain aligned with the estimator's guidance and reference durations.
-            - If a task requires more man-days than its duration, assume multiple team members with the same role can work in parallel. Choose a duration that reflects the headcount you assign (e.g., 6 man-days with 3 available Devs can be finished in 2 days).
-        4.  **DURATION LOGIC:** Within each phase, set each task's `durationDays` so that the phase's total span respects the estimator duration. When necessary, use the reference table to pick realistic durations. Use `max(1, CEILING(ManDays / headcountAssignedForThatTask))` to size individual tasks, and stretch or overlap tasks as needed to fit the phase duration.
-        5.  **RESOURCE ALLOCATION (HEADCOUNT PER DAY):**
-            - The `dailyEffort` array for each role must contain one number per project day (`totalDurationDays`).
-            - Each entry represents the number of people for that role on that day (values like 0, 0.5, 1, 2, ... are valid).
-            - When multiple actors share a task, divide the task's daily man-days evenly among them.
-            - Aim to mirror the estimator's headcount guidance. **SPECIAL RULE:** 'PM' and 'Architect' roles must appear with at least 0.5 effort from Day 1 until the project ends.
-        6.  **JSON OUTPUT:** You MUST return ONLY a single, minified JSON object with NO commentary or explanations. The structure must be EXACTLY as follows.
+        promptBuilder.AppendLine("You are an expert Project Management AI. Your task is to generate a detailed, day-based project schedule in a specific JSON format based on a list of tasks.");
+        promptBuilder.AppendLine();
+        promptBuilder.AppendLine("**CRITICAL INSTRUCTIONS:**");
+        promptBuilder.AppendLine("1.  **START WITH THE TIMELINE ESTIMATOR SUMMARY:** Respect the project scale, total duration target, sequencing notes, and phase durations estimated by the Timeline Estimator. The final schedule's total duration must stay aligned with the estimator's target. If you adjust a phase duration, justify it by referencing the estimator's sequencing guidance.");
+        promptBuilder.AppendLine("2.  **REFERENCE HISTORICAL DATA:** Use the 'Reference Table for Duration Estimation' below to validate or refine each phase duration. When the estimator's phase duration differs from the summed activity durations, prefer the estimator guidance and explain overlaps via task start dates.");
+        promptBuilder.AppendLine("3.  **UNIT IS DAYS:** The entire schedule is based on a sequence of working days (Day 1, Day 2, ...).");
+        promptBuilder.AppendLine("4.  **SCHEDULING RULES:**");
+        promptBuilder.AppendLine("    - Honour the estimator's sequencing: phases marked 'Serial' must not overlap; 'Subsequent' phases may have limited overlap when justified; 'Parallel' phases should overlap to reflect concurrent work.");
+        promptBuilder.AppendLine("    - Tasks ('Task') within the same phase may overlap when it shortens the schedule, but the overall phase length should remain aligned with the estimator's guidance and reference durations.");
+        promptBuilder.AppendLine("    - If a task requires more man-days than its duration, assume multiple team members with the same role can work in parallel. Choose a duration that reflects the headcount you assign (e.g., 6 man-days with 3 available Devs can be finished in 2 days).");
+        promptBuilder.AppendLine("5.  **DURATION LOGIC:** Within each phase, set each task's `durationDays` so that the phase's total span respects the estimator duration. When necessary, use the reference table to pick realistic durations. Use `max(1, CEILING(ManDays / headcountAssignedForThatTask))` to size individual tasks, and stretch or overlap tasks as needed to fit the phase duration.");
+        promptBuilder.AppendLine("6.  **RESOURCE ALLOCATION (HEADCOUNT PER DAY):**");
+        promptBuilder.AppendLine("    - The `dailyEffort` array for each role must contain one number per project day (`totalDurationDays`).");
+        promptBuilder.AppendLine("    - Each entry represents the number of people for that role on that day (values like 0, 0.5, 1, 2, ... are valid).");
+        promptBuilder.AppendLine("    - When multiple actors share a task, divide the task's daily man-days evenly among them.");
+        promptBuilder.AppendLine("    - Aim to mirror the estimator's headcount guidance. **SPECIAL RULE:** 'PM' and 'Architect' roles must appear with at least 0.5 effort from Day 1 until the project ends.");
+        promptBuilder.AppendLine("7.  **JSON OUTPUT:** You MUST return ONLY a single, minified JSON object with NO commentary or explanations. The structure must be EXACTLY as follows.");
+        promptBuilder.AppendLine();
 
-        **TIMELINE ESTIMATOR DATA:**
-{estimatorSummaryText}
+        promptBuilder.AppendLine("**TIMELINE ESTIMATOR DATA:**");
+        promptBuilder.AppendLine(estimatorSummaryText);
+        promptBuilder.AppendLine();
 
-        **Reference Table for Duration Estimation:**
-{referenceTableText}
+        promptBuilder.AppendLine("**Reference Table for Duration Estimation:**");
+        promptBuilder.AppendLine(referenceTableText);
+        promptBuilder.AppendLine();
 
-        **PHASE SUMMARIES (match to the reference table):**
-{phaseSummaryText}
+        promptBuilder.AppendLine("**PHASE SUMMARIES (match to the reference table):**");
+        promptBuilder.AppendLine(phaseSummaryText);
+        promptBuilder.AppendLine();
 
-        **TASK LIST:**
-        {string.Join("\n", taskDetailsForPrompt)}
+        promptBuilder.AppendLine("**TASK LIST:**");
+        foreach (var taskDetail in taskDetailsForPrompt)
+        {
+            promptBuilder.AppendLine(taskDetail);
+        }
+        promptBuilder.AppendLine();
 
-        **ROLE LIST:**
-        [{string.Join(", ", allRoles)}]
+        promptBuilder.AppendLine("**ROLE LIST:**");
+        promptBuilder.AppendLine($"[{string.Join(", ", allRoles)}]");
+        promptBuilder.AppendLine();
 
-        **JSON OUTPUT STRUCTURE:**
-        {{
-          ""totalDurationDays"": <number>,
-          ""activities"": [
-            {{
-              ""activityName"": ""Project Preparation"",
-              ""details"": [
-                {{ ""taskName"": ""System Setup"", ""actor"": ""Architect"", ""manDays"": 0.6, ""startDay"": 1, ""durationDays"": 1 }}
-              ]
-            }}
-          ],
-          ""resourceAllocation"": [
-            {{ ""role"": ""Architect"", ""totalManDays"": 16.5, ""dailyEffort"": [1, 0, 1, 0, 1, ...] }},
-            {{ ""role"": ""PM"", ""totalManDays"": 14.5, ""dailyEffort"": [1, 0, 1, 0, 1, ...] }},
-            {{ ""role"": ""Dev"", ""totalManDays"": 26.5, ""dailyEffort"": [0, 0, 0, 0, 2, 2, 1, 0, ...] }}
-          ]
-        }}
-    ";
+        promptBuilder.AppendLine("**JSON OUTPUT STRUCTURE:**");
+        promptBuilder.AppendLine("{");
+        promptBuilder.AppendLine("""  "totalDurationDays": <number>,""");
+        promptBuilder.AppendLine("""  "activities": [""");
+        promptBuilder.AppendLine("    {");
+        promptBuilder.AppendLine("""      "activityName": "Project Preparation",""");
+        promptBuilder.AppendLine("""      "details": [""");
+        promptBuilder.AppendLine("""        { "taskName": "System Setup", "actor": "Architect", "manDays": 0.6, "startDay": 1, "durationDays": 1 }""");
+        promptBuilder.AppendLine("      ]");
+        promptBuilder.AppendLine("    }");
+        promptBuilder.AppendLine("  ],");
+        promptBuilder.AppendLine("""  "resourceAllocation": [""");
+        promptBuilder.AppendLine("""    { "role": "Architect", "totalManDays": 16.5, "dailyEffort": [1, 0, 1, 0, 1, ...] },""");
+        promptBuilder.AppendLine("""    { "role": "PM", "totalManDays": 14.5, "dailyEffort": [1, 0, 1, 0, 1, ...] },""");
+        promptBuilder.AppendLine("""    { "role": "Dev", "totalManDays": 26.5, "dailyEffort": [0, 0, 0, 0, 2, 2, 1, 0, ...] }""");
+        promptBuilder.AppendLine("  ]");
+        promptBuilder.AppendLine("}");
+
+        return promptBuilder.ToString();
     }
     private sealed class AiTimelineResult
     {
