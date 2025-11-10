@@ -54,6 +54,7 @@ public class TimelineGenerationService
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
         var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
+        var aggregatedTasks = AssessmentTaskAggregator.AggregateItemEffort(assessment);
         if (estimationColumnEffort.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline.");
@@ -438,9 +439,9 @@ public class TimelineGenerationService
                 StringComparer.OrdinalIgnoreCase);
 
         var columnActivities = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var section in assessment.Sections ?? Array.Empty<AssessmentSection>())
+        foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
         {
-            foreach (var item in section.Items ?? Array.Empty<AssessmentItem>())
+            foreach (var item in section.Items ?? new List<AssessmentItem>())
             {
                 if (!item.IsNeeded)
                 {
@@ -550,7 +551,8 @@ public class TimelineGenerationService
                 $"    - Activity: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString("F0", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
             : "    - (No grouped task information available.)";
 
-        var referenceTableEntries = (references ?? Array.Empty<TimelineEstimationReference>())
+        IEnumerable<TimelineEstimationReference> referenceItems = references ?? Array.Empty<TimelineEstimationReference>();
+        var referenceTableEntries = referenceItems
             .OrderBy(r => r.ProjectScale, StringComparer.OrdinalIgnoreCase)
             .Select(r =>
             {
@@ -595,7 +597,12 @@ public class TimelineGenerationService
 
         var estimatorSummaryText = string.Join(Environment.NewLine, estimatorSummaryLines);
 
-        var allRoles = config.Roles.Select(r => $"\"{r.RoleName}\"").ToList();
+        var allRoles = (config.Roles ?? new List<PresalesRole>())
+            .Select(role => role.RoleName?.Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(name => $"\"{name}\"")
+            .ToList();
 
         var promptBuilder = new StringBuilder();
 
