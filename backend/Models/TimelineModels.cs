@@ -67,25 +67,24 @@ public class PresalesActivity
     public int DisplayOrder { get; set; } = 1;
 }
 
-public class TaskActivityMapping
+public class ItemActivityMapping
 {
-    public string TaskKey { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
     public string ActivityName { get; set; } = string.Empty;
 }
 
-public class TaskRoleMapping
+public class EstimationColumnRoleMapping
 {
-    public string TaskKey { get; set; } = string.Empty;
+    public string EstimationColumn { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
-    public double AllocationPercentage { get; set; }
 }
 
 public class PresalesConfiguration
 {
     public List<PresalesRole> Roles { get; set; } = new();
     public List<PresalesActivity> Activities { get; set; } = new();
-    public List<TaskActivityMapping> TaskActivities { get; set; } = new();
-    public List<TaskRoleMapping> TaskRoles { get; set; } = new();
+    public List<ItemActivityMapping> ItemActivities { get; set; } = new();
+    public List<EstimationColumnRoleMapping> EstimationColumnRoles { get; set; } = new();
 }
 
 public class TimelineDetail

@@ -36,11 +36,20 @@ public class PresalesConfigurationController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("items")]
     [HttpGet("tasks")]
     [UiAuthorize("pre-sales-configuration")]
-    public async Task<ActionResult<IEnumerable<string>>> ListTasks()
+    public async Task<ActionResult<IEnumerable<string>>> ListItems()
     {
-        var tasks = await _templates.ListEstimationColumnsAsync(HttpContext.RequestAborted).ConfigureAwait(false);
-        return Ok(tasks);
+        var items = await _templates.ListTemplateItemNamesAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        return Ok(items);
+    }
+
+    [HttpGet("estimation-columns")]
+    [UiAuthorize("pre-sales-configuration")]
+    public async Task<ActionResult<IEnumerable<string>>> ListEstimationColumns()
+    {
+        var columns = await _templates.ListEstimationColumnsAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        return Ok(columns);
     }
 }
