@@ -547,7 +547,7 @@ public class TimelineGenerationService
 
         var phaseSummaryText = phaseSummaries.Count > 0
             ? string.Join("\n", phaseSummaries.Select(summary =>
-                $"    - Activity: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString(\"F0\", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
+                $"    - Activity: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString("F0", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
             : "    - (No grouped task information available.)";
 
         var referenceTableEntries = (references ?? Array.Empty<TimelineEstimationReference>())
@@ -559,7 +559,7 @@ public class TimelineGenerationService
                     .Select(kv => $"{kv.Key}: {kv.Value}d"));
                 var resourceSummary = string.Join(", ", r.ResourceAllocation
                     .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(kv => $"{kv.Key}: {kv.Value.ToString(\"F1\", CultureInfo.InvariantCulture)}"));
+                    .Select(kv => $"{kv.Key}: {kv.Value.ToString("F1", CultureInfo.InvariantCulture)}"));
                 return $"    - Scale {r.ProjectScale}: {phaseSummary} | Total: {r.TotalDurationDays}d | Resources: {resourceSummary}";
             })
             .ToList();
@@ -577,7 +577,7 @@ public class TimelineGenerationService
         var estimatorRoleLines = (estimation.Roles ?? new List<TimelineRoleEstimate>())
             .OrderBy(r => r.Role, StringComparer.OrdinalIgnoreCase)
             .Select(r =>
-                $"    - {r.Role}: {r.EstimatedHeadcount.ToString(\"F1\", CultureInfo.InvariantCulture)} headcount (Total Man-Days: {r.TotalManDays.ToString(\"F1\", CultureInfo.InvariantCulture)})")
+                $"    - {r.Role}: {r.EstimatedHeadcount.ToString("F1", CultureInfo.InvariantCulture)} headcount (Total Man-Days: {r.TotalManDays.ToString("F1", CultureInfo.InvariantCulture)})")
             .DefaultIfEmpty("    - (No role guidance available.)");
 
         var estimatorSummaryLines = new List<string>
@@ -643,19 +643,19 @@ public class TimelineGenerationService
 
         promptBuilder.AppendLine("**JSON OUTPUT STRUCTURE:**");
         promptBuilder.AppendLine("{");
-        promptBuilder.AppendLine("""  "totalDurationDays": <number>,""");
-        promptBuilder.AppendLine("""  "activities": [""");
+        promptBuilder.AppendLine("  \"totalDurationDays\": <number>,");
+        promptBuilder.AppendLine("  \"activities\": [");
         promptBuilder.AppendLine("    {");
-        promptBuilder.AppendLine("""      "activityName": "Project Preparation",""");
-        promptBuilder.AppendLine("""      "details": [""");
-        promptBuilder.AppendLine("""        { "taskName": "System Setup", "actor": "Architect", "manDays": 0.6, "startDay": 1, "durationDays": 1 }""");
+        promptBuilder.AppendLine("      \"activityName\": \"Project Preparation\",");
+        promptBuilder.AppendLine("      \"details\": [");
+        promptBuilder.AppendLine("        { \"taskName\": \"System Setup\", \"actor\": \"Architect\", \"manDays\": 0.6, \"startDay\": 1, \"durationDays\": 1 }");
         promptBuilder.AppendLine("      ]");
         promptBuilder.AppendLine("    }");
         promptBuilder.AppendLine("  ],");
-        promptBuilder.AppendLine("""  "resourceAllocation": [""");
-        promptBuilder.AppendLine("""    { "role": "Architect", "totalManDays": 16.5, "dailyEffort": [1, 0, 1, 0, 1, ...] },""");
-        promptBuilder.AppendLine("""    { "role": "PM", "totalManDays": 14.5, "dailyEffort": [1, 0, 1, 0, 1, ...] },""");
-        promptBuilder.AppendLine("""    { "role": "Dev", "totalManDays": 26.5, "dailyEffort": [0, 0, 0, 0, 2, 2, 1, 0, ...] }""");
+        promptBuilder.AppendLine("  \"resourceAllocation\": [");
+        promptBuilder.AppendLine("    { \"role\": \"Architect\", \"totalManDays\": 16.5, \"dailyEffort\": [1, 0, 1, 0, 1, ...] },");
+        promptBuilder.AppendLine("    { \"role\": \"PM\", \"totalManDays\": 14.5, \"dailyEffort\": [1, 0, 1, 0, 1, ...] },");
+        promptBuilder.AppendLine("    { \"role\": \"Dev\", \"totalManDays\": 26.5, \"dailyEffort\": [0, 0, 0, 0, 2, 2, 1, 0, ...] }");
         promptBuilder.AppendLine("  ]");
         promptBuilder.AppendLine("}");
 
