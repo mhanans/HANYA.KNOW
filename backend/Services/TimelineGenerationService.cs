@@ -643,19 +643,19 @@ public class TimelineGenerationService
 
         promptBuilder.AppendLine("**JSON OUTPUT STRUCTURE:**");
         promptBuilder.AppendLine("{");
-        promptBuilder.AppendLine("""  "totalDurationDays": <number>,""");
-        promptBuilder.AppendLine("""  "activities": [""");
+        promptBuilder.AppendLine("  \"totalDurationDays\": <number>,");
+        promptBuilder.AppendLine("  \"activities\": [");
         promptBuilder.AppendLine("    {");
-        promptBuilder.AppendLine("""      "activityName": "Project Preparation",""");
-        promptBuilder.AppendLine("""      "details": [""");
-        promptBuilder.AppendLine("""        { "taskName": "System Setup", "actor": "Architect", "manDays": 0.6, "startDay": 1, "durationDays": 1 }""");
+        promptBuilder.AppendLine("      \"activityName\": \"Project Preparation\",");
+        promptBuilder.AppendLine("      \"details\": [");
+        promptBuilder.AppendLine("        { \"taskName\": \"System Setup\", \"actor\": \"Architect\", \"manDays\": 0.6, \"startDay\": 1, \"durationDays\": 1 }");
         promptBuilder.AppendLine("      ]");
         promptBuilder.AppendLine("    }");
         promptBuilder.AppendLine("  ],");
-        promptBuilder.AppendLine("""  "resourceAllocation": [""");
-        promptBuilder.AppendLine("""    { "role": "Architect", "totalManDays": 16.5, "dailyEffort": [1, 0, 1, 0, 1, ...] },""");
-        promptBuilder.AppendLine("""    { "role": "PM", "totalManDays": 14.5, "dailyEffort": [1, 0, 1, 0, 1, ...] },""");
-        promptBuilder.AppendLine("""    { "role": "Dev", "totalManDays": 26.5, "dailyEffort": [0, 0, 0, 0, 2, 2, 1, 0, ...] }""");
+        promptBuilder.AppendLine("  \"resourceAllocation\": [");
+        promptBuilder.AppendLine("    { \"role\": \"Architect\", \"totalManDays\": 16.5, \"dailyEffort\": [1, 0, 1, 0, 1, ...] },");
+        promptBuilder.AppendLine("    { \"role\": \"PM\", \"totalManDays\": 14.5, \"dailyEffort\": [1, 0, 1, 0, 1, ...] },");
+        promptBuilder.AppendLine("    { \"role\": \"Dev\", \"totalManDays\": 26.5, \"dailyEffort\": [0, 0, 0, 0, 2, 2, 1, 0, ...] }");
         promptBuilder.AppendLine("  ]");
         promptBuilder.AppendLine("}");
 
