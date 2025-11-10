@@ -53,8 +53,8 @@ public class TimelineEstimatorService
         }
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var aggregatedTasks = AssessmentTaskAggregator.AggregateTasks(assessment);
-        if (aggregatedTasks.Count == 0)
+        var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
+        if (estimationColumnEffort.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline estimate.");
         }
@@ -63,7 +63,7 @@ public class TimelineEstimatorService
         var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
         var references = await _referenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
 
-        var prompt = BuildEstimatorPrompt(assessment, aggregatedTasks, activityManDays, roleManDays, references);
+        var prompt = BuildEstimatorPrompt(assessment, estimationColumnEffort, activityManDays, roleManDays, references);
         string rawResponse = string.Empty;
         TimelineEstimationRecord estimation;
 
@@ -352,17 +352,23 @@ public class TimelineEstimatorService
 
     private string BuildEstimatorPrompt(
         ProjectAssessment assessment,
-        Dictionary<string, (string DetailName, double ManDays)> tasks,
+        Dictionary<string, double> estimationColumnManDays,
         Dictionary<string, double> activityManDays,
         Dictionary<string, double> roleManDays,
         IReadOnlyList<TimelineEstimationReference> references)
     {
-        var taskLines = tasks.Select(kvp =>
-            $"  - Task: \"{kvp.Key}\" => {kvp.Value.ManDays.ToString("F2", CultureInfo.InvariantCulture)} man-days");
-        var activityLines = activityManDays.Select(kvp =>
-            $"  - Phase: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
-        var roleLines = roleManDays.Select(kvp =>
-            $"  - Role: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
+        var columnLines = estimationColumnManDays
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp =>
+                $"  - Estimation Column: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
+        var activityLines = activityManDays
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp =>
+                $"  - Phase: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
+        var roleLines = roleManDays
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp =>
+                $"  - Role: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
         var referenceLines = (references ?? Array.Empty<TimelineEstimationReference>())
             .OrderBy(r => r.ProjectScale, StringComparer.OrdinalIgnoreCase)
             .Select(r =>
@@ -382,8 +388,8 @@ public class TimelineEstimatorService
         **Inputs:**
         - Project: {assessment.ProjectName}
         - Template: {assessment.TemplateName}
-        - Aggregated Task Effort:
-{string.Join("\n", taskLines)}
+        - Estimation Column Effort:
+{string.Join("\n", columnLines)}
         - Phase Effort Summary:
 {string.Join("\n", activityLines)}
         - Role Effort Summary:

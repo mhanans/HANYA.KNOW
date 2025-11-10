@@ -234,36 +234,16 @@ INSERT INTO presales_activities (activity_name, display_order) VALUES
 ON CONFLICT (activity_name) DO UPDATE
 SET display_order = EXCLUDED.display_order;
 
-INSERT INTO presales_task_activities (task_key, activity_name) VALUES
-  ('Project Kickoff', 'Project Preparation'),
-  ('Requirement & Documentation', 'Analysis & Design'),
-  ('Solution Design', 'Analysis & Design'),
-  ('BE Development', 'Application Development'),
-  ('FE Development', 'Application Development'),
-  ('Integration Development', 'Application Development'),
-  ('SIT (with UFT)', 'Testing & Bug Fixing'),
-  ('UAT (With User)', 'Testing & Bug Fixing'),
-  ('Deployment', 'Deployment & Handover')
-ON CONFLICT (task_key) DO UPDATE
+INSERT INTO presales_item_activities (item_name, activity_name) VALUES
+  ('Stakeholder Interviews', 'Project Preparation'),
+  ('Current State Review', 'Analysis & Design'),
+  ('Architecture Blueprint', 'Analysis & Design'),
+  ('Implementation Roadmap', 'Deployment & Handover')
+ON CONFLICT (item_name) DO UPDATE
 SET activity_name = EXCLUDED.activity_name;
 
-INSERT INTO presales_task_roles (task_key, role_name, allocation_percentage) VALUES
-  ('Project Kickoff', 'Architect', 50),
-  ('Project Kickoff', 'Analyst', 50),
-  ('Requirement & Documentation', 'Analyst', 100),
-  ('Solution Design', 'Architect', 60),
-  ('Solution Design', 'Analyst', 40),
-  ('BE Development', 'Dev Senior', 70),
-  ('BE Development', 'Dev Junior', 30),
-  ('FE Development', 'Dev Senior', 40),
-  ('FE Development', 'Dev Junior', 60),
-  ('Integration Development', 'Dev Senior', 60),
-  ('Integration Development', 'Dev Junior', 40),
-  ('SIT (with UFT)', 'QA Tester', 80),
-  ('SIT (with UFT)', 'Dev Senior', 20),
-  ('UAT (With User)', 'QA Tester', 70),
-  ('UAT (With User)', 'Analyst', 30),
-  ('Deployment', 'Architect', 40),
-  ('Deployment', 'QA Tester', 60)
-ON CONFLICT (task_key, role_name) DO UPDATE
-SET allocation_percentage = EXCLUDED.allocation_percentage;
+INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALUES
+  ('Solution Architect', 'Architect'),
+  ('Business Analyst', 'Analyst'),
+  ('Quality Engineer', 'QA Tester')
+ON CONFLICT (estimation_column, role_name) DO NOTHING;

@@ -25,6 +25,11 @@ interface TimelinePhaseEstimate {
   sequenceType: string;
 }
 
+interface PresalesActivity {
+  activityName: string;
+  displayOrder: number;
+}
+
 interface TimelineRoleEstimate {
   role: string;
   estimatedHeadcount: number;
@@ -66,6 +71,7 @@ export default function TimelineEstimatorDetailPage() {
   }, [assessmentId]);
 
   const [estimation, setEstimation] = useState<TimelineEstimationRecord | null>(null);
+  const [activities, setActivities] = useState<PresalesActivity[]>([]);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,11 +95,50 @@ export default function TimelineEstimatorDetailPage() {
     }
   }, [resolvedId]);
 
+  const loadActivities = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/presales/config');
+      if (!res.ok) {
+        console.warn(`Failed to load presales activities (${res.status})`);
+        setActivities([]);
+        return;
+      }
+
+      const data = await res.json();
+      const list: PresalesActivity[] = Array.isArray(data?.activities)
+        ? data.activities
+            .map((activity: any) => ({
+              activityName: typeof activity?.activityName === 'string' ? activity.activityName.trim() : '',
+              displayOrder: Number.isFinite(activity?.displayOrder)
+                ? Number(activity.displayOrder)
+                : parseInt(activity?.displayOrder ?? '0', 10) || 0,
+            }))
+            .filter(activity => activity.activityName.length > 0)
+        : [];
+
+      list.sort((a, b) => {
+        if (a.displayOrder !== b.displayOrder) {
+          return a.displayOrder - b.displayOrder;
+        }
+        return a.activityName.localeCompare(b.activityName);
+      });
+
+      setActivities(list);
+    } catch (err) {
+      console.warn('Failed to load presales activities', err);
+      setActivities([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (resolvedId) {
       loadEstimation();
     }
   }, [resolvedId, loadEstimation]);
+
+  useEffect(() => {
+    loadActivities();
+  }, [loadActivities]);
 
   const handleRegenerate = useCallback(async () => {
     if (!resolvedId) return;
@@ -156,7 +201,38 @@ export default function TimelineEstimatorDetailPage() {
     );
   }
 
-  const sumPhaseDuration = estimation.phases.reduce((sum, phase) => sum + phase.durationDays, 0);
+  const configuredPhases = useMemo(() => {
+    if (!estimation) return [] as { phaseName: string; durationDays: number | null; sequenceType: string }[];
+
+    if (activities.length === 0) {
+      return estimation.phases.map(phase => ({
+        phaseName: phase.phaseName,
+        durationDays: Number.isFinite(phase.durationDays) ? phase.durationDays : 0,
+        sequenceType: phase.sequenceType?.trim() || '—',
+      }));
+    }
+
+    const sortedActivities = [...activities];
+    sortedActivities.sort((a, b) => {
+      if (a.displayOrder !== b.displayOrder) {
+        return a.displayOrder - b.displayOrder;
+      }
+      return a.activityName.localeCompare(b.activityName);
+    });
+
+    return sortedActivities.map(activity => {
+      const match = estimation.phases.find(
+        phase => phase.phaseName?.trim().toLowerCase() === activity.activityName.trim().toLowerCase()
+      );
+      return {
+        phaseName: activity.activityName,
+        durationDays: match ? match.durationDays : null,
+        sequenceType: match?.sequenceType?.trim() || '—',
+      };
+    });
+  }, [activities, estimation]);
+
+  const sumPhaseDuration = configuredPhases.reduce((sum, phase) => sum + (phase.durationDays ?? 0), 0);
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -226,14 +302,14 @@ export default function TimelineEstimatorDetailPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {estimation.phases.map(phase => (
+              {configuredPhases.map(phase => (
                 <TableRow key={phase.phaseName}>
                   <TableCell>{phase.phaseName}</TableCell>
-                  <TableCell align="right">{phase.durationDays}</TableCell>
+                  <TableCell align="right">{phase.durationDays ?? '—'}</TableCell>
                   <TableCell align="right">{phase.sequenceType}</TableCell>
                 </TableRow>
               ))}
-              {estimation.phases.length === 0 && (
+              {configuredPhases.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={3} align="center">
                     No phase guidance available.

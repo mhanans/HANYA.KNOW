@@ -282,16 +282,15 @@ CREATE TABLE IF NOT EXISTS presales_activities (
     display_order INT NOT NULL DEFAULT 1
 );
 
-CREATE TABLE IF NOT EXISTS presales_task_activities (
-    task_key TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS presales_item_activities (
+    item_name TEXT PRIMARY KEY,
     activity_name TEXT NOT NULL REFERENCES presales_activities(activity_name) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS presales_task_roles (
-    task_key TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS presales_estimation_column_roles (
+    estimation_column TEXT NOT NULL,
     role_name TEXT NOT NULL REFERENCES presales_roles(role_name) ON DELETE CASCADE,
-    allocation_percentage DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (allocation_percentage >= 0),
-    PRIMARY KEY(task_key, role_name)
+    PRIMARY KEY(estimation_column, role_name)
 );
 
 CREATE TABLE IF NOT EXISTS assessment_timelines (

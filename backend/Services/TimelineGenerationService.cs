@@ -52,8 +52,8 @@ public class TimelineGenerationService
         }
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var aggregatedTasks = AssessmentTaskAggregator.AggregateTasks(assessment);
-        if (aggregatedTasks.Count == 0)
+        var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
+        if (estimationColumnEffort.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline.");
         }
@@ -69,7 +69,7 @@ public class TimelineGenerationService
         }
 
         var referenceData = await _timelineReferenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
-        var prompt = ConstructDailySchedulerAiPrompt(aggregatedTasks, config, referenceData, estimatorRecord);
+        var prompt = ConstructDailySchedulerAiPrompt(assessment, estimationColumnEffort, config, referenceData, estimatorRecord);
         _logger.LogInformation(
             "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
             assessmentId,
@@ -414,65 +414,134 @@ public class TimelineGenerationService
     }
 
     private string ConstructDailySchedulerAiPrompt(
-        Dictionary<string, (string DetailName, double ManDays)> tasks,
+        ProjectAssessment assessment,
+        Dictionary<string, double> estimationColumnManDays,
         PresalesConfiguration config,
         IReadOnlyList<TimelineEstimationReference> references,
         TimelineEstimationRecord estimation)
     {
-        var taskMetadata = tasks.Select(kvp =>
-        {
-            var taskKey = kvp.Key;
-            var manDays = kvp.Value.ManDays;
-            var roles = config.TaskRoles
-                .Where(tr => tr.TaskKey.Equals(taskKey, StringComparison.OrdinalIgnoreCase))
-                .Select(tr => tr.RoleName)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var actorString = roles.Any() ? string.Join(", ", roles) : "Unassigned";
-            var activityGroup = config.TaskActivities
-                .FirstOrDefault(ta => ta.TaskKey.Equals(taskKey, StringComparison.OrdinalIgnoreCase))?.ActivityName ?? "Unmapped";
-            return new
-            {
-                TaskKey = taskKey,
-                ManDays = manDays,
-                Roles = roles,
-                ActorString = actorString,
-                ActivityGroup = activityGroup
-            };
-        })
-        .OrderBy(t => t.ActivityGroup, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(t => t.TaskKey, StringComparer.OrdinalIgnoreCase)
-        .ToList();
+        var itemActivityLookup = config.ItemActivities
+            .Where(mapping => !string.IsNullOrWhiteSpace(mapping.ItemName) && !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .ToDictionary(mapping => mapping.ItemName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
 
-        var taskDetailsForPrompt = taskMetadata.Select(t =>
-            $"  - Task: \"{t.TaskKey}\", ManDays: {t.ManDays.ToString("F2", CultureInfo.InvariantCulture)}, Actor(s): \"{t.ActorString}\", Group: \"{t.ActivityGroup}\"");
-
-        var phaseSummaries = taskMetadata
-            .GroupBy(t => t.ActivityGroup, StringComparer.OrdinalIgnoreCase)
-            .Select(group =>
-            {
-                var roles = group
-                    .SelectMany(x => x.Roles)
+        var columnRolesLookup = config.EstimationColumnRoles
+            .GroupBy(mapping => mapping.EstimationColumn, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key.Trim(),
+                group => group
+                    .Select(entry => entry.RoleName?.Trim())
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                var resourceCount = roles.Count > 0 ? roles.Count : 1;
-                var roleSummary = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var columnActivities = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in assessment.Sections ?? Array.Empty<AssessmentSection>())
+        {
+            foreach (var item in section.Items ?? Array.Empty<AssessmentItem>())
+            {
+                if (!item.IsNeeded)
+                {
+                    continue;
+                }
+
+                var itemName = item.ItemName?.Trim();
+                if (string.IsNullOrWhiteSpace(itemName))
+                {
+                    continue;
+                }
+
+                var activity = itemActivityLookup.TryGetValue(itemName, out var mappedActivity)
+                    ? mappedActivity
+                    : "Unmapped";
+
+                foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
+                {
+                    if (estimate.Value is not double hours || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    var columnName = estimate.Key?.Trim();
+                    if (string.IsNullOrWhiteSpace(columnName))
+                    {
+                        continue;
+                    }
+
+                    if (!columnActivities.TryGetValue(columnName, out var set))
+                    {
+                        set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        columnActivities[columnName] = set;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(activity))
+                    {
+                        set.Add(activity);
+                    }
+                }
+            }
+        }
+
+        var columnMetadata = estimationColumnManDays
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp =>
+            {
+                var columnName = kvp.Key;
+                var manDays = kvp.Value;
+                var roles = columnRolesLookup.TryGetValue(columnName, out var mappedRoles)
+                    ? mappedRoles
+                    : new List<string>();
+                var activities = columnActivities.TryGetValue(columnName, out var set) && set.Count > 0
+                    ? set.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToList()
+                    : new List<string> { "Unmapped" };
+
+                var actorString = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
+                var activitySummary = activities.Count > 0 ? string.Join(", ", activities) : "Unmapped";
+
                 return new
                 {
-                    ActivityGroup = group.First().ActivityGroup,
-                    TotalManHours = group.Sum(x => x.ManDays * 8d),
+                    Column = columnName,
+                    ManDays = manDays,
+                    Roles = roles,
+                    ActorString = actorString,
+                    Activities = new HashSet<string>(activities, StringComparer.OrdinalIgnoreCase),
+                    ActivitySummary = activitySummary
+                };
+            })
+            .ToList();
+
+        var taskDetailsForPrompt = columnMetadata.Select(meta =>
+            $"  - Estimation Column: \"{meta.Column}\" => {meta.ManDays.ToString(\"F2\", CultureInfo.InvariantCulture)} man-days | Roles: \"{meta.ActorString}\" | Activities: \"{meta.ActivitySummary}\"");
+
+        var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
+        var phaseSummaries = activityManDays
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp =>
+            {
+                var activityName = kvp.Key;
+                var totalManHours = kvp.Value * 8d;
+                var roles = columnMetadata
+                    .Where(meta => meta.Activities.Contains(activityName))
+                    .SelectMany(meta => meta.Roles)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var roleSummary = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
+                var resourceCount = Math.Max(roles.Count, 1);
+                return new
+                {
+                    ActivityGroup = activityName,
+                    TotalManHours = totalManHours,
                     ResourceCount = resourceCount,
                     RoleSummary = roleSummary
                 };
             })
-            .OrderBy(s => s.ActivityGroup, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var phaseSummaryText = phaseSummaries.Count > 0
             ? string.Join("\n", phaseSummaries.Select(summary =>
-                $"    - Group: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString("F0", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
+                $"    - Activity: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString(\"F0\", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
             : "    - (No grouped task information available.)";
 
         var referenceTableEntries = (references ?? Array.Empty<TimelineEstimationReference>())
@@ -484,7 +553,7 @@ public class TimelineGenerationService
                     .Select(kv => $"{kv.Key}: {kv.Value}d"));
                 var resourceSummary = string.Join(", ", r.ResourceAllocation
                     .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(kv => $"{kv.Key}: {kv.Value.ToString("F1", CultureInfo.InvariantCulture)}"));
+                    .Select(kv => $"{kv.Key}: {kv.Value.ToString(\"F1\", CultureInfo.InvariantCulture)}"));
                 return $"    - Scale {r.ProjectScale}: {phaseSummary} | Total: {r.TotalDurationDays}d | Resources: {resourceSummary}";
             })
             .ToList();
@@ -502,7 +571,7 @@ public class TimelineGenerationService
         var estimatorRoleLines = (estimation.Roles ?? new List<TimelineRoleEstimate>())
             .OrderBy(r => r.Role, StringComparer.OrdinalIgnoreCase)
             .Select(r =>
-                $"    - {r.Role}: {r.EstimatedHeadcount.ToString("F1", CultureInfo.InvariantCulture)} headcount (Total Man-Days: {r.TotalManDays.ToString("F1", CultureInfo.InvariantCulture)})")
+                $"    - {r.Role}: {r.EstimatedHeadcount.ToString(\"F1\", CultureInfo.InvariantCulture)} headcount (Total Man-Days: {r.TotalManDays.ToString(\"F1\", CultureInfo.InvariantCulture)})")
             .DefaultIfEmpty("    - (No role guidance available.)");
 
         var estimatorSummaryText = $@"
@@ -571,7 +640,6 @@ public class TimelineGenerationService
         }}
     ";
     }
-
     private sealed class AiTimelineResult
     {
         public int TotalDurationDays { get; set; }

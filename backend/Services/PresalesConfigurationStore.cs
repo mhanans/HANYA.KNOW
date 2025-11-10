@@ -90,39 +90,38 @@ public class PresalesConfigurationStore
             }
         }
 
-        const string taskActivitySql = "SELECT task_key, activity_name FROM presales_task_activities ORDER BY task_key";
-        await using (var taskActivityCmd = new NpgsqlCommand(taskActivitySql, conn))
-        await using (var reader = await taskActivityCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        const string itemActivitySql = "SELECT item_name, activity_name FROM presales_item_activities ORDER BY item_name";
+        await using (var itemActivityCmd = new NpgsqlCommand(itemActivitySql, conn))
+        await using (var reader = await itemActivityCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var mapping = new TaskActivityMapping
+                var mapping = new ItemActivityMapping
                 {
-                    TaskKey = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
+                    ItemName = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
                     ActivityName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1)
                 };
-                if (!string.IsNullOrWhiteSpace(mapping.TaskKey))
+                if (!string.IsNullOrWhiteSpace(mapping.ItemName))
                 {
-                    configuration.TaskActivities.Add(mapping);
+                    configuration.ItemActivities.Add(mapping);
                 }
             }
         }
 
-        const string taskRoleSql = "SELECT task_key, role_name, allocation_percentage FROM presales_task_roles ORDER BY task_key, role_name";
-        await using (var taskRoleCmd = new NpgsqlCommand(taskRoleSql, conn))
-        await using (var reader = await taskRoleCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        const string columnRoleSql = "SELECT estimation_column, role_name FROM presales_estimation_column_roles ORDER BY estimation_column, role_name";
+        await using (var columnRoleCmd = new NpgsqlCommand(columnRoleSql, conn))
+        await using (var reader = await columnRoleCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var mapping = new TaskRoleMapping
+                var mapping = new EstimationColumnRoleMapping
                 {
-                    TaskKey = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
+                    EstimationColumn = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
                     RoleName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                    AllocationPercentage = reader.IsDBNull(2) ? 0 : reader.GetDouble(2)
                 };
-                if (!string.IsNullOrWhiteSpace(mapping.TaskKey) && !string.IsNullOrWhiteSpace(mapping.RoleName))
+                if (!string.IsNullOrWhiteSpace(mapping.EstimationColumn) && !string.IsNullOrWhiteSpace(mapping.RoleName))
                 {
-                    configuration.TaskRoles.Add(mapping);
+                    configuration.EstimationColumnRoles.Add(mapping);
                 }
             }
         }
@@ -139,14 +138,14 @@ public class PresalesConfigurationStore
 
         try
         {
-            await using (var clearTaskRoles = new NpgsqlCommand("DELETE FROM presales_task_roles", conn, tx))
+            await using (var clearColumnRoles = new NpgsqlCommand("DELETE FROM presales_estimation_column_roles", conn, tx))
             {
-                await clearTaskRoles.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                await clearColumnRoles.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            await using (var clearTaskActivities = new NpgsqlCommand("DELETE FROM presales_task_activities", conn, tx))
+            await using (var clearItemActivities = new NpgsqlCommand("DELETE FROM presales_item_activities", conn, tx))
             {
-                await clearTaskActivities.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                await clearItemActivities.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
             await using (var clearRoles = new NpgsqlCommand("DELETE FROM presales_roles", conn, tx))
@@ -188,32 +187,31 @@ public class PresalesConfigurationStore
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            const string insertTaskActivitySql = "INSERT INTO presales_task_activities (task_key, activity_name) VALUES (@task, @activity)";
-            foreach (var mapping in configuration.TaskActivities)
+            const string insertItemActivitySql = "INSERT INTO presales_item_activities (item_name, activity_name) VALUES (@item, @activity)";
+            foreach (var mapping in configuration.ItemActivities)
             {
-                if (string.IsNullOrWhiteSpace(mapping?.TaskKey) || string.IsNullOrWhiteSpace(mapping.ActivityName))
+                if (string.IsNullOrWhiteSpace(mapping?.ItemName) || string.IsNullOrWhiteSpace(mapping.ActivityName))
                 {
                     continue;
                 }
 
-                await using var cmd = new NpgsqlCommand(insertTaskActivitySql, conn, tx);
-                cmd.Parameters.AddWithValue("task", mapping.TaskKey.Trim());
+                await using var cmd = new NpgsqlCommand(insertItemActivitySql, conn, tx);
+                cmd.Parameters.AddWithValue("item", mapping.ItemName.Trim());
                 cmd.Parameters.AddWithValue("activity", mapping.ActivityName.Trim());
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            const string insertTaskRoleSql = "INSERT INTO presales_task_roles (task_key, role_name, allocation_percentage) VALUES (@task, @role, @pct)";
-            foreach (var mapping in configuration.TaskRoles)
+            const string insertColumnRoleSql = "INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALUES (@column, @role)";
+            foreach (var mapping in configuration.EstimationColumnRoles)
             {
-                if (string.IsNullOrWhiteSpace(mapping?.TaskKey) || string.IsNullOrWhiteSpace(mapping.RoleName))
+                if (string.IsNullOrWhiteSpace(mapping?.EstimationColumn) || string.IsNullOrWhiteSpace(mapping.RoleName))
                 {
                     continue;
                 }
 
-                await using var cmd = new NpgsqlCommand(insertTaskRoleSql, conn, tx);
-                cmd.Parameters.AddWithValue("task", mapping.TaskKey.Trim());
+                await using var cmd = new NpgsqlCommand(insertColumnRoleSql, conn, tx);
+                cmd.Parameters.AddWithValue("column", mapping.EstimationColumn.Trim());
                 cmd.Parameters.AddWithValue("role", mapping.RoleName.Trim());
-                cmd.Parameters.AddWithValue("pct", mapping.AllocationPercentage);
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 

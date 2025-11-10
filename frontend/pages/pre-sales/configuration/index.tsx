@@ -38,29 +38,28 @@ interface PresalesActivity {
   displayOrder: number;
 }
 
-interface TaskActivityMapping {
-  taskKey: string;
+interface ItemActivityMapping {
+  itemName: string;
   activityName: string;
 }
 
-interface TaskRoleMapping {
-  taskKey: string;
+interface EstimationColumnRoleMapping {
+  estimationColumn: string;
   roleName: string;
-  allocationPercentage: number;
 }
 
 interface PresalesConfiguration {
   roles: PresalesRole[];
   activities: PresalesActivity[];
-  taskActivities: TaskActivityMapping[];
-  taskRoles: TaskRoleMapping[];
+  itemActivities: ItemActivityMapping[];
+  estimationColumnRoles: EstimationColumnRoleMapping[];
 }
 
 const emptyConfig: PresalesConfiguration = {
   roles: [],
   activities: [],
-  taskActivities: [],
-  taskRoles: [],
+  itemActivities: [],
+  estimationColumnRoles: [],
 };
 
 const toNumber = (value: string, fallback = 0) => {
@@ -105,23 +104,48 @@ const prepareRateCard = (config: CostEstimationConfiguration, key: string) => {
 export default function PresalesConfigurationPage() {
   const [config, setConfig] = useState<PresalesConfiguration>(emptyConfig);
   const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
-  const [availableTasks, setAvailableTasks] = useState<string[]>([]);
-  const [syncingTasks, setSyncingTasks] = useState(false);
+  const [availableItems, setAvailableItems] = useState<string[]>([]);
+  const [availableEstimationColumns, setAvailableEstimationColumns] = useState<string[]>([]);
+  const [syncingReferenceData, setSyncingReferenceData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const fetchTasks = useCallback(async () => {
+  const fetchReferenceData = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/presales/config/tasks');
-      if (!res.ok) {
-        throw new Error(`Failed to load tasks (${res.status})`);
+      const [itemsRes, columnsRes] = await Promise.all([
+        apiFetch('/api/presales/config/items'),
+        apiFetch('/api/presales/config/estimation-columns'),
+      ]);
+
+      if (itemsRes.ok) {
+        try {
+          const data = await itemsRes.json();
+          setAvailableItems(Array.isArray(data) ? data : []);
+        } catch (err) {
+          console.warn('Failed to parse item list', err);
+          setAvailableItems([]);
+        }
+      } else {
+        console.warn(`Failed to load item list (${itemsRes.status})`);
+        setAvailableItems([]);
       }
-      const data = await res.json();
-      setAvailableTasks(Array.isArray(data) ? data : []);
+
+      if (columnsRes.ok) {
+        try {
+          const data = await columnsRes.json();
+          setAvailableEstimationColumns(Array.isArray(data) ? data : []);
+        } catch (err) {
+          console.warn('Failed to parse estimation column list', err);
+          setAvailableEstimationColumns([]);
+        }
+      } else {
+        console.warn(`Failed to load estimation column list (${columnsRes.status})`);
+        setAvailableEstimationColumns([]);
+      }
     } catch (err) {
-      console.warn('Failed to load task list', err);
+      console.warn('Failed to load reference data', err);
     }
   }, []);
 
@@ -173,8 +197,8 @@ export default function PresalesConfigurationPage() {
           };
         }),
         activities: presalesData.activities ?? [],
-        taskActivities: presalesData.taskActivities ?? [],
-        taskRoles: presalesData.taskRoles ?? [],
+        itemActivities: presalesData.itemActivities ?? [],
+        estimationColumnRoles: presalesData.estimationColumnRoles ?? [],
       });
       setCostConfig(normalizedCost);
     } catch (err) {
@@ -189,8 +213,8 @@ export default function PresalesConfigurationPage() {
   }, [loadConfig]);
 
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    fetchReferenceData();
+  }, [fetchReferenceData]);
 
   const handleRoleChange = useCallback((index: number, key: keyof PresalesRole, value: string) => {
     setConfig(prev => {
@@ -295,33 +319,31 @@ export default function PresalesConfigurationPage() {
     });
   }, []);
 
-  const handleTaskActivityChange = useCallback((index: number, key: keyof TaskActivityMapping, value: string) => {
+  const handleItemActivityChange = useCallback((index: number, key: keyof ItemActivityMapping, value: string) => {
     setConfig(prev => {
-      const taskActivities = [...prev.taskActivities];
-      const mapping = { ...taskActivities[index] };
-      if (key === 'taskKey') {
-        mapping.taskKey = value;
+      const itemActivities = [...prev.itemActivities];
+      const mapping = { ...itemActivities[index] };
+      if (key === 'itemName') {
+        mapping.itemName = value;
       } else if (key === 'activityName') {
         mapping.activityName = value;
       }
-      taskActivities[index] = mapping;
-      return { ...prev, taskActivities };
+      itemActivities[index] = mapping;
+      return { ...prev, itemActivities };
     });
   }, []);
 
-  const handleTaskRoleChange = useCallback((index: number, key: keyof TaskRoleMapping, value: string) => {
+  const handleEstimationRoleChange = useCallback((index: number, key: 'estimationColumn' | 'roleName', value: string) => {
     setConfig(prev => {
-      const taskRoles = [...prev.taskRoles];
-      const mapping = { ...taskRoles[index] };
-      if (key === 'allocationPercentage') {
-        mapping.allocationPercentage = Math.max(0, toNumber(value, 0));
-      } else if (key === 'taskKey') {
-        mapping.taskKey = value;
+      const estimationColumnRoles = [...prev.estimationColumnRoles];
+      const mapping = { ...estimationColumnRoles[index] };
+      if (key === 'estimationColumn') {
+        mapping.estimationColumn = value;
       } else if (key === 'roleName') {
         mapping.roleName = value;
       }
-      taskRoles[index] = mapping;
-      return { ...prev, taskRoles };
+      estimationColumnRoles[index] = mapping;
+      return { ...prev, estimationColumnRoles };
     });
   }, []);
 
@@ -334,8 +356,16 @@ export default function PresalesConfigurationPage() {
       ],
     }));
   const addActivity = () => setConfig(prev => ({ ...prev, activities: [...prev.activities, { activityName: '', displayOrder: prev.activities.length + 1 }] }));
-  const addTaskActivity = () => setConfig(prev => ({ ...prev, taskActivities: [...prev.taskActivities, { taskKey: '', activityName: '' }] }));
-  const addTaskRole = () => setConfig(prev => ({ ...prev, taskRoles: [...prev.taskRoles, { taskKey: '', roleName: '', allocationPercentage: 0 }] }));
+  const addItemActivity = () =>
+    setConfig(prev => ({
+      ...prev,
+      itemActivities: [...prev.itemActivities, { itemName: '', activityName: '' }],
+    }));
+  const addEstimationColumnRole = () =>
+    setConfig(prev => ({
+      ...prev,
+      estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '' }],
+    }));
 
   const removeRole = (index: number) =>
     setConfig(prev => {
@@ -358,17 +388,19 @@ export default function PresalesConfigurationPage() {
       return { ...prev, roles };
     });
   const removeActivity = (index: number) => setConfig(prev => ({ ...prev, activities: prev.activities.filter((_, i) => i !== index) }));
-  const removeTaskActivity = (index: number) => setConfig(prev => ({ ...prev, taskActivities: prev.taskActivities.filter((_, i) => i !== index) }));
-  const removeTaskRole = (index: number) => setConfig(prev => ({ ...prev, taskRoles: prev.taskRoles.filter((_, i) => i !== index) }));
+  const removeItemActivity = (index: number) =>
+    setConfig(prev => ({ ...prev, itemActivities: prev.itemActivities.filter((_, i) => i !== index) }));
+  const removeEstimationColumnRole = (index: number) =>
+    setConfig(prev => ({ ...prev, estimationColumnRoles: prev.estimationColumnRoles.filter((_, i) => i !== index) }));
 
-  const handleSyncTasks = useCallback(async () => {
-    setSyncingTasks(true);
+  const handleSyncReferenceData = useCallback(async () => {
+    setSyncingReferenceData(true);
     try {
-      await fetchTasks();
+      await fetchReferenceData();
     } finally {
-      setSyncingTasks(false);
+      setSyncingReferenceData(false);
     }
-  }, [fetchTasks]);
+  }, [fetchReferenceData]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -424,8 +456,8 @@ export default function PresalesConfigurationPage() {
           };
         }),
         activities: presalesData.activities ?? [],
-        taskActivities: presalesData.taskActivities ?? [],
-        taskRoles: presalesData.taskRoles ?? [],
+        itemActivities: presalesData.itemActivities ?? [],
+        estimationColumnRoles: presalesData.estimationColumnRoles ?? [],
       });
       setSuccessMessage('Configuration saved successfully.');
     } catch (err) {
@@ -601,44 +633,43 @@ export default function PresalesConfigurationPage() {
                   spacing={1}
                   sx={{ mb: 2 }}
                 >
-                  <Typography variant="h2" className="section-title">Task → Activity Mapping</Typography>
+                  <Typography variant="h2" className="section-title">Item → Activity Mapping</Typography>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Button
                       startIcon={<SyncIcon />}
                       variant="outlined"
-                      onClick={handleSyncTasks}
-                      disabled={syncingTasks || loading}
+                      onClick={handleSyncReferenceData}
+                      disabled={syncingReferenceData || loading}
                     >
-                      {syncingTasks ? 'Syncing…' : 'Sync Tasks'}
+                      {syncingReferenceData ? 'Syncing…' : 'Sync Reference Data'}
                     </Button>
-                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addTaskActivity}>Add Mapping</Button>
+                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addItemActivity}>Add Mapping</Button>
                   </Stack>
                 </Stack>
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Task Key</TableCell>
+                        <TableCell>Item Name</TableCell>
                         <TableCell>Activity</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {config.taskActivities.map((mapping, index) => (
+                      {config.itemActivities.map((mapping, index) => (
                         <TableRow key={index}>
                           <TableCell>
                             <Autocomplete
-                              freeSolo
-                              options={availableTasks}
-                              value={mapping.taskKey || ''}
-                              onInputChange={(_, newValue) => handleTaskActivityChange(index, 'taskKey', newValue)}
-                              onChange={(_, newValue) => handleTaskActivityChange(index, 'taskKey', newValue ?? '')}
+                              options={availableItems}
+                              value={mapping.itemName || ''}
+                              onChange={(_, newValue) => handleItemActivityChange(index, 'itemName', newValue ?? '')}
+                              autoHighlight
                               renderInput={params => (
                                 <TextField
                                   {...params}
                                   fullWidth
                                   size="small"
-                                  placeholder="e.g. BE Development"
+                                  placeholder="Select item"
                                 />
                               )}
                             />
@@ -649,7 +680,7 @@ export default function PresalesConfigurationPage() {
                               fullWidth
                               size="small"
                               value={mapping.activityName}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleTaskActivityChange(index, 'activityName', event.target.value)}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleItemActivityChange(index, 'activityName', event.target.value)}
                             >
                               {activityNames.length === 0 && <MenuItem value="">—</MenuItem>}
                               {activityNames.map(name => (
@@ -658,7 +689,7 @@ export default function PresalesConfigurationPage() {
                             </TextField>
                           </TableCell>
                           <TableCell align="right">
-                            <IconButton onClick={() => removeTaskActivity(index)} aria-label="Remove mapping">
+                            <IconButton onClick={() => removeItemActivity(index)} aria-label="Remove mapping">
                               <DeleteIcon />
                             </IconButton>
                           </TableCell>
@@ -671,35 +702,33 @@ export default function PresalesConfigurationPage() {
 
               <Grid item xs={12} md={6}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                  <Typography variant="h2" className="section-title">Task → Role Allocation</Typography>
-                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addTaskRole}>Add Allocation</Button>
+                  <Typography variant="h2" className="section-title">Estimation Column → Role Allocation</Typography>
+                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addEstimationColumnRole}>Add Allocation</Button>
                 </Stack>
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Task Key</TableCell>
+                        <TableCell>Estimation Column</TableCell>
                         <TableCell>Role</TableCell>
-                        <TableCell>Allocation %</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {config.taskRoles.map((mapping, index) => (
+                      {config.estimationColumnRoles.map((mapping, index) => (
                         <TableRow key={index}>
                           <TableCell>
                             <Autocomplete
-                              freeSolo
-                              options={availableTasks}
-                              value={mapping.taskKey || ''}
-                              onInputChange={(_, newValue) => handleTaskRoleChange(index, 'taskKey', newValue)}
-                              onChange={(_, newValue) => handleTaskRoleChange(index, 'taskKey', newValue ?? '')}
+                              options={availableEstimationColumns}
+                              value={mapping.estimationColumn || ''}
+                              onChange={(_, newValue) => handleEstimationRoleChange(index, 'estimationColumn', newValue ?? '')}
+                              autoHighlight
                               renderInput={params => (
                                 <TextField
                                   {...params}
                                   fullWidth
                                   size="small"
-                                  placeholder="e.g. BE Development"
+                                  placeholder="Select estimation column"
                                 />
                               )}
                             />
@@ -710,7 +739,7 @@ export default function PresalesConfigurationPage() {
                               fullWidth
                               size="small"
                               value={mapping.roleName}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleTaskRoleChange(index, 'roleName', event.target.value)}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleEstimationRoleChange(index, 'roleName', event.target.value)}
                             >
                               {roleNames.length === 0 && <MenuItem value="">—</MenuItem>}
                               {roleNames.map(name => (
@@ -718,18 +747,8 @@ export default function PresalesConfigurationPage() {
                               ))}
                             </TextField>
                           </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              type="number"
-                              inputProps={{ min: 0, max: 100, step: 5 }}
-                              value={mapping.allocationPercentage}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleTaskRoleChange(index, 'allocationPercentage', event.target.value)}
-                            />
-                          </TableCell>
                           <TableCell align="right">
-                            <IconButton onClick={() => removeTaskRole(index)} aria-label="Remove allocation">
+                            <IconButton onClick={() => removeEstimationColumnRole(index)} aria-label="Remove allocation">
                               <DeleteIcon />
                             </IconButton>
                           </TableCell>

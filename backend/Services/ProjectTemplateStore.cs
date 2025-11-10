@@ -226,4 +226,78 @@ public class ProjectTemplateStore
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    public async Task<IReadOnlyList<string>> ListTemplateItemNamesAsync(CancellationToken cancellationToken)
+    {
+        const string sql = "SELECT template_data -> 'sections' FROM project_templates";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (reader.IsDBNull(0))
+            {
+                continue;
+            }
+
+            var json = reader.GetString(0);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var sectionElement in doc.RootElement.EnumerateArray())
+                {
+                    if (sectionElement.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    if (!sectionElement.TryGetProperty("items", out var itemsElement) || itemsElement.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var itemElement in itemsElement.EnumerateArray())
+                    {
+                        if (itemElement.ValueKind != JsonValueKind.Object)
+                        {
+                            continue;
+                        }
+
+                        if (!itemElement.TryGetProperty("itemName", out var itemNameElement) || itemNameElement.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
+                        var value = itemNameElement.GetString();
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            set.Add(value.Trim());
+                        }
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse section items from template data record.");
+            }
+        }
+
+        return set
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 }
