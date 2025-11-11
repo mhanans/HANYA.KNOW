@@ -89,6 +89,39 @@ public class TimelineEstimatorService
             estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
         }
 
+        if (estimation.Roles == null || !estimation.Roles.Any())
+        {
+            var calculatedRoles = new List<TimelineRoleEstimate>();
+            if (estimation.TotalDurationDays > 0)
+            {
+                foreach (var (role, manDays) in roleManDays)
+                {
+                    if (manDays <= 0)
+                    {
+                        continue;
+                    }
+
+                    var headcount = manDays / estimation.TotalDurationDays;
+                    var realisticHeadcount = Math.Round(headcount, 1);
+                    if (realisticHeadcount == 0 && headcount > 0)
+                    {
+                        realisticHeadcount = 0.1;
+                    }
+
+                    calculatedRoles.Add(new TimelineRoleEstimate
+                    {
+                        Role = role,
+                        TotalManDays = Math.Round(manDays, 2),
+                        EstimatedHeadcount = realisticHeadcount
+                    });
+                }
+            }
+
+            estimation.Roles = calculatedRoles
+                .OrderBy(r => r.Role, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
         estimation.AssessmentId = assessmentId;
         estimation.ProjectName = assessment.ProjectName;
         estimation.TemplateName = assessment.TemplateName ?? string.Empty;
@@ -119,23 +152,13 @@ public class TimelineEstimatorService
             })
             .ToList();
 
-        var roles = (result.Roles ?? new List<AiRoleEstimate>())
-            .Where(r => !string.IsNullOrWhiteSpace(r.Role))
-            .Select(r => new TimelineRoleEstimate
-            {
-                Role = r.Role.Trim(),
-                EstimatedHeadcount = Math.Round(Math.Max(0.1, r.EstimatedHeadcount), 2),
-                TotalManDays = Math.Round(Math.Max(0, r.TotalManDays), 2)
-            })
-            .ToList();
-
         var totalDuration = Math.Max(1, result.TotalDurationDays);
         return new TimelineEstimationRecord
         {
             ProjectScale = string.IsNullOrWhiteSpace(result.ProjectScale) ? "Unknown" : result.ProjectScale.Trim(),
             TotalDurationDays = totalDuration,
             Phases = phases,
-            Roles = roles,
+            Roles = new List<TimelineRoleEstimate>(),
             SequencingNotes = result.SequencingNotes?.Trim() ?? string.Empty
         };
     }
@@ -410,24 +433,20 @@ public class TimelineEstimatorService
 {string.Join("\n", referenceLines)}
 
         **Requirements:**
-        1. Determine the project scale (Long, Medium, Short) using both the total man-days and the historical reference table.
-        2. Provide duration (in days) for each phase. Highlight whether the phase is best handled Serial, Subsequent, or Parallel. Use 'Subsequent' when a phase starts only after another completes but can partially overlap. Use 'Parallel' when it runs concurrently.
-        3. Produce a total project duration in days. This value may differ from the sum of the individual phase durations because of overlaps or staging. Explicitly note this fact in the sequencing notes.
-        4. Estimate the headcount requirement per role (e.g. Dev, PM, BA) based on the man-days and your total duration. Include total man-days per role for traceability.
-        5. Output strictly valid minified JSON with the following structure and no surrounding text:
+        1. Determine the project scale (Long, Medium, Short) using the total man-days and the historical reference table.
+        2. Based on the total effort across all roles, estimate a realistic total project duration in days. Assume a core project team is typically small (e.g., 2-4 full-time equivalents). Find a balance between duration and team size when deciding the duration.
+        3. Provide a duration (in days) for each phase. Decide if a phase should be Serial, Subsequent, or Parallel.
+        4. Your total project duration may differ from the sum of phase durations due to overlaps. Explain this in the sequencing notes.
+        5. Output strictly valid minified JSON with the following structure. DO NOT include a 'roles' array in the JSON.
            {{
              ""projectScale"": ""Medium"",
              ""totalDurationDays"": 45,
-             ""sequencingNotes"": ""Total shorter than sum because development and testing overlap by 5 days."",
+             ""sequencingNotes"": ""Total shorter than sum because development and testing overlap."",
              ""phases"": [
                {{ ""phaseName"": ""Discovery"", ""durationDays"": 5, ""sequenceType"": ""Serial"" }}
-             ],
-             ""roles"": [
-               {{ ""role"": ""Dev"", ""estimatedHeadcount"": 3.5, ""totalManDays"": 80 }}
              ]
            }}
         ""sequenceType"" MUST be one of ""Serial"", ""Subsequent"", or ""Parallel"".
-        ""sequencingNotes"" must clearly mention if total duration differs from the sum of phase durations and why.
         Return only the JSON object.";
     }
 
@@ -508,9 +527,6 @@ public class TimelineEstimatorService
 
         [JsonPropertyName("phases")]
         public List<AiPhaseEstimate> Phases { get; set; } = new();
-
-        [JsonPropertyName("roles")]
-        public List<AiRoleEstimate> Roles { get; set; } = new();
     }
 
     private sealed class AiPhaseEstimate
@@ -525,15 +541,4 @@ public class TimelineEstimatorService
         public string SequenceType { get; set; } = "Serial";
     }
 
-    private sealed class AiRoleEstimate
-    {
-        [JsonPropertyName("role")]
-        public string Role { get; set; } = string.Empty;
-
-        [JsonPropertyName("estimatedHeadcount")]
-        public double EstimatedHeadcount { get; set; }
-
-        [JsonPropertyName("totalManDays")]
-        public double TotalManDays { get; set; }
-    }
 }
