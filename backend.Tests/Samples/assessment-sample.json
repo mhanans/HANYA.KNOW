@@ -1,0 +1,73 @@
+{
+  "id": 101,
+  "templateId": 5,
+  "templateName": "Sample Template",
+  "projectName": "Reference Project",
+  "status": "Completed",
+  "sections": [
+    {
+      "sectionName": "Project Preparation",
+      "items": [
+        {
+          "itemId": "PP-1",
+          "isNeeded": true,
+          "itemName": "Kickoff Workshop",
+          "estimates": {
+            "Business Analyst": 16
+          }
+        }
+      ]
+    },
+    {
+      "sectionName": "Solutioning",
+      "items": [
+        {
+          "itemId": "SOL-1",
+          "isNeeded": true,
+          "itemName": "Requirements Alignment",
+          "estimates": {
+            "Requirement & Documentation": 48
+          }
+        },
+        {
+          "itemId": "SOL-2",
+          "isNeeded": true,
+          "itemName": "Architecture Blueprint",
+          "estimates": {
+            "Architect Setup": 24
+          }
+        }
+      ]
+    },
+    {
+      "sectionName": "Engineering",
+      "items": [
+        {
+          "itemId": "ENG-1",
+          "isNeeded": true,
+          "itemName": "Backend API",
+          "estimates": {
+            "BE Development": 80,
+            "SIT (Manual by QA)": 16
+          }
+        },
+        {
+          "itemId": "ENG-2",
+          "isNeeded": true,
+          "itemName": "Frontend UI",
+          "estimates": {
+            "FE Development": 40
+          }
+        },
+        {
+          "itemId": "ENG-3",
+          "isNeeded": false,
+          "itemName": "Exploratory Spike",
+          "estimates": {
+            "BE Development": 24
+          }
+        }
+      ]
+    }
+  ]
+}

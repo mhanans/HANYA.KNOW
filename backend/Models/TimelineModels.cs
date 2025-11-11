@@ -39,6 +39,7 @@ public class TimelineEstimationRecord
     public List<TimelinePhaseEstimate> Phases { get; set; } = new();
     public List<TimelineRoleEstimate> Roles { get; set; } = new();
     public string SequencingNotes { get; set; } = string.Empty;
+    public TimelineEstimatorRawInput? RawInputData { get; set; }
 }
 
 public class TimelinePhaseEstimate
@@ -82,12 +83,46 @@ public class EstimationColumnRoleMapping
     public string RoleName { get; set; } = string.Empty;
 }
 
+public class TeamType
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int MinManDays { get; set; }
+    public int MaxManDays { get; set; }
+    public List<TeamTypeRole> Roles { get; set; } = new();
+}
+
+public class TeamTypeRole
+{
+    public int Id { get; set; }
+    public int TeamTypeId { get; set; }
+    public string RoleName { get; set; } = string.Empty;
+    public double Headcount { get; set; }
+}
+
 public class PresalesConfiguration
 {
     public List<PresalesRole> Roles { get; set; } = new();
     public List<PresalesActivity> Activities { get; set; } = new();
     public List<ItemActivityMapping> ItemActivities { get; set; } = new();
     public List<EstimationColumnRoleMapping> EstimationColumnRoles { get; set; } = new();
+    public List<TeamType> TeamTypes { get; set; } = new();
+}
+
+public class TimelineEstimatorRawInput
+{
+    public Dictionary<string, double> ActivityManDays { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, double> RoleManDays { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public double TotalRoleManDays { get; set; }
+    public Dictionary<string, int> DurationsPerRole { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public TeamType? SelectedTeamType { get; set; }
+    public int DurationAnchor { get; set; }
+}
+
+public class TimelineEstimationDetails
+{
+    public TimelineEstimationRecord EstimationResult { get; set; } = new();
+    public TimelineEstimatorRawInput? RawInput { get; set; }
 }
 
 public class TimelineDetail
