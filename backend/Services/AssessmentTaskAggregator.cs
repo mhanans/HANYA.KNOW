@@ -7,6 +7,40 @@ namespace backend.Services;
 
 public static class AssessmentTaskAggregator
 {
+    private static readonly Dictionary<string, string> DirectSectionPhaseMappings = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Project Preparation"] = "Project Preparation",
+        ["Project Closing (Project)"] = "Project Closing (Project)",
+        ["Project Closing (Application)"] = "Project Closing (Application)",
+        ["Post Go Live"] = "Post Go Live"
+    };
+
+    private static readonly (string Keyword, string Phase)[] EstimationColumnPhaseMappings =
+    {
+        ("requirement", "Analysis & Design"),
+        ("documentation", "Analysis & Design"),
+        ("analysis", "Analysis & Design"),
+        ("design", "Analysis & Design"),
+        ("architect setup", "Architecture & Setup"),
+        ("architect poc", "Architecture & Setup"),
+        ("architecture", "Architecture & Setup"),
+        ("setup", "Architecture & Setup"),
+        ("be development", "Development"),
+        ("backend", "Development"),
+        ("fe development", "Development"),
+        ("frontend", "Development"),
+        ("development", "Development"),
+        ("code review", "Testing & QA"),
+        ("unit test", "Testing & QA"),
+        ("uat", "Testing & QA"),
+        ("sit", "Testing & QA"),
+        ("test", "Testing & QA"),
+        ("deployment", "Deployment & Handover"),
+        ("handover", "Deployment & Handover"),
+        ("go live", "Deployment & Handover"),
+        ("hypercare", "Post Go Live")
+    };
+
     public static Dictionary<string, double> AggregateEstimationColumnEffort(ProjectAssessment assessment)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -145,7 +179,6 @@ public static class AssessmentTaskAggregator
         ProjectAssessment assessment,
         PresalesConfiguration configuration)
     {
-        var itemEffortDetails = EnumerateItemEffort(assessment).ToList();
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         var sectionItemLookup = configuration.ItemActivities
@@ -178,54 +211,97 @@ public static class AssessmentTaskAggregator
                 mapping => mapping.ActivityName.Trim(),
                 StringComparer.OrdinalIgnoreCase);
 
-        foreach (var detail in itemEffortDetails)
+        foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
         {
-            var normalizedSection = detail.SectionName?.Trim() ?? string.Empty;
-            var normalizedItem = detail.ItemName?.Trim() ?? string.Empty;
+            var sectionName = section?.SectionName?.Trim() ?? string.Empty;
+            foreach (var item in section?.Items ?? Enumerable.Empty<AssessmentItem>())
+            {
+                if (item == null || !item.IsNeeded)
+                {
+                    continue;
+                }
 
-            var activity = string.Empty;
-            if (!string.IsNullOrWhiteSpace(normalizedSection) &&
-                !string.IsNullOrWhiteSpace(normalizedItem) &&
-                sectionItemLookup.TryGetValue(BuildMappingKey(normalizedSection, normalizedItem), out var sectionItemActivity))
-            {
-                activity = sectionItemActivity;
-            }
-            else if (!string.IsNullOrWhiteSpace(normalizedItem) &&
-                     itemLookup.TryGetValue(normalizedItem, out var mappedActivity))
-            {
-                activity = mappedActivity;
-            }
-            else if (!string.IsNullOrWhiteSpace(normalizedSection) &&
-                     sectionLookup.TryGetValue(normalizedSection, out var sectionActivity))
-            {
-                activity = sectionActivity;
-            }
+                var itemName = item.ItemName?.Trim() ?? string.Empty;
+                foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
+                {
+                    if (estimate.Value is not double hours || hours <= 0)
+                    {
+                        continue;
+                    }
 
-            string key;
-            if (!string.IsNullOrWhiteSpace(activity))
-            {
-                key = activity.Trim();
-            }
-            else if (!string.IsNullOrWhiteSpace(normalizedSection))
-            {
-                key = normalizedSection;
-            }
-            else
-            {
-                key = "Unmapped";
-            }
+                    var manDays = hours / 8d;
+                    if (manDays <= 0)
+                    {
+                        continue;
+                    }
 
-            if (result.TryGetValue(key, out var current))
-            {
-                result[key] = current + detail.ManDays;
-            }
-            else
-            {
-                result[key] = detail.ManDays;
+                    var columnName = estimate.Key?.Trim() ?? string.Empty;
+                    var phase = ResolvePhaseName(
+                        sectionName,
+                        itemName,
+                        columnName,
+                        sectionItemLookup,
+                        itemLookup,
+                        sectionLookup);
+
+                    if (string.IsNullOrWhiteSpace(phase))
+                    {
+                        phase = string.IsNullOrWhiteSpace(sectionName) ? "Unmapped" : sectionName;
+                    }
+
+                    result[phase] = result.TryGetValue(phase, out var current)
+                        ? current + manDays
+                        : manDays;
+                }
             }
         }
 
         return result;
+    }
+
+    private static string ResolvePhaseName(
+        string sectionName,
+        string itemName,
+        string columnName,
+        IReadOnlyDictionary<string, string> sectionItemLookup,
+        IReadOnlyDictionary<string, string> itemLookup,
+        IReadOnlyDictionary<string, string> sectionLookup)
+    {
+        if (!string.IsNullOrWhiteSpace(sectionName) &&
+            DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
+        {
+            return directPhase;
+        }
+
+        if (!string.IsNullOrWhiteSpace(columnName))
+        {
+            foreach (var (keyword, phase) in EstimationColumnPhaseMappings)
+            {
+                if (columnName.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    return phase;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(sectionName) &&
+            !string.IsNullOrWhiteSpace(itemName) &&
+            sectionItemLookup.TryGetValue(BuildMappingKey(sectionName, itemName), out var sectionItemActivity))
+        {
+            return sectionItemActivity;
+        }
+
+        if (!string.IsNullOrWhiteSpace(itemName) && itemLookup.TryGetValue(itemName, out var mappedActivity))
+        {
+            return mappedActivity;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sectionName) && sectionLookup.TryGetValue(sectionName, out var sectionActivity))
+        {
+            return sectionActivity;
+        }
+
+        return string.Empty;
     }
 
     public static Dictionary<string, double> CalculateRoleManDays(
