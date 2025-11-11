@@ -87,12 +87,6 @@ const navSections: { title: string; links: NavItem[] }[] = [
       { href: '/users', label: 'User Management', icon: '👤', key: 'users' },
       { href: '/roles', label: 'Manage Role', icon: '🔧', key: 'roles' },
       { href: '/role-ui', label: 'Access Control', icon: '🔐', key: 'role-ui' },
-      {
-        href: '/timeline-references',
-        label: 'Timeline Duration References',
-        icon: '⏱️',
-        key: 'timeline-estimation-references',
-      },
       { href: '/settings', label: 'System Settings', icon: '⚙️', key: 'settings' },
     ],
   },
