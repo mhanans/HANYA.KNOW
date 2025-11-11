@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using backend.Models;
 
 namespace backend.Services;
@@ -39,9 +40,12 @@ public static class AssessmentTaskAggregator
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (assessment?.Sections == null)
         {
+            // Use Console.WriteLine for critical path debugging as it's not filtered by log levels.
             Console.WriteLine("[ERROR] AggregateEstimationColumnEffort: Assessment or Sections collection is null.");
             return result;
         }
+
+        double totalHoursAggregated = 0;
 
         foreach (var section in assessment.Sections)
         {
@@ -51,20 +55,37 @@ public static class AssessmentTaskAggregator
             {
                 if (item == null || !item.IsNeeded || item.Estimates == null) continue;
 
+                // The original code was correct, but we re-verify its logic.
                 foreach (var estimate in item.Estimates)
                 {
-                    if (estimate.Value is not double hours || hours <= 0) continue;
-
+                    // Explicitly check the key and value before processing.
                     var columnName = estimate.Key?.Trim();
                     if (string.IsNullOrWhiteSpace(columnName)) continue;
 
-                    var manDays = hours / 8d;
-                    result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
+                    // This handles cases where the value might be a non-numeric type from JSON.
+                    if (estimate.Value is not JsonElement element || element.ValueKind != JsonValueKind.Number)
+                    {
+                        // If your model uses double?, this check is more direct:
+                        if (estimate.Value is not double hours || hours <= 0) continue;
+
+                        var manDays = hours / 8.0;
+                        totalHoursAggregated += hours;
+                        result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
+                    }
+                    else // Handles JsonElement from System.Text.Json
+                    {
+                        if (element.TryGetDouble(out double hours) && hours > 0)
+                        {
+                            var manDays = hours / 8.0;
+                            totalHoursAggregated += hours;
+                            result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
+                        }
+                    }
                 }
             }
         }
 
-        Console.WriteLine($"[DEBUG] AggregateEstimationColumnEffort finished. Total man-days calculated: {result.Values.Sum()}. Number of columns: {result.Count}.");
+        Console.WriteLine($"[DEBUG] AggregateEstimationColumnEffort finished. Total Hours: {totalHoursAggregated}. Total Man-Days: {result.Values.Sum()}. Number of Columns: {result.Count}.");
         return result;
     }
 
