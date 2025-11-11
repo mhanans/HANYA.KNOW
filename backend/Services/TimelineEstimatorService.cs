@@ -70,10 +70,8 @@ public class TimelineEstimatorService
 
         var prompt = BuildEstimatorPrompt(
             assessment,
-            estimationColumnEffort,
             activityManDays,
             roleManDays,
-            references,
             config,
             idealDuration);
         string rawResponse = string.Empty;
@@ -387,10 +385,8 @@ public class TimelineEstimatorService
 
     private string BuildEstimatorPrompt(
         ProjectAssessment assessment,
-        Dictionary<string, double> estimationColumnManDays,
         Dictionary<string, double> activityManDays,
         Dictionary<string, double> roleManDays,
-        IReadOnlyList<TimelineEstimationReference> references,
         PresalesConfiguration config,
         int idealDuration)
     {
@@ -409,61 +405,41 @@ public class TimelineEstimatorService
             .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
             .Select(kvp =>
                 $"  - Phase: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
-        var roleLines = roleManDays
-            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kvp =>
-                $"  - Role: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
-        var referenceLines = (references ?? Array.Empty<TimelineEstimationReference>())
-            .OrderBy(r => r.ProjectScale, StringComparer.OrdinalIgnoreCase)
-            .Select(r =>
-            {
-                var phaseSummary = string.Join(", ", r.PhaseDurations
-                    .OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(k => $"{k.Key}: {k.Value}d"));
-                var resourceSummary = string.Join(", ", r.ResourceAllocation
-                    .OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(k => $"{k.Key}: {k.Value.ToString("F1", CultureInfo.InvariantCulture)}"));
-                return $"  - Scale {r.ProjectScale}: {phaseSummary} | Total: {r.TotalDurationDays}d | Resources: {resourceSummary}";
-            });
-
         var totalManDays = roleManDays.Values.Sum();
 
         return $@"
-        You are an expert project planning AI. Your task is to generate a realistic timeline summary based on the provided effort data.
+You are a methodical project planning AI. Your task is to create a high-level project timeline based on effort estimates.
 
-        **Inputs:**
-        - Project: {assessment.ProjectName}
-        - Total Man-Days across all roles: {totalManDays.ToString("F2", CultureInfo.InvariantCulture)}
-        - Phase Effort Summary (man-days per phase):
+**Inputs:**
+- Project: {assessment.ProjectName}
+- Total Man-Days: {totalManDays.ToString("F2", CultureInfo.InvariantCulture)}
+- Phase Effort Summary (man-days per logical phase):
 {string.Join("\n", activityLines)}
-        - Role Effort Summary (man-days per role):
-{string.Join("\n", roleLines)}
-        - Historical Reference Table:
-{string.Join("\n", referenceLines)}
 
-        **Guidance:**
-        - Based on the total effort, an ideal duration for this project with a standard team size is estimated to be around **{idealDuration} working days**.
-        - Use this ideal duration as a strong anchor point for your final `totalDurationDays` estimate. You can adjust it slightly based on the phase dependencies and historical data, but it should be your primary reference.
+**Guidance & Constraints:**
+1.  **Primary Anchor:** Based on the total effort, a project of this scale with a standard team size suggests an ideal duration of approximately **{idealDuration} working days**. Your final `totalDurationDays` MUST be very close to this anchor. Do not deviate significantly.
+2.  **Logical Sequencing:** A typical project flow is: Preparation -> Design -> Architecture -> Development -> Testing -> Deployment -> Closing. Use this as a guide for your 'Serial' and 'Subsequent' sequencing. 'Development' and 'Testing' can have some parallel overlap.
 
-        **Requirements:**
-        1. Determine the project scale (e.g., Long, Medium, Short).
-        2. Estimate a final `totalDurationDays` for the project, heavily guided by the suggested ideal duration of {idealDuration} days.
-        3. Provide a duration in days for each phase listed in the input. The sum of these phase durations can differ from the total project duration.
-        4. Determine the sequence type for each phase: 'Serial' (must finish before next starts), 'Subsequent' (can start as the previous one is ending), or 'Parallel' (runs concurrently with others).
-        5. In `sequencingNotes`, clearly explain why the `totalDurationDays` might differ from the sum of phase durations (e.g., due to overlaps).
-        6. Output strictly valid minified JSON. DO NOT include a 'roles' array.
+**Requirements:**
+1.  Determine the project `projectScale`.
+2.  Estimate a final `totalDurationDays`, using the **{idealDuration} day anchor** as your primary guide.
+3.  For each input phase, assign a `durationDays` and a `sequenceType` ('Serial', 'Subsequent', 'Parallel').
+4.  **Self-Validation:** Before finalizing your JSON, mentally calculate the timeline based on your phase durations and sequences. For example, `Serial(10) + Parallel(30, 20) + Subsequent(5)` results in a timeline of roughly `10 + 30 + 5 = 45` days. Ensure your `totalDurationDays` is consistent with this calculation from your own phase estimates.
+5.  In `sequencingNotes`, explain how overlaps affect the timeline.
+6.  Output strictly valid minified JSON. DO NOT include a 'roles' array.
 
-        **JSON Output Structure:**
-        {{
-          ""projectScale"": ""Medium"",
-          ""totalDurationDays"": {idealDuration},
-          ""sequencingNotes"": ""The total duration is less than the sum of phases due to a planned overlap between the development and testing phases."",
-          ""phases"": [
-            {{ ""phaseName"": ""Discovery"", ""durationDays"": 10, ""sequenceType"": ""Serial"" }}
-          ]
-        }}
+**JSON Output Structure:**
+{{
+  ""projectScale"": ""Medium"",
+  ""totalDurationDays"": {idealDuration},
+  ""sequencingNotes"": ""The total duration is less than the sum of phases due to a planned overlap between the Development and Testing phases."",
+  ""phases"": [
+    {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 15, ""sequenceType"": ""Serial"" }},
+    {{ ""phaseName"": ""Development"", ""durationDays"": 40, ""sequenceType"": ""Subsequent"" }}
+  ]
+}}
 
-        Return only the JSON object.";
+Return only the JSON object.";
     }
 
     private static AiTimelineEstimationResult ParseAiEstimation(string response)
