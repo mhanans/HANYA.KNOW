@@ -201,7 +201,19 @@ public static class AssessmentTaskAggregator
                 activity = sectionActivity;
             }
 
-            var key = string.IsNullOrWhiteSpace(activity) ? "Unmapped" : activity.Trim();
+            string key;
+            if (!string.IsNullOrWhiteSpace(activity))
+            {
+                key = activity.Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(normalizedSection))
+            {
+                key = normalizedSection;
+            }
+            else
+            {
+                key = "Unmapped";
+            }
 
             if (result.TryGetValue(key, out var current))
             {
