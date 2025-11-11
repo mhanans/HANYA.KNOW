@@ -165,6 +165,66 @@ export default function TimelineEstimatorDetailPage() {
     }
   }, [resolvedId, loadEstimation]);
 
+  const configuredPhases = useMemo(() => {
+    if (!estimation) return [] as { phaseName: string; durationDays: number | null; sequenceType: string }[];
+
+    const normalizeDuration = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      const parsed = Number.parseFloat(typeof value === 'string' ? value : `${value ?? ''}`);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const normalizedPhases = (Array.isArray(estimation?.phases) ? estimation.phases : []).map(phase => ({
+      phaseName: (phase?.phaseName ?? '').trim(),
+      durationDays: normalizeDuration((phase as any)?.durationDays),
+      sequenceType: (phase?.sequenceType ?? '').trim(),
+    }));
+
+    if (activities.length === 0) {
+      return normalizedPhases.map(phase => ({
+        phaseName: phase.phaseName || '—',
+        durationDays: phase.durationDays,
+        sequenceType: phase.sequenceType || '—',
+      }));
+    }
+
+    const sortedActivities = [...activities];
+    sortedActivities.sort((a, b) => {
+      if (a.displayOrder !== b.displayOrder) {
+        return a.displayOrder - b.displayOrder;
+      }
+      return a.activityName.localeCompare(b.activityName);
+    });
+
+    const usedPhaseKeys = new Set<string>();
+    const rows = sortedActivities.map(activity => {
+      const activityKey = activity.activityName.trim().toLowerCase();
+      const match = normalizedPhases.find(phase => phase.phaseName.trim().toLowerCase() === activityKey);
+      if (match) {
+        usedPhaseKeys.add(match.phaseName.trim().toLowerCase());
+      }
+      return {
+        phaseName: activity.activityName,
+        durationDays: match ? match.durationDays : null,
+        sequenceType: match?.sequenceType || '—',
+      };
+    });
+
+    const unmatchedPhases = normalizedPhases
+      .filter(phase => !usedPhaseKeys.has(phase.phaseName.trim().toLowerCase()))
+      .map(phase => ({
+        phaseName: phase.phaseName || '—',
+        durationDays: phase.durationDays,
+        sequenceType: phase.sequenceType || '—',
+      }));
+
+    return rows.concat(unmatchedPhases);
+  }, [activities, estimation]);
+
+  const sumPhaseDuration = configuredPhases.reduce((sum, phase) => sum + (phase.durationDays ?? 0), 0);
+
   if (!resolvedId) {
     return (
       <Box sx={{ py: 6, textAlign: 'center' }}>
@@ -192,39 +252,6 @@ export default function TimelineEstimatorDetailPage() {
       </Box>
     );
   }
-
-  const configuredPhases = useMemo(() => {
-    if (!estimation) return [] as { phaseName: string; durationDays: number | null; sequenceType: string }[];
-
-    if (activities.length === 0) {
-      return estimation.phases.map(phase => ({
-        phaseName: phase.phaseName,
-        durationDays: Number.isFinite(phase.durationDays) ? phase.durationDays : 0,
-        sequenceType: phase.sequenceType?.trim() || '—',
-      }));
-    }
-
-    const sortedActivities = [...activities];
-    sortedActivities.sort((a, b) => {
-      if (a.displayOrder !== b.displayOrder) {
-        return a.displayOrder - b.displayOrder;
-      }
-      return a.activityName.localeCompare(b.activityName);
-    });
-
-    return sortedActivities.map(activity => {
-      const match = estimation.phases.find(
-        phase => phase.phaseName?.trim().toLowerCase() === activity.activityName.trim().toLowerCase()
-      );
-      return {
-        phaseName: activity.activityName,
-        durationDays: match ? match.durationDays : null,
-        sequenceType: match?.sequenceType?.trim() || '—',
-      };
-    });
-  }, [activities, estimation]);
-
-  const sumPhaseDuration = configuredPhases.reduce((sum, phase) => sum + (phase.durationDays ?? 0), 0);
 
   if (!estimation) {
     return (
