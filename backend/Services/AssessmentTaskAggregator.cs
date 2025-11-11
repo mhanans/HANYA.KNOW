@@ -53,24 +53,39 @@ public static class AssessmentTaskAggregator
         return result;
     }
 
-    public static Dictionary<string, double> AggregateItemEffort(ProjectAssessment assessment)
+    private readonly record struct ItemEffortDetail(
+        string SectionName,
+        int SectionIndex,
+        string ItemName,
+        int ItemIndex,
+        double ManDays);
+
+    private static IEnumerable<ItemEffortDetail> EnumerateItemEffort(ProjectAssessment assessment)
     {
-        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
+        if (assessment?.Sections == null)
         {
-            foreach (var item in section.Items ?? Enumerable.Empty<AssessmentItem>())
+            yield break;
+        }
+
+        for (var sectionIndex = 0; sectionIndex < assessment.Sections.Count; sectionIndex++)
+        {
+            var section = assessment.Sections[sectionIndex];
+            if (section == null)
             {
-                if (!item.IsNeeded)
+                continue;
+            }
+
+            var sectionName = section.SectionName?.Trim() ?? string.Empty;
+            var items = section.Items ?? new List<AssessmentItem>();
+            for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+            {
+                var item = items[itemIndex];
+                if (item == null || !item.IsNeeded)
                 {
                     continue;
                 }
 
-                var itemName = item.ItemName?.Trim();
-                if (string.IsNullOrWhiteSpace(itemName))
-                {
-                    continue;
-                }
-
+                var itemName = item.ItemName?.Trim() ?? string.Empty;
                 double totalHours = 0;
                 foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
                 {
@@ -88,14 +103,38 @@ public static class AssessmentTaskAggregator
                 }
 
                 var manDays = totalHours / 8d;
-                if (result.TryGetValue(itemName, out var existing))
+                if (manDays <= 0)
                 {
-                    result[itemName] = existing + manDays;
+                    continue;
                 }
-                else
-                {
-                    result[itemName] = manDays;
-                }
+
+                yield return new ItemEffortDetail(sectionName, sectionIndex, itemName, itemIndex, manDays);
+            }
+        }
+    }
+
+    private static string BuildMappingKey(string sectionName, string itemName)
+    {
+        return $"{sectionName}\0{itemName}";
+    }
+
+    public static Dictionary<string, double> AggregateItemEffort(ProjectAssessment assessment)
+    {
+        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var detail in EnumerateItemEffort(assessment))
+        {
+            if (string.IsNullOrWhiteSpace(detail.ItemName))
+            {
+                continue;
+            }
+
+            if (result.TryGetValue(detail.ItemName, out var existing))
+            {
+                result[detail.ItemName] = existing + detail.ManDays;
+            }
+            else
+            {
+                result[detail.ItemName] = detail.ManDays;
             }
         }
 
@@ -106,14 +145,62 @@ public static class AssessmentTaskAggregator
         ProjectAssessment assessment,
         PresalesConfiguration configuration)
     {
-        var itemEffort = AggregateItemEffort(assessment);
+        var itemEffortDetails = EnumerateItemEffort(assessment).ToList();
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (itemName, manDays) in itemEffort)
+        var sectionItemLookup = configuration.ItemActivities
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
+                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .ToDictionary(
+                mapping => BuildMappingKey(mapping.SectionName.Trim(), mapping.ItemName.Trim()),
+                mapping => mapping.ActivityName.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var itemLookup = configuration.ItemActivities
+            .Where(mapping =>
+                string.IsNullOrWhiteSpace(mapping.SectionName) &&
+                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .ToDictionary(
+                mapping => mapping.ItemName.Trim(),
+                mapping => mapping.ActivityName.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var sectionLookup = configuration.ItemActivities
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
+                string.IsNullOrWhiteSpace(mapping.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .ToDictionary(
+                mapping => mapping.SectionName.Trim(),
+                mapping => mapping.ActivityName.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var detail in itemEffortDetails)
         {
-            var activity = configuration.ItemActivities
-                .FirstOrDefault(ia => ia.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase))?.ActivityName
-                ?? "Unmapped";
+            var normalizedSection = detail.SectionName?.Trim() ?? string.Empty;
+            var normalizedItem = detail.ItemName?.Trim() ?? string.Empty;
+
+            var activity = string.Empty;
+            if (!string.IsNullOrWhiteSpace(normalizedSection) &&
+                !string.IsNullOrWhiteSpace(normalizedItem) &&
+                sectionItemLookup.TryGetValue(BuildMappingKey(normalizedSection, normalizedItem), out var sectionItemActivity))
+            {
+                activity = sectionItemActivity;
+            }
+            else if (!string.IsNullOrWhiteSpace(normalizedItem) &&
+                     itemLookup.TryGetValue(normalizedItem, out var mappedActivity))
+            {
+                activity = mappedActivity;
+            }
+            else if (!string.IsNullOrWhiteSpace(normalizedSection) &&
+                     sectionLookup.TryGetValue(normalizedSection, out var sectionActivity))
+            {
+                activity = sectionActivity;
+            }
+
             if (string.IsNullOrWhiteSpace(activity))
             {
                 activity = "Unmapped";
@@ -121,11 +208,11 @@ public static class AssessmentTaskAggregator
 
             if (result.TryGetValue(activity, out var current))
             {
-                result[activity] = current + manDays;
+                result[activity] = current + detail.ManDays;
             }
             else
             {
-                result[activity] = manDays;
+                result[activity] = detail.ManDays;
             }
         }
 
@@ -143,7 +230,7 @@ public static class AssessmentTaskAggregator
         {
             var roles = configuration.EstimationColumnRoles
                 .Where(tr => tr.EstimationColumn.Equals(columnName, StringComparison.OrdinalIgnoreCase))
-                .Select(tr => PresalesRoleFormatter.BuildLabel(tr.RoleName, tr.ExpectedLevel))
+                .Select(tr => tr.RoleName?.Trim())
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

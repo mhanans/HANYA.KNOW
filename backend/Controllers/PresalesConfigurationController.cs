@@ -39,9 +39,9 @@ public class PresalesConfigurationController : ControllerBase
     [HttpGet("items")]
     [HttpGet("tasks")]
     [UiAuthorize("pre-sales-configuration")]
-    public async Task<ActionResult<IEnumerable<string>>> ListItems()
+    public async Task<ActionResult<IEnumerable<TemplateSectionItemReference>>> ListItems()
     {
-        var items = await _templates.ListTemplateItemNamesAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        var items = await _templates.ListTemplateTaskReferencesAsync(HttpContext.RequestAborted).ConfigureAwait(false);
         return Ok(items);
     }
 

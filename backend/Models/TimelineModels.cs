@@ -70,15 +70,16 @@ public class PresalesActivity
 
 public class ItemActivityMapping
 {
+    public string SectionName { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public string ActivityName { get; set; } = string.Empty;
+    public int DisplayOrder { get; set; }
 }
 
 public class EstimationColumnRoleMapping
 {
     public string EstimationColumn { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
-    public string ExpectedLevel { get; set; } = string.Empty;
 }
 
 public class PresalesConfiguration

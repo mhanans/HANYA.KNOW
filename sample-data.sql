@@ -242,10 +242,10 @@ INSERT INTO presales_item_activities (item_name, activity_name) VALUES
 ON CONFLICT (item_name) DO UPDATE
 SET activity_name = EXCLUDED.activity_name;
 
-INSERT INTO presales_estimation_column_roles (estimation_column, role_name, expected_level) VALUES
-  ('Solution Architect', 'Project Manager', 'Lead'),
-  ('Business Analyst', 'Business Analyst', 'Senior'),
-  ('Quality Engineer', 'Quality Engineer', 'Specialist'),
-  ('Development', 'Developer', 'Senior'),
-  ('Development Support', 'Developer', 'Junior')
-ON CONFLICT (estimation_column, role_name, expected_level) DO NOTHING;
+INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALUES
+  ('Solution Architect', 'Project Manager'),
+  ('Business Analyst', 'Business Analyst'),
+  ('Quality Engineer', 'Quality Engineer'),
+  ('Development', 'Developer'),
+  ('Development Support', 'Developer')
+ON CONFLICT (estimation_column, role_name) DO NOTHING;

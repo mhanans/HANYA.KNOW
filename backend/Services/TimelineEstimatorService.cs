@@ -63,7 +63,7 @@ public class TimelineEstimatorService
         var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
         var references = await _referenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
 
-        var prompt = BuildEstimatorPrompt(assessment, estimationColumnEffort, activityManDays, roleManDays, references);
+        var prompt = BuildEstimatorPrompt(assessment, estimationColumnEffort, activityManDays, roleManDays, references, config);
         string rawResponse = string.Empty;
         TimelineEstimationRecord estimation;
 
@@ -355,14 +355,26 @@ public class TimelineEstimatorService
         Dictionary<string, double> estimationColumnManDays,
         Dictionary<string, double> activityManDays,
         Dictionary<string, double> roleManDays,
-        IReadOnlyList<TimelineEstimationReference> references)
+        IReadOnlyList<TimelineEstimationReference> references,
+        PresalesConfiguration config)
     {
+        var activityOrderLookup = (config.Activities ?? new List<PresalesActivity>())
+            .Where(activity => !string.IsNullOrWhiteSpace(activity.ActivityName))
+            .Select(activity => new
+            {
+                Name = activity.ActivityName.Trim(),
+                Order = activity.DisplayOrder
+            })
+            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Min(entry => entry.Order), StringComparer.OrdinalIgnoreCase);
+
         var columnLines = estimationColumnManDays
             .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
             .Select(kvp =>
                 $"  - Estimation Column: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
         var activityLines = activityManDays
-            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(kvp => activityOrderLookup.TryGetValue(kvp.Key, out var order) ? order : int.MaxValue)
+            .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
             .Select(kvp =>
                 $"  - Phase: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
         var roleLines = roleManDays

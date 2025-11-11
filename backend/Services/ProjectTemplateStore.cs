@@ -227,7 +227,7 @@ public class ProjectTemplateStore
             .ToList();
     }
 
-    public async Task<IReadOnlyList<string>> ListTemplateItemNamesAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<TemplateSectionItemReference>> ListTemplateTaskReferencesAsync(CancellationToken cancellationToken)
     {
         const string sql = "SELECT template_data -> 'sections' FROM project_templates";
         await using var conn = new NpgsqlConnection(_connectionString);
@@ -235,7 +235,10 @@ public class ProjectTemplateStore
         await using var cmd = new NpgsqlCommand(sql, conn);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sectionOrderLookup = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var sectionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var itemLookup = new Dictionary<string, TemplateSectionItemReference>(StringComparer.OrdinalIgnoreCase);
+
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             if (reader.IsDBNull(0))
@@ -257,36 +260,94 @@ public class ProjectTemplateStore
                     continue;
                 }
 
+                var sectionIndex = 0;
                 foreach (var sectionElement in doc.RootElement.EnumerateArray())
                 {
                     if (sectionElement.ValueKind != JsonValueKind.Object)
                     {
+                        sectionIndex++;
                         continue;
                     }
 
-                    if (!sectionElement.TryGetProperty("items", out var itemsElement) || itemsElement.ValueKind != JsonValueKind.Array)
+                    if (!sectionElement.TryGetProperty("sectionName", out var sectionNameElement) || sectionNameElement.ValueKind != JsonValueKind.String)
                     {
+                        sectionIndex++;
                         continue;
                     }
 
-                    foreach (var itemElement in itemsElement.EnumerateArray())
+                    var sectionName = sectionNameElement.GetString()?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(sectionName))
                     {
-                        if (itemElement.ValueKind != JsonValueKind.Object)
-                        {
-                            continue;
-                        }
+                        sectionIndex++;
+                        continue;
+                    }
 
-                        if (!itemElement.TryGetProperty("itemName", out var itemNameElement) || itemNameElement.ValueKind != JsonValueKind.String)
-                        {
-                            continue;
-                        }
+                    sectionNames.Add(sectionName);
+                    if (!sectionOrderLookup.TryGetValue(sectionName, out var existingSectionOrder) || sectionIndex < existingSectionOrder)
+                    {
+                        sectionOrderLookup[sectionName] = sectionIndex;
+                    }
 
-                        var value = itemNameElement.GetString();
-                        if (!string.IsNullOrWhiteSpace(value))
+                    var itemsElement = sectionElement.TryGetProperty("items", out var rawItems) && rawItems.ValueKind == JsonValueKind.Array
+                        ? rawItems
+                        : default;
+
+                    var hasItems = itemsElement.ValueKind == JsonValueKind.Array && itemsElement.GetArrayLength() > 0;
+                    if (hasItems)
+                    {
+                        var itemIndex = 0;
+                        foreach (var itemElement in itemsElement.EnumerateArray())
                         {
-                            set.Add(value.Trim());
+                            if (itemElement.ValueKind != JsonValueKind.Object)
+                            {
+                                itemIndex++;
+                                continue;
+                            }
+
+                            if (!itemElement.TryGetProperty("itemName", out var itemNameElement) || itemNameElement.ValueKind != JsonValueKind.String)
+                            {
+                                itemIndex++;
+                                continue;
+                            }
+
+                            var itemName = itemNameElement.GetString()?.Trim() ?? string.Empty;
+                            if (string.IsNullOrWhiteSpace(itemName))
+                            {
+                                itemIndex++;
+                                continue;
+                            }
+
+                            var key = $"{sectionName}\0{itemName}";
+                            if (itemLookup.TryGetValue(key, out var existing))
+                            {
+                                if (sectionIndex < existing.SectionOrder)
+                                {
+                                    existing.SectionOrder = sectionIndex;
+                                }
+
+                                if (itemIndex < existing.ItemOrder)
+                                {
+                                    existing.ItemOrder = itemIndex;
+                                }
+
+                                itemLookup[key] = existing;
+                            }
+                            else
+                            {
+                                itemLookup[key] = new TemplateSectionItemReference
+                                {
+                                    SectionName = sectionName,
+                                    SectionOrder = sectionIndex,
+                                    ItemName = itemName,
+                                    ItemOrder = itemIndex
+                                };
+                            }
+
+                            itemIndex++;
                         }
                     }
+
+                    sectionIndex++;
                 }
             }
             catch (JsonException ex)
@@ -295,9 +356,45 @@ public class ProjectTemplateStore
             }
         }
 
-        return set
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+        foreach (var sectionName in sectionNames)
+        {
+            var key = $"{sectionName}\0";
+            if (!itemLookup.ContainsKey(key))
+            {
+                var order = sectionOrderLookup.TryGetValue(sectionName, out var sectionOrder)
+                    ? sectionOrder
+                    : int.MaxValue;
+                itemLookup[key] = new TemplateSectionItemReference
+                {
+                    SectionName = sectionName,
+                    SectionOrder = order,
+                    ItemName = string.Empty,
+                    ItemOrder = -1
+                };
+            }
+            else if (sectionOrderLookup.TryGetValue(sectionName, out var normalizedOrder))
+            {
+                var reference = itemLookup[key];
+                if (normalizedOrder < reference.SectionOrder)
+                {
+                    reference.SectionOrder = normalizedOrder;
+                    itemLookup[key] = reference;
+                }
+            }
+        }
+
+        foreach (var reference in itemLookup.Values)
+        {
+            if (sectionOrderLookup.TryGetValue(reference.SectionName, out var normalizedOrder))
+            {
+                reference.SectionOrder = Math.Min(reference.SectionOrder, normalizedOrder);
+            }
+        }
+
+        return itemLookup.Values
+            .OrderBy(reference => reference.SectionOrder)
+            .ThenBy(reference => reference.ItemOrder)
+            .ThenBy(reference => reference.ItemName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 }
