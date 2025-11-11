@@ -417,8 +417,21 @@ const transformPresalesResponse = (
   };
 };
 
-type TabKey = 'roles' | 'activities' | 'items' | 'columns' | 'timeline';
-const TAB_KEYS: TabKey[] = ['roles', 'activities', 'items', 'columns', 'timeline'];
+type TabKey =
+  | 'roles'
+  | 'activities'
+  | 'items'
+  | 'columns'
+  | 'timelineTeamTypes'
+  | 'timelineReferences';
+const TAB_KEYS: TabKey[] = [
+  'roles',
+  'activities',
+  'items',
+  'columns',
+  'timelineTeamTypes',
+  'timelineReferences',
+];
 
 const ROLE_LABEL_SEPARATOR = ' – ';
 const ROLE_VALUE_SEPARATOR = '::';
@@ -530,8 +543,11 @@ export default function PresalesConfigurationPage() {
     if (!router.isReady) return;
     const tabParam = router.query.tab;
     const value = Array.isArray(tabParam) ? tabParam[0] : tabParam;
-    if (value && TAB_KEYS.includes(value as TabKey)) {
-      setActiveTab(value as TabKey);
+    if (value) {
+      const normalized = value === 'timeline' ? 'timelineTeamTypes' : value;
+      if (TAB_KEYS.includes(normalized as TabKey)) {
+        setActiveTab(normalized as TabKey);
+      }
     }
   }, [router.isReady, router.query.tab]);
 
@@ -612,7 +628,7 @@ export default function PresalesConfigurationPage() {
     setTimelineReferencesLoading(true);
     setTimelineReferencesError(null);
     try {
-      const res = await apiFetch('/api/timeline-estimation-references');
+      const res = await apiFetch('/api/TimelineEstimationReferences');
       if (res.status === 403 || res.status === 401) {
         setTimelineReferences([]);
         setTimelineReferencesPermissionDenied(true);
@@ -757,7 +773,7 @@ export default function PresalesConfigurationPage() {
 
         setTimelineReferenceSavingId('new');
         setTimelineReferencesError(null);
-        const response = await apiFetch('/api/timeline-estimation-references', {
+        const response = await apiFetch('/api/TimelineEstimationReferences', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -821,7 +837,7 @@ export default function PresalesConfigurationPage() {
 
         setTimelineReferenceSavingId(referenceId);
         setTimelineReferencesError(null);
-        const response = await apiFetch(`/api/timeline-estimation-references/${referenceId}`, {
+        const response = await apiFetch(`/api/TimelineEstimationReferences/${referenceId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -857,7 +873,7 @@ export default function PresalesConfigurationPage() {
       setTimelineReferenceSavingId(referenceId);
       setTimelineReferencesError(null);
       try {
-        const response = await apiFetch(`/api/timeline-estimation-references/${referenceId}`, {
+        const response = await apiFetch(`/api/TimelineEstimationReferences/${referenceId}`, {
           method: 'DELETE',
         });
         if (!response.ok) {
@@ -1650,7 +1666,8 @@ export default function PresalesConfigurationPage() {
               <Tab label="Activity Groupings" value="activities" />
               <Tab label="Item → Activity Mapping" value="items" />
               <Tab label="Estimation Column → Role Allocation" value="columns" />
-              <Tab label="Timeline Estimator" value="timeline" />
+              <Tab label="Timeline Estimator — Team Types" value="timelineTeamTypes" />
+              <Tab label="Timeline Estimator — References" value="timelineReferences" />
             </Tabs>
 
             {activeTab === 'roles' && (
@@ -1988,7 +2005,7 @@ export default function PresalesConfigurationPage() {
               </Stack>
             )}
 
-            {activeTab === 'timeline' && (
+            {activeTab === 'timelineTeamTypes' && (
               <Stack spacing={3}>
                 <Stack spacing={1}>
                   <Typography variant="h2" className="section-title">Estimator Team Types</Typography>
@@ -2076,14 +2093,29 @@ export default function PresalesConfigurationPage() {
                                     <TableRow key={role.clientKey ?? role.id ?? roleIndex}>
                                       <TableCell>
                                         <TextField
+                                          select
                                           fullWidth
                                           size="small"
-                                          value={role.roleName}
+                                          value={role.roleName || ''}
                                           onChange={(event: ChangeEvent<HTMLInputElement>) =>
                                             handleTeamTypeRoleChange(index, roleIndex, 'roleName', event.target.value)
                                           }
-                                          placeholder="e.g. Solution Architect"
-                                        />
+                                          SelectProps={{
+                                            displayEmpty: true,
+                                            renderValue: (selected: unknown) => {
+                                              if (typeof selected !== 'string' || !selected) {
+                                                return 'Select role';
+                                              }
+                                              const option = roleOptions.find(item => item.value === selected);
+                                              return option?.label ?? selected;
+                                            },
+                                          }}
+                                        >
+                                          <MenuItem value="">Select role</MenuItem>
+                                          {roleOptions.map(option => (
+                                            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                                          ))}
+                                        </TextField>
                                       </TableCell>
                                       <TableCell width={160}>
                                         <TextField
@@ -2141,13 +2173,17 @@ export default function PresalesConfigurationPage() {
                   Add Team Type
                 </Button>
 
-                <Divider />
+              </Stack>
+            )}
 
+            {activeTab === 'timelineReferences' && (
+              <Stack spacing={3}>
                 <Stack spacing={1}>
                   <Typography variant="h2" className="section-title">Timeline Estimator References</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Maintain the historical phase durations and resource allocations that guide the Timeline Estimator before it
-                    prepares execution schedules.
+                    Maintain the historical phase durations and resource allocations that the Timeline Estimator consults before
+                    it summarizes the Presales Workspace → Timeline Estimator → Timeline Generation → Estimated Cost Generation
+                    flow.
                   </Typography>
                 </Stack>
 
@@ -2220,6 +2256,8 @@ export default function PresalesConfigurationPage() {
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
                         <Button
                           type="button"
+                          variant="text"
+                          color="inherit"
                           onClick={resetTimelineReferenceDraft}
                           disabled={timelineReferencesPermissionDenied || isCreatingReference}
                         >
