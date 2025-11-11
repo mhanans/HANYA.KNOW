@@ -193,14 +193,6 @@ export default function TimelineEstimatorDetailPage() {
     );
   }
 
-  if (!estimation) {
-    return (
-      <Box sx={{ py: 6, textAlign: 'center' }}>
-        <Typography>No timeline estimation available. Generate one from the timeline list.</Typography>
-      </Box>
-    );
-  }
-
   const configuredPhases = useMemo(() => {
     if (!estimation) return [] as { phaseName: string; durationDays: number | null; sequenceType: string }[];
 
@@ -233,6 +225,14 @@ export default function TimelineEstimatorDetailPage() {
   }, [activities, estimation]);
 
   const sumPhaseDuration = configuredPhases.reduce((sum, phase) => sum + (phase.durationDays ?? 0), 0);
+
+  if (!estimation) {
+    return (
+      <Box sx={{ py: 6, textAlign: 'center' }}>
+        <Typography>No timeline estimation available. Generate one from the timeline list.</Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
