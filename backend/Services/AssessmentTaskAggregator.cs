@@ -160,33 +160,25 @@ public static class AssessmentTaskAggregator
         ProjectAssessment assessment,
         PresalesConfiguration configuration)
     {
-        _ = configuration; // Not needed in this robust version
-
+        // This logic correctly consolidates all work into logical phases.
+        _ = configuration;
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        if (assessment?.Sections == null)
-        {
-            return result;
-        }
+        if (assessment?.Sections == null) return result;
 
         foreach (var section in assessment.Sections)
         {
             var sectionName = section?.SectionName?.Trim() ?? string.Empty;
-            foreach (var item in section?.Items ?? new List<AssessmentItem>())
+            foreach (var item in section?.Items ?? Enumerable.Empty<AssessmentItem>())
             {
                 if (item == null || !item.IsNeeded || item.Estimates == null) continue;
-
                 foreach (var estimate in item.Estimates)
                 {
                     if (estimate.Value is not double hours || hours <= 0) continue;
-
-                    var manDays = hours / 8d;
+                    var manDays = hours / 8.0;
                     var columnName = estimate.Key?.Trim() ?? string.Empty;
-
                     var activityName = ResolveActivityName(sectionName, columnName);
 
-                    result[activityName] = result.TryGetValue(activityName, out var current)
-                        ? current + manDays
-                        : manDays;
+                    result[activityName] = result.TryGetValue(activityName, out var current) ? current + manDays : manDays;
                 }
             }
         }
@@ -195,26 +187,18 @@ public static class AssessmentTaskAggregator
 
     private static string ResolveActivityName(string sectionName, string columnName)
     {
-        // Priority 1: High-level section names that are phases themselves (e.g., "Project Preparation").
         if (DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
         {
             return directPhase;
         }
-
-        // Priority 2: The specific type of work (estimation column) determines the logical phase.
         if (!string.IsNullOrWhiteSpace(columnName) && LogicalPhaseMapping.TryGetValue(columnName, out var logicalPhase))
         {
             return logicalPhase;
         }
-
-        // Priority 3 (Fallback): If the work type isn't mapped, group it by its section name.
-        // This correctly handles custom sections like "Item Development" or "Development & Testing".
         if (!string.IsNullOrWhiteSpace(sectionName))
         {
             return sectionName;
         }
-
-        // Final fallback if all data is malformed.
         return "Uncategorized";
     }
 

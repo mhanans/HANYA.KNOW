@@ -491,28 +491,27 @@ public class TimelineEstimatorService
             .Select(kvp => $"  - {kvp.Key}: Requires a minimum of {kvp.Value} working days.");
 
         return $@"
-You are an expert Project Scheduler. Your task is to create a realistic project plan based on the provided data.
+You are an expert Project Scheduler AI. Create a realistic, high-level project plan.
 
 **Project Data:**
 1.  **Team Configuration:** A '{teamTypeName}' configuration is used.
-2.  **Phase Effort Breakdown:** The total work required for each phase.
+2.  **Phase Effort Breakdown:** The total work required for each logical phase.
 {string.Join("\n", activityLines)}
-
-3.  **Resource Bottleneck Analysis:** This is the minimum time each role needs to finish their work. The project CANNOT be shorter than the longest duration listed here.
+3.  **Resource Bottleneck Analysis:** The minimum duration required by each role. The project CANNOT be shorter than the longest duration listed.
 {string.Join("\n", roleDurationLines)}
 
 **Instructions:**
-1.  **Critical Path Anchor:** The project's critical path is determined by the longest bottleneck. Therefore, the final `totalDurationDays` MUST be greater than or equal to **{durationAnchor} days**.
-2.  **Sequence Phases:** Arrange the phases logically (e.g., Design before Development, Testing overlaps with Development). Use 'Serial', 'Subsequent', and 'Parallel'.
-3.  **Construct Timeline:** Based on your sequence, determine the final `totalDurationDays`. This will likely be longer than the {durationAnchor}-day anchor due to dependencies.
-4.  **Assign Phase Durations:** Assign a `durationDays` to each phase that is logical within your total timeline.
+1.  **Critical Path:** Your final `totalDurationDays` is determined by the project's critical path. It MUST be greater than or equal to the main bottleneck of **{durationAnchor} days**.
+2.  **Sequence All Phases:** You MUST provide a duration and sequence for **every phase** listed in the 'Phase Effort Breakdown' input. Do not omit any. Arrange them logically.
+3.  **Construct Timeline:** Based on your sequence (using 'Serial', 'Subsequent', 'Parallel'), determine the final `totalDurationDays`. This will likely be longer than the {durationAnchor}-day anchor due to dependencies.
+4.  **Assign Phase Durations:** Assign a `durationDays` to each phase that fits logically within your total timeline.
 5.  **Output:** Provide a minified JSON response. DO NOT include the 'roles' array.
 
 **JSON Output Example:**
 {{
   ""projectScale"": ""{teamTypeName}"",
-  ""totalDurationDays"": {durationAnchor + 15},
-  ""sequencingNotes"": ""The timeline is anchored by the {durationsPerRole.OrderByDescending(kvp => kvp.Value).First().Key}'s {durationAnchor}-day work bottleneck. After accounting for all phase dependencies, the total estimated critical path duration is {durationAnchor + 15} days."",
+  ""totalDurationDays"": {durationAnchor + 10},
+  ""sequencingNotes"": ""The timeline's critical path is anchored by the {durationsPerRole.OrderByDescending(kvp => kvp.Value).First().Key}'s {durationAnchor}-day bottleneck. After sequencing all phases with overlaps, the total duration is {durationAnchor + 10} days."",
   ""phases"": [ {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 20, ""sequenceType"": ""Serial"" }} ]
 }}
 

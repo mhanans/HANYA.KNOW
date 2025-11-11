@@ -27,6 +27,30 @@ public class ProjectAssessmentStore
         _logger = logger;
     }
 
+    private void LogAssessmentDeserialization(ProjectAssessment? assessment, string context)
+    {
+        _logger.LogWarning("[DESERIALIZATION DEBUG] Context: {Context}", context);
+        if (assessment == null)
+        {
+            _logger.LogWarning("[DESERIALIZATION DEBUG] Assessment is null after deserialization.");
+            return;
+        }
+
+        _logger.LogWarning($"[DESERIALIZATION DEBUG] Assessment ID: {assessment.Id}");
+        _logger.LogWarning($"[DESERIALIZATION DEBUG] Number of Sections: {assessment.Sections?.Count ?? 0}");
+        if (assessment.Sections == null)
+        {
+            return;
+        }
+
+        foreach (var section in assessment.Sections)
+        {
+            var sectionName = section?.SectionName ?? string.Empty;
+            var itemCount = section?.Items?.Count ?? 0;
+            _logger.LogWarning($"  - Section: '{sectionName}', Number of Items: {itemCount}");
+        }
+    }
+
     private async Task EnsureStepDefinitionsAsync(CancellationToken cancellationToken)
     {
         if (_statusStepMap != null)
@@ -172,6 +196,7 @@ public class ProjectAssessmentStore
         try
         {
             var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
+            LogAssessmentDeserialization(assessment, "GetAsync");
             if (assessment != null)
             {
                 assessment.Id = id;
@@ -335,6 +360,7 @@ public class ProjectAssessmentStore
             try
             {
                 var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
+                LogAssessmentDeserialization(assessment, "GetRecentByTemplateAsync");
                 if (assessment != null)
                 {
                     assessment.Id = id;
@@ -406,6 +432,7 @@ public class ProjectAssessmentStore
             try
             {
                 var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
+                LogAssessmentDeserialization(assessment, "GetByIdsAsync");
                 if (assessment != null)
                 {
                     assessment.Id = id;
@@ -473,6 +500,7 @@ public class ProjectAssessmentStore
             try
             {
                 var assessment = JsonSerializer.Deserialize<ProjectAssessment>(json, JsonOptions);
+                LogAssessmentDeserialization(assessment, "GetRecentAsync");
                 if (assessment != null)
                 {
                     assessment.Id = id;
