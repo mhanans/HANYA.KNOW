@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using backend.Models;
@@ -26,7 +27,7 @@ public class TimelineEstimationsController : ControllerBase
 
     [HttpPost]
     [UiAuthorize("pre-sales-project-timelines")]
-    public async Task<ActionResult<TimelineEstimationRecord>> GenerateEstimation(TimelineEstimationRequest request)
+    public async Task<ActionResult<TimelineEstimationDetails>> GenerateEstimation(TimelineEstimationRequest request)
     {
         if (request == null || request.AssessmentId <= 0)
         {
@@ -41,7 +42,7 @@ public class TimelineEstimationsController : ControllerBase
             var record = await _estimatorService
                 .GenerateAsync(request.AssessmentId, userId, HttpContext.RequestAborted)
                 .ConfigureAwait(false);
-            return Ok(record);
+            return Ok(BuildResponse(record));
         }
         catch (KeyNotFoundException)
         {
@@ -55,7 +56,7 @@ public class TimelineEstimationsController : ControllerBase
 
     [HttpGet("{assessmentId}")]
     [UiAuthorize("pre-sales-project-timelines")]
-    public async Task<ActionResult<TimelineEstimationRecord>> GetEstimation(int assessmentId)
+    public async Task<ActionResult<TimelineEstimationDetails>> GetEstimation(int assessmentId)
     {
         if (assessmentId <= 0)
         {
@@ -70,6 +71,48 @@ public class TimelineEstimationsController : ControllerBase
             return NotFound();
         }
 
-        return Ok(record);
+        return Ok(BuildResponse(record));
+    }
+
+    private static TimelineEstimationDetails BuildResponse(TimelineEstimationRecord record)
+    {
+        if (record == null)
+        {
+            throw new ArgumentNullException(nameof(record));
+        }
+
+        var estimationResult = new TimelineEstimationRecord
+        {
+            AssessmentId = record.AssessmentId,
+            ProjectName = record.ProjectName,
+            TemplateName = record.TemplateName,
+            GeneratedAt = record.GeneratedAt,
+            ProjectScale = record.ProjectScale,
+            TotalDurationDays = record.TotalDurationDays,
+            SequencingNotes = record.SequencingNotes,
+            Phases = (record.Phases ?? new List<TimelinePhaseEstimate>())
+                .Select(phase => new TimelinePhaseEstimate
+                {
+                    PhaseName = phase?.PhaseName ?? string.Empty,
+                    DurationDays = phase?.DurationDays ?? 0,
+                    SequenceType = phase?.SequenceType ?? string.Empty
+                })
+                .ToList(),
+            Roles = (record.Roles ?? new List<TimelineRoleEstimate>())
+                .Select(role => new TimelineRoleEstimate
+                {
+                    Role = role?.Role ?? string.Empty,
+                    EstimatedHeadcount = role?.EstimatedHeadcount ?? 0,
+                    TotalManDays = role?.TotalManDays ?? 0
+                })
+                .ToList(),
+            RawInputData = null
+        };
+
+        return new TimelineEstimationDetails
+        {
+            EstimationResult = estimationResult,
+            RawInput = record.RawInputData
+        };
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using backend.Configuration;
@@ -128,6 +129,68 @@ public class PresalesConfigurationStore
             }
         }
 
+        const string teamTypeSql = "SELECT id, team_type_name, min_man_days, max_man_days FROM presales_team_types ORDER BY min_man_days, team_type_name";
+        var teamTypeLookup = new Dictionary<int, TeamType>();
+        await using (var teamTypeCmd = new NpgsqlCommand(teamTypeSql, conn))
+        await using (var reader = await teamTypeCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
+                var name = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                if (id <= 0 || string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var teamType = new TeamType
+                {
+                    Id = id,
+                    Name = name.Trim(),
+                    MinManDays = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                    MaxManDays = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                    Roles = new List<TeamTypeRole>()
+                };
+                teamTypeLookup[id] = teamType;
+            }
+        }
+
+        const string teamTypeRoleSql = "SELECT id, team_type_id, role_name, headcount FROM presales_team_type_roles ORDER BY team_type_id, role_name";
+        await using (var teamTypeRoleCmd = new NpgsqlCommand(teamTypeRoleSql, conn))
+        await using (var reader = await teamTypeRoleCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var teamTypeId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                if (!teamTypeLookup.TryGetValue(teamTypeId, out var teamType))
+                {
+                    continue;
+                }
+
+                var roleName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                if (string.IsNullOrWhiteSpace(roleName))
+                {
+                    continue;
+                }
+
+                var headcount = reader.IsDBNull(3) ? 0 : (double)reader.GetDecimal(3);
+                var role = new TeamTypeRole
+                {
+                    Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
+                    TeamTypeId = teamTypeId,
+                    RoleName = roleName.Trim(),
+                    Headcount = headcount
+                };
+
+                teamType.Roles.Add(role);
+            }
+        }
+
+        configuration.TeamTypes = teamTypeLookup.Values
+            .OrderBy(t => t.MinManDays)
+            .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         return configuration;
     }
 
@@ -143,6 +206,16 @@ public class PresalesConfigurationStore
             await using (var clearColumnRoles = new NpgsqlCommand("DELETE FROM presales_estimation_column_roles", conn, tx))
             {
                 await clearColumnRoles.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var clearTeamTypeRoles = new NpgsqlCommand("DELETE FROM presales_team_type_roles", conn, tx))
+            {
+                await clearTeamTypeRoles.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var clearTeamTypes = new NpgsqlCommand("DELETE FROM presales_team_types", conn, tx))
+            {
+                await clearTeamTypes.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
             await using (var clearItemActivities = new NpgsqlCommand("DELETE FROM presales_item_activities", conn, tx))
@@ -229,6 +302,63 @@ public class PresalesConfigurationStore
                 cmd.Parameters.AddWithValue("column", mapping.EstimationColumn.Trim());
                 cmd.Parameters.AddWithValue("role", mapping.RoleName.Trim());
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            const string insertTeamTypeSql = "INSERT INTO presales_team_types (team_type_name, min_man_days, max_man_days) VALUES (@name, @min, @max) RETURNING id";
+            var persistedTeamTypes = new List<(TeamType Team, int Id)>();
+            foreach (var teamType in configuration.TeamTypes)
+            {
+                if (teamType == null)
+                {
+                    continue;
+                }
+
+                var name = teamType.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                await using var insertTeamType = new NpgsqlCommand(insertTeamTypeSql, conn, tx);
+                insertTeamType.Parameters.AddWithValue("name", name);
+                insertTeamType.Parameters.AddWithValue("min", teamType.MinManDays);
+                insertTeamType.Parameters.AddWithValue("max", teamType.MaxManDays);
+                var idObj = await insertTeamType.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                if (idObj is int teamTypeId)
+                {
+                    teamType.Id = teamTypeId;
+                    persistedTeamTypes.Add((teamType, teamTypeId));
+                }
+            }
+
+            const string insertTeamTypeRoleSql = "INSERT INTO presales_team_type_roles (team_type_id, role_name, headcount) VALUES (@teamTypeId, @roleName, @headcount)";
+            foreach (var entry in persistedTeamTypes)
+            {
+                foreach (var role in entry.Team.Roles ?? Enumerable.Empty<TeamTypeRole>())
+                {
+                    if (role == null)
+                    {
+                        continue;
+                    }
+
+                    var roleName = role.RoleName?.Trim();
+                    if (string.IsNullOrWhiteSpace(roleName))
+                    {
+                        continue;
+                    }
+
+                    var headcount = role.Headcount;
+                    if (!double.IsFinite(headcount) || headcount <= 0)
+                    {
+                        headcount = 1;
+                    }
+
+                    await using var insertTeamTypeRole = new NpgsqlCommand(insertTeamTypeRoleSql, conn, tx);
+                    insertTeamTypeRole.Parameters.AddWithValue("teamTypeId", entry.Id);
+                    insertTeamTypeRole.Parameters.AddWithValue("roleName", roleName);
+                    insertTeamTypeRole.Parameters.AddWithValue("headcount", NpgsqlDbType.Numeric, headcount);
+                    await insertTeamTypeRole.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
             }
 
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);

@@ -29,14 +29,20 @@ public class TimelineEstimationStore
 
     public async Task SaveAsync(TimelineEstimationRecord record, CancellationToken cancellationToken)
     {
+        var rawInput = record.RawInputData;
+        record.RawInputData = null;
         var json = JsonSerializer.Serialize(record, JsonOptions);
-        const string sql = @"INSERT INTO assessment_timeline_estimations (assessment_id, project_name, template_name, generated_at, estimation_data)
-                             VALUES (@id, @project, @template, @generated, CAST(@data AS JSONB))
+        record.RawInputData = rawInput;
+        var rawInputJson = rawInput == null ? null : JsonSerializer.Serialize(rawInput, JsonOptions);
+
+        const string sql = @"INSERT INTO assessment_timeline_estimations (assessment_id, project_name, template_name, generated_at, estimation_data, raw_input_data)
+                             VALUES (@id, @project, @template, @generated, @data, @rawInput)
                              ON CONFLICT (assessment_id)
                              DO UPDATE SET project_name = EXCLUDED.project_name,
                                            template_name = EXCLUDED.template_name,
                                            generated_at = EXCLUDED.generated_at,
-                                           estimation_data = EXCLUDED.estimation_data";
+                                           estimation_data = EXCLUDED.estimation_data,
+                                           raw_input_data = EXCLUDED.raw_input_data";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -44,13 +50,16 @@ public class TimelineEstimationStore
         cmd.Parameters.AddWithValue("project", record.ProjectName);
         cmd.Parameters.AddWithValue("template", record.TemplateName);
         cmd.Parameters.AddWithValue("generated", record.GeneratedAt);
-        cmd.Parameters.AddWithValue("data", NpgsqlDbType.Text, json);
+        var estimationParam = cmd.Parameters.Add("data", NpgsqlDbType.Jsonb);
+        estimationParam.Value = json;
+        var rawInputParam = cmd.Parameters.Add("rawInput", NpgsqlDbType.Jsonb);
+        rawInputParam.Value = rawInputJson ?? (object)DBNull.Value;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<TimelineEstimationRecord?> GetAsync(int assessmentId, CancellationToken cancellationToken)
     {
-        const string sql = @"SELECT estimation_data FROM assessment_timeline_estimations WHERE assessment_id=@id";
+        const string sql = @"SELECT estimation_data, raw_input_data FROM assessment_timeline_estimations WHERE assessment_id=@id";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -62,6 +71,7 @@ public class TimelineEstimationStore
         }
 
         var json = reader.IsDBNull(0) ? null : reader.GetString(0);
+        var rawInputJson = reader.IsDBNull(1) ? null : reader.GetString(1);
         if (string.IsNullOrWhiteSpace(json))
         {
             return null;
@@ -69,7 +79,20 @@ public class TimelineEstimationStore
 
         try
         {
-            return JsonSerializer.Deserialize<TimelineEstimationRecord>(json, JsonOptions);
+            var record = JsonSerializer.Deserialize<TimelineEstimationRecord>(json, JsonOptions);
+            if (record != null && !string.IsNullOrWhiteSpace(rawInputJson))
+            {
+                try
+                {
+                    record.RawInputData = JsonSerializer.Deserialize<TimelineEstimatorRawInput>(rawInputJson, JsonOptions);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize stored raw input for timeline estimation {AssessmentId}.", assessmentId);
+                }
+            }
+
+            return record;
         }
         catch (Exception ex)
         {

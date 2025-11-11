@@ -323,6 +323,23 @@ CREATE TABLE IF NOT EXISTS presales_estimation_column_roles (
     PRIMARY KEY(estimation_column, role_name)
 );
 
+CREATE TABLE IF NOT EXISTS presales_team_types (
+    id SERIAL PRIMARY KEY,
+    team_type_name TEXT NOT NULL,
+    min_man_days INT NOT NULL DEFAULT 0,
+    max_man_days INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS presales_team_type_roles (
+    id SERIAL PRIMARY KEY,
+    team_type_id INT NOT NULL REFERENCES presales_team_types(id) ON DELETE CASCADE,
+    role_name TEXT NOT NULL,
+    headcount NUMERIC(4,2) NOT NULL DEFAULT 1.0
+);
+
+ALTER TABLE presales_team_type_roles
+    ADD CONSTRAINT IF NOT EXISTS presales_team_type_roles_unique_role UNIQUE (team_type_id, role_name);
+
 DO $$
 BEGIN
     IF EXISTS (
@@ -395,7 +412,8 @@ CREATE TABLE IF NOT EXISTS assessment_timeline_estimations (
     project_name TEXT NOT NULL,
     template_name TEXT NOT NULL,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    estimation_data JSONB NOT NULL
+    estimation_data JSONB NOT NULL,
+    raw_input_data JSONB
 );
 
 CREATE TABLE IF NOT EXISTS cost_estimations (

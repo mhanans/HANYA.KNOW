@@ -249,3 +249,22 @@ INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALU
   ('Development', 'Developer'),
   ('Development Support', 'Developer')
 ON CONFLICT (estimation_column, role_name) DO NOTHING;
+
+INSERT INTO presales_team_types (id, team_type_name, min_man_days, max_man_days) VALUES
+  (1, 'Small Team', 0, 150),
+  (2, 'Medium Team', 151, 400),
+  (3, 'Large Team', 401, 9999)
+ON CONFLICT (id) DO UPDATE
+SET
+  team_type_name = EXCLUDED.team_type_name,
+  min_man_days = EXCLUDED.min_man_days,
+  max_man_days = EXCLUDED.max_man_days;
+
+INSERT INTO presales_team_type_roles (team_type_id, role_name, headcount)
+VALUES
+  (2, 'Architect', 1.0),
+  (2, 'Business Analyst', 1.5),
+  (2, 'Developer', 3.0),
+  (2, 'Project Manager', 0.5)
+ON CONFLICT (team_type_id, role_name) DO UPDATE
+SET headcount = EXCLUDED.headcount;
