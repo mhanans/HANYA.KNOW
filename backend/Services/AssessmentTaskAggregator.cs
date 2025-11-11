@@ -37,46 +37,34 @@ public static class AssessmentTaskAggregator
     public static Dictionary<string, double> AggregateEstimationColumnEffort(ProjectAssessment assessment)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
+        if (assessment?.Sections == null)
         {
-            foreach (var item in section.Items ?? Enumerable.Empty<AssessmentItem>())
-            {
-                if (!item.IsNeeded)
-                {
-                    continue;
-                }
+            Console.WriteLine("[ERROR] AggregateEstimationColumnEffort: Assessment or Sections collection is null.");
+            return result;
+        }
 
-                foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
+        foreach (var section in assessment.Sections)
+        {
+            if (section?.Items == null) continue;
+
+            foreach (var item in section.Items)
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
+
+                foreach (var estimate in item.Estimates)
                 {
-                    if (estimate.Value is not double hours || hours <= 0)
-                    {
-                        continue;
-                    }
+                    if (estimate.Value is not double hours || hours <= 0) continue;
 
                     var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName))
-                    {
-                        continue;
-                    }
+                    if (string.IsNullOrWhiteSpace(columnName)) continue;
 
                     var manDays = hours / 8d;
-                    if (manDays <= 0)
-                    {
-                        continue;
-                    }
-
-                    if (result.TryGetValue(columnName, out var existing))
-                    {
-                        result[columnName] = existing + manDays;
-                    }
-                    else
-                    {
-                        result[columnName] = manDays;
-                    }
+                    result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
                 }
             }
         }
 
+        Console.WriteLine($"[DEBUG] AggregateEstimationColumnEffort finished. Total man-days calculated: {result.Values.Sum()}. Number of columns: {result.Count}.");
         return result;
     }
 
@@ -172,7 +160,7 @@ public static class AssessmentTaskAggregator
         ProjectAssessment assessment,
         PresalesConfiguration configuration)
     {
-        _ = configuration; // Configuration is not needed for this simplified logic
+        _ = configuration; // Not needed in this robust version
 
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (assessment?.Sections == null)
@@ -185,20 +173,19 @@ public static class AssessmentTaskAggregator
             var sectionName = section?.SectionName?.Trim() ?? string.Empty;
             foreach (var item in section?.Items ?? new List<AssessmentItem>())
             {
-                if (item == null || !item.IsNeeded) continue;
-            
-                foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
+                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
+
+                foreach (var estimate in item.Estimates)
                 {
                     if (estimate.Value is not double hours || hours <= 0) continue;
 
                     var manDays = hours / 8d;
                     var columnName = estimate.Key?.Trim() ?? string.Empty;
 
-                    // Use the new, robust resolver
                     var activityName = ResolveActivityName(sectionName, columnName);
-                
-                    result[activityName] = result.TryGetValue(activityName, out var current) 
-                        ? current + manDays 
+
+                    result[activityName] = result.TryGetValue(activityName, out var current)
+                        ? current + manDays
                         : manDays;
                 }
             }
@@ -208,20 +195,20 @@ public static class AssessmentTaskAggregator
 
     private static string ResolveActivityName(string sectionName, string columnName)
     {
-        // Priority 1: High-level section names that are phases themselves.
+        // Priority 1: High-level section names that are phases themselves (e.g., "Project Preparation").
         if (DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
         {
             return directPhase;
         }
 
-        // Priority 2: The specific type of work (estimation column) determines the phase.
+        // Priority 2: The specific type of work (estimation column) determines the logical phase.
         if (!string.IsNullOrWhiteSpace(columnName) && LogicalPhaseMapping.TryGetValue(columnName, out var logicalPhase))
         {
             return logicalPhase;
         }
-        
-        // Priority 3 (Fallback): If the work type isn't mapped, group it by its section.
-        // This correctly handles sections like "Item Development" or "Development & Testing".
+
+        // Priority 3 (Fallback): If the work type isn't mapped, group it by its section name.
+        // This correctly handles custom sections like "Item Development" or "Development & Testing".
         if (!string.IsNullOrWhiteSpace(sectionName))
         {
             return sectionName;
