@@ -1,4 +1,4 @@
-import { ChangeEvent, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, DragEvent, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -22,6 +22,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import SyncIcon from '@mui/icons-material/Sync';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { apiFetch } from '../../../lib/api';
 import Autocomplete from '@mui/material/Autocomplete';
 import { CostEstimationConfiguration } from '../../../types/cost-estimation';
@@ -70,6 +71,192 @@ const emptyConfig: PresalesConfiguration = {
   activities: [],
   itemActivities: [],
   estimationColumnRoles: [],
+};
+
+const normalizeOrderValue = (value: unknown, fallback = Number.MAX_SAFE_INTEGER) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+};
+
+const sortByOrder = <T extends { displayOrder?: number | null }>(items: T[]) =>
+  [...items].sort(
+    (a, b) =>
+      normalizeOrderValue((a as { displayOrder?: unknown }).displayOrder) -
+      normalizeOrderValue((b as { displayOrder?: unknown }).displayOrder)
+  );
+
+const resequenceList = <T extends { displayOrder?: number | null }>(items: T[]) =>
+  items.map(item => ({ ...item, displayOrder: normalizeOrderValue(item.displayOrder, 0) }))
+    .map((item, index) => ({ ...item, displayOrder: index + 1 }));
+
+const sanitizeActivitiesFromResponse = (source: unknown): PresalesActivity[] => {
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  const normalized = source
+    .map(item => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const activity = item as Partial<PresalesActivity> & { displayOrder?: unknown };
+      return {
+        activityName: typeof activity.activityName === 'string' ? activity.activityName : '',
+        displayOrder: normalizeOrderValue(activity.displayOrder),
+      } satisfies PresalesActivity;
+    })
+    .filter((entry): entry is PresalesActivity => Boolean(entry));
+
+  return resequenceList(sortByOrder(normalized));
+};
+
+const sanitizeItemActivitiesFromResponse = (source: unknown): ItemActivityMapping[] => {
+  if (!Array.isArray(source)) {
+    return [];
+  }
+
+  const normalized = source
+    .map(item => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const mapping = item as Partial<ItemActivityMapping> & { displayOrder?: unknown };
+      return {
+        sectionName: typeof mapping.sectionName === 'string' ? mapping.sectionName : '',
+        itemName: typeof mapping.itemName === 'string' ? mapping.itemName : '',
+        activityName: typeof mapping.activityName === 'string' ? mapping.activityName : '',
+        displayOrder: normalizeOrderValue(mapping.displayOrder),
+      } satisfies ItemActivityMapping;
+    })
+    .filter((entry): entry is ItemActivityMapping => Boolean(entry));
+
+  return resequenceList(sortByOrder(normalized));
+};
+
+const reorderList = <T,>(items: T[], fromIndex: number, toIndex: number) => {
+  if (fromIndex === toIndex) {
+    return [...items];
+  }
+
+  const result = [...items];
+  if (fromIndex < 0 || fromIndex >= result.length) {
+    return result;
+  }
+
+  let clampedToIndex = Math.max(0, Math.min(toIndex, result.length));
+  const [moved] = result.splice(fromIndex, 1);
+  if (moved === undefined) {
+    return [...items];
+  }
+
+  if (fromIndex < clampedToIndex) {
+    clampedToIndex -= 1;
+  }
+
+  if (clampedToIndex < 0) {
+    clampedToIndex = 0;
+  }
+
+  if (clampedToIndex > result.length) {
+    clampedToIndex = result.length;
+  }
+
+  result.splice(clampedToIndex, 0, moved);
+  return result;
+};
+
+const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfiguration => {
+  const roles = config.roles.map(role => ({
+    roleName: typeof role.roleName === 'string' ? role.roleName.trim() : '',
+    expectedLevel: typeof role.expectedLevel === 'string' ? role.expectedLevel.trim() : '',
+    costPerDay: Number.isFinite(role.costPerDay) ? role.costPerDay : 0,
+  }));
+
+  const activities = config.activities
+    .map(activity => ({
+      activityName: typeof activity.activityName === 'string' ? activity.activityName.trim() : '',
+    }))
+    .map((activity, index) => ({ ...activity, displayOrder: index + 1 }));
+
+  const itemActivities = config.itemActivities
+    .map(mapping => ({
+      sectionName: typeof mapping.sectionName === 'string' ? mapping.sectionName.trim() : '',
+      itemName: typeof mapping.itemName === 'string' ? mapping.itemName.trim() : '',
+      activityName: typeof mapping.activityName === 'string' ? mapping.activityName.trim() : '',
+    }))
+    .map((mapping, index) => ({ ...mapping, displayOrder: index + 1 }));
+
+  const estimationColumnRoles = config.estimationColumnRoles.map(mapping => ({
+    estimationColumn: typeof mapping.estimationColumn === 'string' ? mapping.estimationColumn.trim() : '',
+    roleName: typeof mapping.roleName === 'string' ? mapping.roleName.trim() : '',
+  }));
+
+  return {
+    roles,
+    activities,
+    itemActivities,
+    estimationColumnRoles,
+  };
+};
+
+const transformPresalesResponse = (
+  presalesData: any,
+  normalizedCost: CostEstimationConfiguration | null
+): PresalesConfiguration => {
+  const activeRateCardKey = resolveDefaultRateCardKey(normalizedCost ?? null);
+  const activeRateCard = normalizedCost?.rateCards?.[activeRateCardKey];
+
+  const rolesSource = Array.isArray(presalesData?.roles) ? presalesData.roles : [];
+  const roles = rolesSource.map((role: Partial<PresalesRole>) => {
+    const baseRole: PresalesRole = {
+      roleName: typeof role.roleName === 'string' ? role.roleName : '',
+      expectedLevel: typeof role.expectedLevel === 'string' ? role.expectedLevel : '',
+      costPerDay:
+        typeof role.costPerDay === 'number' && Number.isFinite(role.costPerDay) ? role.costPerDay : 0,
+      monthlySalary: role.monthlySalary,
+      ratePerDay: role.ratePerDay,
+    };
+    const label = buildRoleLabelFromRole(baseRole);
+    const costKeys = enumerateCostKeysForRole(baseRole);
+    const monthlySalary =
+      label && normalizedCost
+        ? findFirstDefinedValue(costKeys, normalizedCost.roleMonthlySalaries) ?? baseRole.monthlySalary ?? 0
+        : baseRole.monthlySalary ?? 0;
+    const ratePerDay =
+      label && activeRateCard
+        ? findFirstDefinedValue(costKeys, activeRateCard.roleRates) ?? baseRole.ratePerDay ?? 0
+        : baseRole.ratePerDay ?? 0;
+    return {
+      ...baseRole,
+      monthlySalary,
+      ratePerDay,
+    };
+  });
+
+  const estimationColumnRolesSource = Array.isArray(presalesData?.estimationColumnRoles)
+    ? presalesData.estimationColumnRoles
+    : [];
+  const estimationColumnRoles = estimationColumnRolesSource.map(
+    (mapping: Partial<EstimationColumnRoleMapping>) => ({
+      estimationColumn: typeof mapping.estimationColumn === 'string' ? mapping.estimationColumn : '',
+      roleName: typeof mapping.roleName === 'string' ? mapping.roleName : '',
+    })
+  );
+
+  return {
+    roles,
+    activities: sanitizeActivitiesFromResponse(presalesData?.activities),
+    itemActivities: sanitizeItemActivitiesFromResponse(presalesData?.itemActivities),
+    estimationColumnRoles,
+  };
 };
 
 type TabKey = 'roles' | 'activities' | 'items' | 'columns';
@@ -162,6 +349,8 @@ export default function PresalesConfigurationPage() {
   const [availableTasks, setAvailableTasks] = useState<TemplateTaskReference[]>([]);
   const [availableEstimationColumns, setAvailableEstimationColumns] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('roles');
+  const [activityDragIndex, setActivityDragIndex] = useState<number | null>(null);
+  const [itemActivityDragIndex, setItemActivityDragIndex] = useState<number | null>(null);
   const [syncingItems, setSyncingItems] = useState(false);
   const [syncingEstimationColumns, setSyncingEstimationColumns] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -272,42 +461,7 @@ export default function PresalesConfigurationPage() {
           roleMonthlySalaries: { ...costData.roleMonthlySalaries },
         };
       }
-
-      const activeRateCardKey = resolveDefaultRateCardKey(normalizedCost);
-      const activeRateCard = normalizedCost?.rateCards?.[activeRateCardKey];
-
-      setConfig({
-        roles: (presalesData.roles ?? []).map((role: PresalesRole) => {
-          const label = buildRoleLabelFromRole(role);
-          const costKeys = enumerateCostKeysForRole(role);
-          const monthlySalary =
-            label && normalizedCost
-              ? findFirstDefinedValue(costKeys, normalizedCost.roleMonthlySalaries) ?? role.monthlySalary ?? 0
-              : role.monthlySalary ?? 0;
-          const ratePerDay =
-            label && activeRateCard
-              ? findFirstDefinedValue(costKeys, activeRateCard.roleRates) ?? role.ratePerDay ?? 0
-              : role.ratePerDay ?? 0;
-          return {
-            ...role,
-            monthlySalary,
-            ratePerDay,
-          };
-        }),
-        activities: presalesData.activities ?? [],
-        itemActivities: (presalesData.itemActivities ?? []).map((mapping: Partial<ItemActivityMapping>) => ({
-          sectionName: mapping.sectionName ?? '',
-          itemName: mapping.itemName ?? '',
-          activityName: mapping.activityName ?? '',
-          displayOrder: typeof mapping.displayOrder === 'number' ? mapping.displayOrder : 0,
-        })),
-        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map(
-          (mapping: Partial<EstimationColumnRoleMapping>) => ({
-            estimationColumn: mapping.estimationColumn ?? '',
-            roleName: mapping.roleName ?? '',
-          })
-        ),
-      });
+      setConfig(transformPresalesResponse(presalesData, normalizedCost));
       setCostConfig(normalizedCost);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load configuration');
@@ -327,6 +481,122 @@ export default function PresalesConfigurationPage() {
   const handleTabChange = useCallback((_: SyntheticEvent, newValue: string) => {
     setActiveTab(newValue as TabKey);
   }, []);
+
+  const handleActivityDragStart = useCallback((event: DragEvent<HTMLElement>, index: number) => {
+    setActivityDragIndex(index);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', `${index}`);
+    }
+  }, []);
+
+  const handleActivityDragEnd = useCallback(() => {
+    setActivityDragIndex(null);
+  }, []);
+
+  const handleActivityDragOver = useCallback((event: DragEvent<HTMLTableRowElement>) => {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+  }, []);
+
+  const handleActivityDrop = useCallback(
+    (event: DragEvent<HTMLTableRowElement>, index: number) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+      if (activityDragIndex === null) {
+        return;
+      }
+
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const offset = event.clientY - bounds.top;
+      const shouldPlaceAfter = offset > bounds.height / 2;
+      const desiredIndex = shouldPlaceAfter ? index + 1 : index;
+
+      setConfig(prev => {
+        const fromIndex = activityDragIndex;
+        if (fromIndex < 0 || fromIndex >= prev.activities.length) {
+          return prev;
+        }
+
+        let targetIndex = Math.max(0, Math.min(desiredIndex, prev.activities.length));
+        if (fromIndex < targetIndex) {
+          targetIndex -= 1;
+        }
+        if (targetIndex === fromIndex) {
+          return prev;
+        }
+
+        const reordered = reorderList(prev.activities, fromIndex, desiredIndex);
+        const resequenced = resequenceList(reordered);
+        return { ...prev, activities: resequenced };
+      });
+      setActivityDragIndex(null);
+    },
+    [activityDragIndex]
+  );
+
+  const handleItemActivityDragStart = useCallback((event: DragEvent<HTMLElement>, index: number) => {
+    setItemActivityDragIndex(index);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', `${index}`);
+    }
+  }, []);
+
+  const handleItemActivityDragEnd = useCallback(() => {
+    setItemActivityDragIndex(null);
+  }, []);
+
+  const handleItemActivityDragOver = useCallback((event: DragEvent<HTMLTableRowElement>) => {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+  }, []);
+
+  const handleItemActivityDrop = useCallback(
+    (event: DragEvent<HTMLTableRowElement>, index: number) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+      if (itemActivityDragIndex === null) {
+        return;
+      }
+
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const offset = event.clientY - bounds.top;
+      const shouldPlaceAfter = offset > bounds.height / 2;
+      const desiredIndex = shouldPlaceAfter ? index + 1 : index;
+
+      setConfig(prev => {
+        const fromIndex = itemActivityDragIndex;
+        if (fromIndex < 0 || fromIndex >= prev.itemActivities.length) {
+          return prev;
+        }
+
+        let targetIndex = Math.max(0, Math.min(desiredIndex, prev.itemActivities.length));
+        if (fromIndex < targetIndex) {
+          targetIndex -= 1;
+        }
+        if (targetIndex === fromIndex) {
+          return prev;
+        }
+
+        const reordered = reorderList(prev.itemActivities, fromIndex, desiredIndex).map((mapping, orderIndex) => ({
+          ...mapping,
+          displayOrder: orderIndex + 1,
+        }));
+        return { ...prev, itemActivities: reordered };
+      });
+      setItemActivityDragIndex(null);
+    },
+    [itemActivityDragIndex]
+  );
 
   const handleRoleChange = useCallback((index: number, key: keyof PresalesRole, value: string) => {
     setConfig(prev => {
@@ -382,16 +652,14 @@ export default function PresalesConfigurationPage() {
   }, []);
 
   const handleActivityChange = useCallback((index: number, key: keyof PresalesActivity, value: string) => {
+    if (key !== 'activityName') {
+      return;
+    }
     setConfig(prev => {
       const activities = [...prev.activities];
-      const activity = { ...activities[index] };
-      if (key === 'displayOrder') {
-        activity.displayOrder = Math.max(1, Math.round(toNumber(value, 1)));
-      } else if (key === 'activityName') {
-        activity.activityName = value;
-      }
+      const activity = { ...activities[index], activityName: value };
       activities[index] = activity;
-      return { ...prev, activities };
+      return { ...prev, activities: resequenceList(activities) };
     });
   }, []);
 
@@ -479,7 +747,11 @@ export default function PresalesConfigurationPage() {
         { roleName: '', expectedLevel: '', costPerDay: 0, monthlySalary: undefined, ratePerDay: undefined },
       ],
     }));
-  const addActivity = () => setConfig(prev => ({ ...prev, activities: [...prev.activities, { activityName: '', displayOrder: prev.activities.length + 1 }] }));
+  const addActivity = () =>
+    setConfig(prev => ({
+      ...prev,
+      activities: resequenceList([...prev.activities, { activityName: '', displayOrder: prev.activities.length + 1 }]),
+    }));
   const addItemActivity = () =>
     setConfig(prev => ({
       ...prev,
@@ -524,7 +796,11 @@ export default function PresalesConfigurationPage() {
       }
       return { ...prev, roles };
     });
-  const removeActivity = (index: number) => setConfig(prev => ({ ...prev, activities: prev.activities.filter((_, i) => i !== index) }));
+  const removeActivity = (index: number) =>
+    setConfig(prev => ({
+      ...prev,
+      activities: resequenceList(prev.activities.filter((_, i) => i !== index)),
+    }));
   const removeItemActivity = (index: number) =>
     setConfig(prev => ({ ...prev, itemActivities: prev.itemActivities.filter((_, i) => i !== index) }));
   const removeEstimationColumnRole = (index: number) =>
@@ -629,10 +905,11 @@ export default function PresalesConfigurationPage() {
     setError(null);
     setSuccessMessage(null);
     try {
+      const payload = buildPresalesPayload(config);
       const presalesResponse = await apiFetch('/api/presales/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
       if (!presalesResponse.ok) {
         const text = await presalesResponse.text();
@@ -668,36 +945,7 @@ export default function PresalesConfigurationPage() {
       const activeRateCardKey = resolveDefaultRateCardKey(updatedCost);
       const activeRateCard = updatedCost?.rateCards?.[activeRateCardKey];
 
-      setConfig({
-        roles: (presalesData.roles ?? []).map((role: PresalesRole) => {
-          const label = buildRoleLabelFromRole(role);
-          const costKeys = enumerateCostKeysForRole(role);
-          return {
-            ...role,
-            monthlySalary:
-              label && updatedCost
-                ? findFirstDefinedValue(costKeys, updatedCost.roleMonthlySalaries) ?? 0
-                : 0,
-            ratePerDay:
-              label && activeRateCard
-                ? findFirstDefinedValue(costKeys, activeRateCard.roleRates) ?? 0
-                : 0,
-          };
-        }),
-        activities: presalesData.activities ?? [],
-        itemActivities: (presalesData.itemActivities ?? []).map((mapping: Partial<ItemActivityMapping>) => ({
-          sectionName: mapping.sectionName ?? '',
-          itemName: mapping.itemName ?? '',
-          activityName: mapping.activityName ?? '',
-          displayOrder: typeof mapping.displayOrder === 'number' ? mapping.displayOrder : 0,
-        })),
-        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map(
-          (mapping: Partial<EstimationColumnRoleMapping>) => ({
-            estimationColumn: mapping.estimationColumn ?? '',
-            roleName: mapping.roleName ?? '',
-          })
-        ),
-      });
+      setConfig(transformPresalesResponse(presalesData, updatedCost));
       setSuccessMessage('Configuration saved successfully.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
@@ -887,12 +1135,13 @@ export default function PresalesConfigurationPage() {
               current.itemName = '';
             }
           }
+          current.displayOrder = 0;
         } else if (key === 'itemName') {
           current.itemName = value;
+          current.displayOrder = 0;
         } else if (key === 'activityName') {
           current.activityName = value;
-        } else if (key === 'displayOrder') {
-          current.displayOrder = value ? parseInt(value, 10) || 0 : 0;
+          current.displayOrder = 0;
         }
 
         const updated = applyDefaultDisplayOrder(current);
@@ -1029,14 +1278,35 @@ export default function PresalesConfigurationPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell width={80}>Order</TableCell>
                         <TableCell>Activity Name</TableCell>
-                        <TableCell>Display Order</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {config.activities.map((activity, index) => (
-                        <TableRow key={index}>
+                        <TableRow
+                          key={index}
+                          onDrop={event => handleActivityDrop(event, index)}
+                          onDragOver={handleActivityDragOver}
+                        >
+                          <TableCell width={80} sx={{ color: 'text.secondary' }}>
+                            <Stack direction="row" alignItems="center" spacing={1}>
+                              <Box
+                                component="span"
+                                draggable
+                                onDragStart={event => handleActivityDragStart(event, index)}
+                                onDragEnd={handleActivityDragEnd}
+                                sx={{ cursor: 'grab', display: 'inline-flex', color: 'text.secondary' }}
+                                aria-label="Drag to reorder activity"
+                              >
+                                <DragIndicatorIcon fontSize="small" />
+                              </Box>
+                              <Typography variant="body2" color="text.secondary">
+                                {index + 1}
+                              </Typography>
+                            </Stack>
+                          </TableCell>
                           <TableCell>
                             <TextField
                               fullWidth
@@ -1044,16 +1314,6 @@ export default function PresalesConfigurationPage() {
                               value={activity.activityName}
                               onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'activityName', event.target.value)}
                               placeholder="e.g. Analysis & Design"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              type="number"
-                              inputProps={{ min: 1, step: 1 }}
-                              value={activity.displayOrder}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'displayOrder', event.target.value)}
                             />
                           </TableCell>
                           <TableCell align="right">
@@ -1089,10 +1349,10 @@ export default function PresalesConfigurationPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell width={80}>Order</TableCell>
                         <TableCell>Section</TableCell>
                         <TableCell>Item</TableCell>
                         <TableCell>Activity</TableCell>
-                        <TableCell>Ordering</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
@@ -1102,7 +1362,28 @@ export default function PresalesConfigurationPage() {
                         const normalizedSection = sectionValue.trim();
                         const itemOptions = itemsBySection.get(normalizedSection) ?? [''];
                         return (
-                          <TableRow key={index}>
+                          <TableRow
+                            key={index}
+                            onDrop={event => handleItemActivityDrop(event, index)}
+                            onDragOver={handleItemActivityDragOver}
+                          >
+                            <TableCell width={80} sx={{ color: 'text.secondary' }}>
+                              <Stack direction="row" alignItems="center" spacing={1}>
+                                <Box
+                                  component="span"
+                                  draggable
+                                  onDragStart={event => handleItemActivityDragStart(event, index)}
+                                  onDragEnd={handleItemActivityDragEnd}
+                                  sx={{ cursor: 'grab', display: 'inline-flex', color: 'text.secondary' }}
+                                  aria-label="Drag to reorder mapping"
+                                >
+                                  <DragIndicatorIcon fontSize="small" />
+                                </Box>
+                                <Typography variant="body2" color="text.secondary">
+                                  {index + 1}
+                                </Typography>
+                              </Stack>
+                            </TableCell>
                             <TableCell>
                               <Autocomplete
                                 options={sectionOptions}
@@ -1155,15 +1436,6 @@ export default function PresalesConfigurationPage() {
                                   <MenuItem key={name} value={name}>{name}</MenuItem>
                                 ))}
                               </TextField>
-                            </TableCell>
-                            <TableCell>
-                              <TextField
-                                fullWidth
-                                size="small"
-                                type="number"
-                                value={mapping.displayOrder ?? 0}
-                                onChange={(event: ChangeEvent<HTMLInputElement>) => handleItemActivityChange(index, 'displayOrder', event.target.value)}
-                              />
                             </TableCell>
                             <TableCell align="right">
                               <IconButton onClick={() => removeItemActivity(index)} aria-label="Remove mapping">
