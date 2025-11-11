@@ -201,18 +201,15 @@ public static class AssessmentTaskAggregator
                 activity = sectionActivity;
             }
 
-            if (string.IsNullOrWhiteSpace(activity))
-            {
-                activity = "Unmapped";
-            }
+            var key = string.IsNullOrWhiteSpace(activity) ? "Unmapped" : activity.Trim();
 
-            if (result.TryGetValue(activity, out var current))
+            if (result.TryGetValue(key, out var current))
             {
-                result[activity] = current + detail.ManDays;
+                result[key] = current + detail.ManDays;
             }
             else
             {
-                result[activity] = detail.ManDays;
+                result[key] = detail.ManDays;
             }
         }
 
@@ -226,11 +223,26 @@ public static class AssessmentTaskAggregator
         var columnEffort = AggregateEstimationColumnEffort(assessment);
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
+        var columnRoleMappings = configuration?.EstimationColumnRoles ?? Enumerable.Empty<EstimationColumnRoleMapping>();
+
         foreach (var (columnName, manDays) in columnEffort)
         {
-            var roles = configuration.EstimationColumnRoles
-                .Where(tr => tr.EstimationColumn.Equals(columnName, StringComparison.OrdinalIgnoreCase))
-                .Select(tr => tr.RoleName?.Trim())
+            var normalizedColumn = columnName?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedColumn))
+            {
+                continue;
+            }
+
+            var roles = columnRoleMappings
+                .Select(mapping => new
+                {
+                    Column = mapping.EstimationColumn?.Trim(),
+                    Role = mapping.RoleName?.Trim()
+                })
+                .Where(mapping =>
+                    !string.IsNullOrWhiteSpace(mapping.Column) &&
+                    string.Equals(mapping.Column, normalizedColumn, StringComparison.OrdinalIgnoreCase))
+                .Select(mapping => mapping.Role)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

@@ -457,44 +457,6 @@ export default function PresalesConfigurationPage() {
     });
   }, []);
 
-  const handleItemActivityChange = useCallback(
-    (index: number, key: keyof ItemActivityMapping, value: string) => {
-      setConfig(prev => {
-        const itemActivities = [...prev.itemActivities];
-        const current = { ...itemActivities[index] };
-
-        if (key === 'sectionName') {
-          current.sectionName = value;
-          const normalizedSection = value.trim();
-          if (!normalizedSection) {
-            current.itemName = '';
-          } else if (current.itemName) {
-            const normalizedItem = current.itemName.trim();
-            const hasItem = availableTasks.some(
-              task =>
-                task.sectionName.trim().toLowerCase() === normalizedSection.toLowerCase() &&
-                task.itemName.trim().toLowerCase() === normalizedItem.toLowerCase()
-            );
-            if (!hasItem) {
-              current.itemName = '';
-            }
-          }
-        } else if (key === 'itemName') {
-          current.itemName = value;
-        } else if (key === 'activityName') {
-          current.activityName = value;
-        } else if (key === 'displayOrder') {
-          current.displayOrder = value ? parseInt(value, 10) || 0 : 0;
-        }
-
-        const updated = applyDefaultDisplayOrder(current);
-        itemActivities[index] = updated;
-        return { ...prev, itemActivities };
-      });
-    },
-    [applyDefaultDisplayOrder, availableTasks]
-  );
-
   const handleEstimationRoleChange = useCallback((index: number, key: 'estimationColumn' | 'roleName', value: string) => {
     setConfig(prev => {
       const estimationColumnRoles = [...prev.estimationColumnRoles];
@@ -897,6 +859,49 @@ export default function PresalesConfigurationPage() {
       return { ...prev, itemActivities: nextItemActivities };
     });
   }, [applyDefaultDisplayOrder]);
+
+  const handleItemActivityChange = useCallback(
+    (index: number, key: keyof ItemActivityMapping, value: string) => {
+      setConfig(prev => {
+        const itemActivities = [...prev.itemActivities];
+        const current = { ...itemActivities[index] };
+
+        if (key === 'sectionName') {
+          current.sectionName = value;
+          const normalizedSection = value.trim();
+          if (!normalizedSection) {
+            current.itemName = '';
+          } else if (current.itemName) {
+            const normalizedItem = current.itemName.trim();
+            const normalizedSectionLower = normalizedSection.toLowerCase();
+            const normalizedItemLower = normalizedItem.toLowerCase();
+            const hasItem = availableTasks.some(task => {
+              const taskSection = task.sectionName ? task.sectionName.trim().toLowerCase() : '';
+              if (!taskSection || taskSection !== normalizedSectionLower) {
+                return false;
+              }
+              const taskItem = task.itemName ? task.itemName.trim().toLowerCase() : '';
+              return taskItem === normalizedItemLower;
+            });
+            if (!hasItem) {
+              current.itemName = '';
+            }
+          }
+        } else if (key === 'itemName') {
+          current.itemName = value;
+        } else if (key === 'activityName') {
+          current.activityName = value;
+        } else if (key === 'displayOrder') {
+          current.displayOrder = value ? parseInt(value, 10) || 0 : 0;
+        }
+
+        const updated = applyDefaultDisplayOrder(current);
+        itemActivities[index] = updated;
+        return { ...prev, itemActivities };
+      });
+    },
+    [applyDefaultDisplayOrder, availableTasks]
+  );
 
 
   return (

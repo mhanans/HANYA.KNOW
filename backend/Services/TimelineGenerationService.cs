@@ -488,13 +488,20 @@ public class TimelineGenerationService
             .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Min(entry => entry.Order), StringComparer.OrdinalIgnoreCase);
 
-        var columnRolesLookup = config.EstimationColumnRoles
-            .GroupBy(mapping => mapping.EstimationColumn, StringComparer.OrdinalIgnoreCase)
+        var columnRolesLookup = (config.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
+            .Select(mapping => new
+            {
+                Column = mapping.EstimationColumn?.Trim(),
+                Role = mapping.RoleName?.Trim()
+            })
+            .Where(mapping => !string.IsNullOrWhiteSpace(mapping.Column))
+            .GroupBy(mapping => mapping.Column!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
-                group => group.Key.Trim(),
+                group => group.Key,
                 group => group
-                    .Select(entry => entry.RoleName?.Trim())
+                    .Select(entry => entry.Role)
                     .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => name!)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
