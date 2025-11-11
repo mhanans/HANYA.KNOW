@@ -485,11 +485,15 @@ public class TimelineEstimatorService
 
         var activityLines = activityManDays
             .OrderBy(kvp => kvp.Key)
-            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days");
+            .Select(kvp => $"  - \"{kvp.Key}": {kvp.Value:F1} man-days");
 
         var roleDurationLines = durationsPerRole
             .OrderByDescending(kvp => kvp.Value)
             .Select(kvp => $"  - {kvp.Key}: Requires a minimum of {kvp.Value} working days.");
+        
+        var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
+
+        var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
 
         var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
         var anchorRole = durationsPerRole
