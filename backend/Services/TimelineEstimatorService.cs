@@ -492,6 +492,8 @@ public class TimelineEstimatorService
         
         var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
 
+        var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
+
         return $@"
 You are an expert Project Scheduler AI. Your task is to create a realistic project plan.
 
