@@ -1,10 +1,9 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   CircularProgress,
-  Grid,
   IconButton,
   MenuItem,
   Paper,
@@ -15,6 +14,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -46,6 +47,7 @@ interface ItemActivityMapping {
 interface EstimationColumnRoleMapping {
   estimationColumn: string;
   roleName: string;
+  expectedLevel: string;
 }
 
 interface PresalesConfiguration {
@@ -60,6 +62,72 @@ const emptyConfig: PresalesConfiguration = {
   activities: [],
   itemActivities: [],
   estimationColumnRoles: [],
+};
+
+type TabKey = 'roles' | 'activities' | 'items' | 'columns';
+
+const ROLE_LABEL_SEPARATOR = ' – ';
+const ROLE_VALUE_SEPARATOR = '::';
+
+const normalizeRolePart = (value?: string | null) => (value ?? '').trim();
+
+const buildRoleLabel = (roleName?: string | null, expectedLevel?: string | null) => {
+  const name = normalizeRolePart(roleName);
+  if (!name) return '';
+  const level = normalizeRolePart(expectedLevel);
+  return level ? `${name}${ROLE_LABEL_SEPARATOR}${level}` : name;
+};
+
+const buildRoleValue = (roleName?: string | null, expectedLevel?: string | null) => {
+  const name = normalizeRolePart(roleName);
+  if (!name) return '';
+  const level = normalizeRolePart(expectedLevel);
+  return level ? `${name}${ROLE_VALUE_SEPARATOR}${level}` : name;
+};
+
+const parseRoleValue = (value: string) => {
+  if (!value) {
+    return { roleName: '', expectedLevel: '' };
+  }
+  const [name, level] = value.split(ROLE_VALUE_SEPARATOR);
+  return {
+    roleName: normalizeRolePart(name),
+    expectedLevel: normalizeRolePart(level),
+  };
+};
+
+const enumerateCostKeys = (roleName?: string | null, expectedLevel?: string | null) => {
+  const name = normalizeRolePart(roleName);
+  if (!name) return [] as string[];
+  const level = normalizeRolePart(expectedLevel);
+  const keys = new Set<string>();
+  if (level) {
+    keys.add(`${name}${ROLE_LABEL_SEPARATOR}${level}`);
+    keys.add(`${name} ${level}`);
+    keys.add(`${name}${ROLE_VALUE_SEPARATOR}${level}`);
+  }
+  keys.add(name);
+  return Array.from(keys);
+};
+
+const buildRoleLabelFromRole = (role: Pick<PresalesRole, 'roleName' | 'expectedLevel'>) =>
+  buildRoleLabel(role.roleName, role.expectedLevel);
+
+const buildRoleValueFromRole = (role: Pick<PresalesRole, 'roleName' | 'expectedLevel'>) =>
+  buildRoleValue(role.roleName, role.expectedLevel);
+
+const enumerateCostKeysForRole = (role: Pick<PresalesRole, 'roleName' | 'expectedLevel'>) =>
+  enumerateCostKeys(role.roleName, role.expectedLevel);
+
+const findFirstDefinedValue = (keys: string[], source?: Record<string, number>) => {
+  for (const key of keys) {
+    if (!key) continue;
+    const value = source?.[key];
+    if (typeof value === 'number') {
+      return value;
+    }
+  }
+  return undefined;
 };
 
 const toNumber = (value: string, fallback = 0) => {
@@ -106,13 +174,18 @@ export default function PresalesConfigurationPage() {
   const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
   const [availableItems, setAvailableItems] = useState<string[]>([]);
   const [availableEstimationColumns, setAvailableEstimationColumns] = useState<string[]>([]);
-  const [syncingReferenceData, setSyncingReferenceData] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>('roles');
+  const [syncingItems, setSyncingItems] = useState(false);
+  const [syncingEstimationColumns, setSyncingEstimationColumns] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchReferenceData = useCallback(async () => {
+    let items: string[] = [];
+    let estimationColumns: string[] = [];
+
     try {
       const [itemsRes, columnsRes] = await Promise.all([
         apiFetch('/api/presales/config/items'),
@@ -122,31 +195,35 @@ export default function PresalesConfigurationPage() {
       if (itemsRes.ok) {
         try {
           const data = await itemsRes.json();
-          setAvailableItems(Array.isArray(data) ? data : []);
+          items = Array.isArray(data) ? data : [];
         } catch (err) {
           console.warn('Failed to parse item list', err);
-          setAvailableItems([]);
+          items = [];
         }
       } else {
         console.warn(`Failed to load item list (${itemsRes.status})`);
-        setAvailableItems([]);
+        items = [];
       }
 
       if (columnsRes.ok) {
         try {
           const data = await columnsRes.json();
-          setAvailableEstimationColumns(Array.isArray(data) ? data : []);
+          estimationColumns = Array.isArray(data) ? data : [];
         } catch (err) {
           console.warn('Failed to parse estimation column list', err);
-          setAvailableEstimationColumns([]);
+          estimationColumns = [];
         }
       } else {
         console.warn(`Failed to load estimation column list (${columnsRes.status})`);
-        setAvailableEstimationColumns([]);
+        estimationColumns = [];
       }
     } catch (err) {
       console.warn('Failed to load reference data', err);
     }
+
+    setAvailableItems(items);
+    setAvailableEstimationColumns(estimationColumns);
+    return { items, estimationColumns };
   }, []);
 
   const loadConfig = useCallback(async () => {
@@ -189,16 +266,28 @@ export default function PresalesConfigurationPage() {
 
       setConfig({
         roles: (presalesData.roles ?? []).map((role: PresalesRole) => {
-          const name = role.roleName?.trim() ?? '';
+          const label = buildRoleLabelFromRole(role);
+          const costKeys = enumerateCostKeysForRole(role);
+          const monthlySalary =
+            label && normalizedCost
+              ? findFirstDefinedValue(costKeys, normalizedCost.roleMonthlySalaries) ?? role.monthlySalary ?? 0
+              : role.monthlySalary ?? 0;
+          const ratePerDay =
+            label && activeRateCard
+              ? findFirstDefinedValue(costKeys, activeRateCard.roleRates) ?? role.ratePerDay ?? 0
+              : role.ratePerDay ?? 0;
           return {
             ...role,
-            monthlySalary: name && normalizedCost ? normalizedCost.roleMonthlySalaries?.[name] ?? 0 : role.monthlySalary ?? 0,
-            ratePerDay: name && activeRateCard ? activeRateCard.roleRates?.[name] ?? 0 : role.ratePerDay ?? 0,
+            monthlySalary,
+            ratePerDay,
           };
         }),
         activities: presalesData.activities ?? [],
         itemActivities: presalesData.itemActivities ?? [],
-        estimationColumnRoles: presalesData.estimationColumnRoles ?? [],
+        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map((mapping: EstimationColumnRoleMapping) => ({
+          ...mapping,
+          expectedLevel: mapping.expectedLevel ?? '',
+        })),
       });
       setCostConfig(normalizedCost);
     } catch (err) {
@@ -216,43 +305,59 @@ export default function PresalesConfigurationPage() {
     fetchReferenceData();
   }, [fetchReferenceData]);
 
+  const handleTabChange = useCallback((_: SyntheticEvent, newValue: string) => {
+    setActiveTab(newValue as TabKey);
+  }, []);
+
   const handleRoleChange = useCallback((index: number, key: keyof PresalesRole, value: string) => {
     setConfig(prev => {
       const roles = [...prev.roles];
-      const role = { ...roles[index] };
+      const previous = { ...roles[index] };
+      const updated = { ...previous };
       if (key === 'costPerDay') {
-        role.costPerDay = toNumber(value, 0);
+        updated.costPerDay = toNumber(value, 0);
       } else if (key === 'roleName') {
-        const oldName = role.roleName?.trim() ?? '';
-        role.roleName = value;
-        const newName = value.trim();
-        const salary = role.monthlySalary ?? 0;
-        const rate = role.ratePerDay ?? 0;
+        updated.roleName = value;
+      } else if (key === 'expectedLevel') {
+        updated.expectedLevel = value;
+      }
+      roles[index] = updated;
+
+      if (key === 'roleName' || key === 'expectedLevel') {
+        const oldKeys = enumerateCostKeysForRole(previous);
+        const newLabel = buildRoleLabelFromRole(updated);
         setCostConfig(current => {
           if (!current) return current;
           const roleMonthlySalaries = { ...current.roleMonthlySalaries };
-          if (oldName) {
-            delete roleMonthlySalaries[oldName];
-          }
-          if (newName) {
-            roleMonthlySalaries[newName] = salary;
-          }
           const keyName = resolveDefaultRateCardKey(current);
           const { rateCards, card } = prepareRateCard(current, keyName);
           const roleRates = { ...card.roleRates };
-          if (oldName) {
-            delete roleRates[oldName];
+
+          const previousSalary = findFirstDefinedValue(oldKeys, roleMonthlySalaries);
+          const previousRate = findFirstDefinedValue(oldKeys, roleRates);
+
+          for (const candidate of oldKeys) {
+            if (candidate) {
+              delete roleMonthlySalaries[candidate];
+              delete roleRates[candidate];
+            }
           }
-          if (newName) {
-            roleRates[newName] = rate;
+
+          if (newLabel) {
+            roleMonthlySalaries[newLabel] = previousSalary ?? updated.monthlySalary ?? 0;
+            const finalRate = previousRate ?? updated.ratePerDay ?? 0;
+            if (finalRate > 0) {
+              roleRates[newLabel] = finalRate;
+            } else {
+              delete roleRates[newLabel];
+            }
           }
+
           rateCards[keyName] = { ...card, roleRates };
           return { ...current, roleMonthlySalaries, rateCards, defaultRateCardKey: keyName };
         });
-      } else if (key === 'expectedLevel') {
-        role.expectedLevel = value;
       }
-      roles[index] = role;
+
       return { ...prev, roles };
     });
   }, []);
@@ -278,13 +383,21 @@ export default function PresalesConfigurationPage() {
       const role = { ...roles[index] };
       role.monthlySalary = salary;
       roles[index] = role;
-      const name = role.roleName?.trim();
-      if (name) {
+      const label = buildRoleLabelFromRole(role);
+      if (label) {
+        const oldKeys = enumerateCostKeysForRole(role);
         setCostConfig(current => {
           if (!current) return current;
+          const roleMonthlySalaries = { ...current.roleMonthlySalaries };
+          for (const keyOption of oldKeys) {
+            if (keyOption && keyOption !== label) {
+              delete roleMonthlySalaries[keyOption];
+            }
+          }
+          roleMonthlySalaries[label] = salary;
           return {
             ...current,
-            roleMonthlySalaries: { ...current.roleMonthlySalaries, [name]: salary },
+            roleMonthlySalaries,
           };
         });
       }
@@ -299,17 +412,23 @@ export default function PresalesConfigurationPage() {
       const role = { ...roles[index] };
       role.ratePerDay = rate;
       roles[index] = role;
-      const name = role.roleName?.trim();
-      if (name) {
+      const label = buildRoleLabelFromRole(role);
+      if (label) {
+        const oldKeys = enumerateCostKeysForRole(role);
         setCostConfig(current => {
           if (!current) return current;
           const keyName = resolveDefaultRateCardKey(current);
           const { rateCards, card } = prepareRateCard(current, keyName);
           const roleRates = { ...card.roleRates };
+          for (const keyOption of oldKeys) {
+            if (keyOption && keyOption !== label) {
+              delete roleRates[keyOption];
+            }
+          }
           if (rate > 0) {
-            roleRates[name] = rate;
+            roleRates[label] = rate;
           } else {
-            delete roleRates[name];
+            delete roleRates[label];
           }
           rateCards[keyName] = { ...card, roleRates };
           return { ...current, rateCards, defaultRateCardKey: keyName };
@@ -340,7 +459,9 @@ export default function PresalesConfigurationPage() {
       if (key === 'estimationColumn') {
         mapping.estimationColumn = value;
       } else if (key === 'roleName') {
-        mapping.roleName = value;
+        const { roleName, expectedLevel } = parseRoleValue(value);
+        mapping.roleName = roleName;
+        mapping.expectedLevel = expectedLevel;
       }
       estimationColumnRoles[index] = mapping;
       return { ...prev, estimationColumnRoles };
@@ -364,23 +485,36 @@ export default function PresalesConfigurationPage() {
   const addEstimationColumnRole = () =>
     setConfig(prev => ({
       ...prev,
-      estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '' }],
+      estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '', expectedLevel: '' }],
     }));
 
   const removeRole = (index: number) =>
     setConfig(prev => {
       const roles = prev.roles.filter((_, i) => i !== index);
       const removed = prev.roles[index];
-      const name = removed?.roleName?.trim();
-      if (name) {
+      if (removed) {
+        const label = buildRoleLabelFromRole(removed);
+        const oldKeys = enumerateCostKeysForRole(removed);
         setCostConfig(current => {
           if (!current) return current;
           const roleMonthlySalaries = { ...current.roleMonthlySalaries };
-          delete roleMonthlySalaries[name];
+          for (const keyOption of oldKeys) {
+            if (keyOption) {
+              delete roleMonthlySalaries[keyOption];
+            }
+          }
           const keyName = resolveDefaultRateCardKey(current);
           const { rateCards, card } = prepareRateCard(current, keyName);
           const roleRates = { ...card.roleRates };
-          delete roleRates[name];
+          for (const keyOption of oldKeys) {
+            if (keyOption) {
+              delete roleRates[keyOption];
+            }
+          }
+          if (label) {
+            delete roleMonthlySalaries[label];
+            delete roleRates[label];
+          }
           rateCards[keyName] = { ...card, roleRates };
           return { ...current, roleMonthlySalaries, rateCards, defaultRateCardKey: keyName };
         });
@@ -393,12 +527,83 @@ export default function PresalesConfigurationPage() {
   const removeEstimationColumnRole = (index: number) =>
     setConfig(prev => ({ ...prev, estimationColumnRoles: prev.estimationColumnRoles.filter((_, i) => i !== index) }));
 
-  const handleSyncReferenceData = useCallback(async () => {
-    setSyncingReferenceData(true);
+  const handleSyncItemsFromTemplate = useCallback(async () => {
+    setSyncingItems(true);
+    setError(null);
+    setSuccessMessage(null);
     try {
-      await fetchReferenceData();
+      const { items } = await fetchReferenceData();
+      let added = 0;
+      setConfig(prev => {
+        const existing = new Set(
+          prev.itemActivities
+            .map(mapping => mapping.itemName?.trim().toLowerCase())
+            .filter((name): name is string => Boolean(name))
+        );
+        const additions = (items ?? [])
+          .filter(item => {
+            if (!item) return false;
+            const key = item.trim().toLowerCase();
+            return key.length > 0 && !existing.has(key);
+          })
+          .map(item => ({ itemName: item, activityName: '' }));
+        added = additions.length;
+        if (added === 0) {
+          return prev;
+        }
+        const nextActivities = [...prev.itemActivities, ...additions];
+        return { ...prev, itemActivities: nextActivities };
+      });
+      if (added > 0) {
+        setSuccessMessage(`Added ${added} template item${added > 1 ? 's' : ''} that need activity mapping.`);
+      } else {
+        setSuccessMessage('All project template items already exist in the mapping.');
+      }
+    } catch (err) {
+      console.warn('Failed to sync template items', err);
+      setError(err instanceof Error ? err.message : 'Failed to sync template items');
     } finally {
-      setSyncingReferenceData(false);
+      setSyncingItems(false);
+    }
+  }, [fetchReferenceData]);
+
+  const handleSyncEstimationColumns = useCallback(async () => {
+    setSyncingEstimationColumns(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const { estimationColumns } = await fetchReferenceData();
+      let added = 0;
+      setConfig(prev => {
+        const existing = new Set(
+          prev.estimationColumnRoles
+            .map(mapping => mapping.estimationColumn?.trim().toLowerCase())
+            .filter((name): name is string => Boolean(name))
+        );
+        const additions = (estimationColumns ?? [])
+          .filter(column => {
+            if (!column) return false;
+            const key = column.trim().toLowerCase();
+            return key.length > 0 && !existing.has(key);
+          })
+          .map(column => ({ estimationColumn: column, roleName: '', expectedLevel: '' }));
+        added = additions.length;
+        if (added === 0) {
+          return prev;
+        }
+        const nextRoles = [...prev.estimationColumnRoles, ...additions];
+        return { ...prev, estimationColumnRoles: nextRoles };
+      });
+      if (added > 0) {
+        setSuccessMessage(`Added ${added} estimation column${added > 1 ? 's' : ''} that need role allocation.`);
+      } else {
+        setSuccessMessage('All estimation columns already have role allocations.');
+      }
+    } catch (err) {
+      console.warn('Failed to sync estimation columns', err);
+      setError(err instanceof Error ? err.message : 'Failed to sync estimation columns');
+    } finally {
+      setSyncingEstimationColumns(false);
     }
   }, [fetchReferenceData]);
 
@@ -448,16 +653,26 @@ export default function PresalesConfigurationPage() {
 
       setConfig({
         roles: (presalesData.roles ?? []).map((role: PresalesRole) => {
-          const name = role.roleName?.trim() ?? '';
+          const label = buildRoleLabelFromRole(role);
+          const costKeys = enumerateCostKeysForRole(role);
           return {
             ...role,
-            monthlySalary: name && updatedCost ? updatedCost.roleMonthlySalaries?.[name] ?? 0 : 0,
-            ratePerDay: name && activeRateCard ? activeRateCard.roleRates?.[name] ?? 0 : 0,
+            monthlySalary:
+              label && updatedCost
+                ? findFirstDefinedValue(costKeys, updatedCost.roleMonthlySalaries) ?? 0
+                : 0,
+            ratePerDay:
+              label && activeRateCard
+                ? findFirstDefinedValue(costKeys, activeRateCard.roleRates) ?? 0
+                : 0,
           };
         }),
         activities: presalesData.activities ?? [],
         itemActivities: presalesData.itemActivities ?? [],
-        estimationColumnRoles: presalesData.estimationColumnRoles ?? [],
+        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map((mapping: EstimationColumnRoleMapping) => ({
+          ...mapping,
+          expectedLevel: mapping.expectedLevel ?? '',
+        })),
       });
       setSuccessMessage('Configuration saved successfully.');
     } catch (err) {
@@ -467,10 +682,19 @@ export default function PresalesConfigurationPage() {
     }
   }, [config, costConfig]);
 
-  const roleNames = useMemo(
-    () => config.roles.map(role => role.roleName?.trim()).filter((name): name is string => Boolean(name)),
-    [config.roles]
-  );
+  const roleOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return config.roles.reduce<{ value: string; label: string }[]>((acc, role) => {
+      const value = buildRoleValueFromRole(role);
+      const label = buildRoleLabelFromRole(role);
+      if (!value || !label || seen.has(value)) {
+        return acc;
+      }
+      seen.add(value);
+      acc.push({ value, label });
+      return acc;
+    }, []);
+  }, [config.roles]);
   const activityNames = useMemo(
     () => config.activities.map(activity => activity.activityName?.trim()).filter((name): name is string => Boolean(name)),
     [config.activities]
@@ -507,13 +731,27 @@ export default function PresalesConfigurationPage() {
             {error && <Alert severity="error">{error}</Alert>}
             {successMessage && <Alert severity="success">{successMessage}</Alert>}
 
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="h2" className="section-title">Roles &amp; Rates</Typography>
-                <Button startIcon={<AddIcon />} variant="outlined" onClick={addRole}>Add Role</Button>
-              </Stack>
-              <TableContainer>
-                <Table size="small">
+            <Tabs
+              value={activeTab}
+              onChange={handleTabChange}
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+            >
+              <Tab label="Roles & Rates" value="roles" />
+              <Tab label="Activity Groupings" value="activities" />
+              <Tab label="Item → Activity Mapping" value="items" />
+              <Tab label="Estimation Column → Role Allocation" value="columns" />
+            </Tabs>
+
+            {activeTab === 'roles' && (
+              <Stack spacing={2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h2" className="section-title">Roles &amp; Rates</Typography>
+                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addRole}>Add Role</Button>
+                </Stack>
+                <TableContainer>
+                  <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>Role Name</TableCell>
@@ -523,125 +761,122 @@ export default function PresalesConfigurationPage() {
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
-                  <TableBody>
-                    {config.roles.map((role, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={role.roleName}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'roleName', event.target.value)}
-                            placeholder="e.g. Architect"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={role.expectedLevel}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'expectedLevel', event.target.value)}
-                            placeholder="e.g. Senior"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={formatIDR(role.monthlySalary)}
-                            inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
-                            placeholder="e.g. 15.000.000"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={formatIDR(role.ratePerDay)}
-                            inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
-                            placeholder="e.g. 1.500.000"
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton onClick={() => removeRole(index)} aria-label="Remove role">
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="h2" className="section-title">Activity Groupings</Typography>
-                <Button startIcon={<AddIcon />} variant="outlined" onClick={addActivity}>Add Activity</Button>
+                    <TableBody>
+                      {config.roles.map((role, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={role.roleName}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'roleName', event.target.value)}
+                              placeholder="e.g. Architect"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={role.expectedLevel}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'expectedLevel', event.target.value)}
+                              placeholder="e.g. Senior"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={formatIDR(role.monthlySalary)}
+                              inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
+                              placeholder="e.g. 15.000.000"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={formatIDR(role.ratePerDay)}
+                              inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
+                              placeholder="e.g. 1.500.000"
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <IconButton onClick={() => removeRole(index)} aria-label="Remove role">
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Stack>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Activity Name</TableCell>
-                      <TableCell>Display Order</TableCell>
-                      <TableCell align="right">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {config.activities.map((activity, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={activity.activityName}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'activityName', event.target.value)}
-                            placeholder="e.g. Analysis & Design"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            type="number"
-                            inputProps={{ min: 1, step: 1 }}
-                            value={activity.displayOrder}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'displayOrder', event.target.value)}
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton onClick={() => removeActivity(index)} aria-label="Remove activity">
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
+            )}
 
-            <Grid container spacing={4}>
-              <Grid item xs={12} md={6}>
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'flex-start', sm: 'center' }}
-                  spacing={1}
-                  sx={{ mb: 2 }}
-                >
+            {activeTab === 'activities' && (
+              <Stack spacing={2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h2" className="section-title">Activity Groupings</Typography>
+                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addActivity}>Add Activity</Button>
+                </Stack>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Activity Name</TableCell>
+                        <TableCell>Display Order</TableCell>
+                        <TableCell align="right">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {config.activities.map((activity, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={activity.activityName}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'activityName', event.target.value)}
+                              placeholder="e.g. Analysis & Design"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              type="number"
+                              inputProps={{ min: 1, step: 1 }}
+                              value={activity.displayOrder}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'displayOrder', event.target.value)}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <IconButton onClick={() => removeActivity(index)} aria-label="Remove activity">
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Stack>
+            )}
+
+            {activeTab === 'items' && (
+              <Stack spacing={2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
                   <Typography variant="h2" className="section-title">Item → Activity Mapping</Typography>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Button
                       startIcon={<SyncIcon />}
                       variant="outlined"
-                      onClick={handleSyncReferenceData}
-                      disabled={syncingReferenceData || loading}
+                      onClick={handleSyncItemsFromTemplate}
+                      disabled={syncingItems || loading}
                     >
-                      {syncingReferenceData ? 'Syncing…' : 'Sync Reference Data'}
+                      {syncingItems ? 'Syncing…' : 'Sync Template Items'}
                     </Button>
                     <Button startIcon={<AddIcon />} variant="outlined" onClick={addItemActivity}>Add Mapping</Button>
                   </Stack>
@@ -698,12 +933,24 @@ export default function PresalesConfigurationPage() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-              </Grid>
+              </Stack>
+            )}
 
-              <Grid item xs={12} md={6}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            {activeTab === 'columns' && (
+              <Stack spacing={2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
                   <Typography variant="h2" className="section-title">Estimation Column → Role Allocation</Typography>
-                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addEstimationColumnRole}>Add Allocation</Button>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Button
+                      startIcon={<SyncIcon />}
+                      variant="outlined"
+                      onClick={handleSyncEstimationColumns}
+                      disabled={syncingEstimationColumns || loading}
+                    >
+                      {syncingEstimationColumns ? 'Syncing…' : 'Sync Estimation Columns'}
+                    </Button>
+                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addEstimationColumnRole}>Add Allocation</Button>
+                  </Stack>
                 </Stack>
                 <TableContainer>
                   <Table size="small">
@@ -738,12 +985,22 @@ export default function PresalesConfigurationPage() {
                               select
                               fullWidth
                               size="small"
-                              value={mapping.roleName}
+                              value={buildRoleValue(mapping.roleName, mapping.expectedLevel)}
                               onChange={(event: ChangeEvent<HTMLInputElement>) => handleEstimationRoleChange(index, 'roleName', event.target.value)}
+                              SelectProps={{
+                                displayEmpty: true,
+                                renderValue: (selected: unknown) => {
+                                  if (typeof selected !== 'string' || !selected) {
+                                    return '—';
+                                  }
+                                  const option = roleOptions.find(item => item.value === selected);
+                                  return option?.label ?? selected;
+                                },
+                              }}
                             >
-                              {roleNames.length === 0 && <MenuItem value="">—</MenuItem>}
-                              {roleNames.map(name => (
-                                <MenuItem key={name} value={name}>{name}</MenuItem>
+                              <MenuItem value="">—</MenuItem>
+                              {roleOptions.map(option => (
+                                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
                               ))}
                             </TextField>
                           </TableCell>
@@ -757,8 +1014,8 @@ export default function PresalesConfigurationPage() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-              </Grid>
-            </Grid>
+              </Stack>
+            )}
           </Stack>
         )}
       </Paper>

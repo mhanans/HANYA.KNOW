@@ -272,9 +272,7 @@ public class CostEstimationService
 
         foreach (var allocation in timeline.ResourceAllocation)
         {
-            var monthlySalary = configuration.RoleMonthlySalaries.TryGetValue(allocation.Role, out var salary)
-                ? salary
-                : 0m;
+            var monthlySalary = GetRoleValueOrDefault(configuration.RoleMonthlySalaries, allocation.Role, 0m);
 
             var resources = ResolveHeadcount(allocation.Role, inputs, configuration);
             var bestCaseMonths = (decimal)allocation.TotalManDays / 20m;
@@ -362,7 +360,7 @@ public class CostEstimationService
             return custom;
         }
 
-        if (!string.IsNullOrWhiteSpace(role) && configuration.RoleDefaultHeadcount.TryGetValue(role, out var defaultValue) && defaultValue > 0)
+        if (!string.IsNullOrWhiteSpace(role) && TryGetRoleValue(configuration.RoleDefaultHeadcount, role, out var defaultValue) && defaultValue > 0)
         {
             return defaultValue;
         }
@@ -372,8 +370,17 @@ public class CostEstimationService
 
     private WarrantyCostSummary CalculateWarranty(CostEstimationConfiguration configuration, CostEstimationInputs inputs)
     {
-        configuration.RoleMonthlySalaries.TryGetValue("BA Junior", out var analystSalary);
-        configuration.RoleMonthlySalaries.TryGetValue("Dev Junior", out var developerSalary);
+        var analystSalary = GetRoleValueFromPartsOrDefault(configuration.RoleMonthlySalaries, "Business Analyst", "Junior", 0m);
+        if (analystSalary <= 0m)
+        {
+            analystSalary = GetRoleValueFromPartsOrDefault(configuration.RoleMonthlySalaries, "BA", "Junior", 0m);
+        }
+
+        var developerSalary = GetRoleValueFromPartsOrDefault(configuration.RoleMonthlySalaries, "Developer", "Junior", 0m);
+        if (developerSalary <= 0m)
+        {
+            developerSalary = GetRoleValueFromPartsOrDefault(configuration.RoleMonthlySalaries, "Dev", "Junior", 0m);
+        }
 
         var total = inputs.WarrantyAnalystResources * analystSalary * inputs.WarrantyDurationMonths
                     + inputs.WarrantyDeveloperResources * developerSalary * inputs.WarrantyDurationMonths;
@@ -399,7 +406,9 @@ public class CostEstimationService
 
         foreach (var allocation in timeline.ResourceAllocation)
         {
-            var rate = rateCard?.RoleRates.TryGetValue(allocation.Role, out var r) == true ? r : 0m;
+            var rate = rateCard != null
+                ? GetRoleValueOrDefault(rateCard.RoleRates, allocation.Role, 0m)
+                : 0m;
             var price = (decimal)allocation.TotalManDays * rate;
             nilaiProject += price;
 
@@ -575,6 +584,41 @@ public class CostEstimationService
         if (value < min) return min;
         if (value > max) return max;
         return value;
+    }
+
+    private static bool TryGetRoleValue<T>(IDictionary<string, T> source, string roleLabel, out T value)
+        where T : struct
+    {
+        foreach (var key in PresalesRoleFormatter.EnumerateLookupKeysFromLabel(roleLabel))
+        {
+            if (source.TryGetValue(key, out value))
+            {
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static T GetRoleValueOrDefault<T>(IDictionary<string, T> source, string roleLabel, T defaultValue)
+        where T : struct
+    {
+        return TryGetRoleValue(source, roleLabel, out var value) ? value : defaultValue;
+    }
+
+    private static T GetRoleValueFromPartsOrDefault<T>(IDictionary<string, T> source, string roleName, string expectedLevel, T defaultValue)
+        where T : struct
+    {
+        foreach (var key in PresalesRoleFormatter.EnumerateLookupKeys(roleName, expectedLevel))
+        {
+            if (source.TryGetValue(key, out var value))
+            {
+                return value;
+            }
+        }
+
+        return defaultValue;
     }
 
     private sealed class AdjustableField
