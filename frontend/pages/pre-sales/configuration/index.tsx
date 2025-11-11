@@ -1,10 +1,9 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   CircularProgress,
-  Grid,
   IconButton,
   MenuItem,
   Paper,
@@ -15,6 +14,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -62,6 +63,8 @@ const emptyConfig: PresalesConfiguration = {
   estimationColumnRoles: [],
 };
 
+type TabKey = 'roles' | 'activities' | 'items' | 'columns';
+
 const toNumber = (value: string, fallback = 0) => {
   if (!value) return fallback;
   const sanitized = value.replace(/[^0-9,.-]/g, '');
@@ -106,13 +109,18 @@ export default function PresalesConfigurationPage() {
   const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
   const [availableItems, setAvailableItems] = useState<string[]>([]);
   const [availableEstimationColumns, setAvailableEstimationColumns] = useState<string[]>([]);
-  const [syncingReferenceData, setSyncingReferenceData] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>('roles');
+  const [syncingItems, setSyncingItems] = useState(false);
+  const [syncingEstimationColumns, setSyncingEstimationColumns] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchReferenceData = useCallback(async () => {
+    let items: string[] = [];
+    let estimationColumns: string[] = [];
+
     try {
       const [itemsRes, columnsRes] = await Promise.all([
         apiFetch('/api/presales/config/items'),
@@ -122,31 +130,35 @@ export default function PresalesConfigurationPage() {
       if (itemsRes.ok) {
         try {
           const data = await itemsRes.json();
-          setAvailableItems(Array.isArray(data) ? data : []);
+          items = Array.isArray(data) ? data : [];
         } catch (err) {
           console.warn('Failed to parse item list', err);
-          setAvailableItems([]);
+          items = [];
         }
       } else {
         console.warn(`Failed to load item list (${itemsRes.status})`);
-        setAvailableItems([]);
+        items = [];
       }
 
       if (columnsRes.ok) {
         try {
           const data = await columnsRes.json();
-          setAvailableEstimationColumns(Array.isArray(data) ? data : []);
+          estimationColumns = Array.isArray(data) ? data : [];
         } catch (err) {
           console.warn('Failed to parse estimation column list', err);
-          setAvailableEstimationColumns([]);
+          estimationColumns = [];
         }
       } else {
         console.warn(`Failed to load estimation column list (${columnsRes.status})`);
-        setAvailableEstimationColumns([]);
+        estimationColumns = [];
       }
     } catch (err) {
       console.warn('Failed to load reference data', err);
     }
+
+    setAvailableItems(items);
+    setAvailableEstimationColumns(estimationColumns);
+    return { items, estimationColumns };
   }, []);
 
   const loadConfig = useCallback(async () => {
@@ -215,6 +227,10 @@ export default function PresalesConfigurationPage() {
   useEffect(() => {
     fetchReferenceData();
   }, [fetchReferenceData]);
+
+  const handleTabChange = useCallback((_: SyntheticEvent, newValue: string) => {
+    setActiveTab(newValue as TabKey);
+  }, []);
 
   const handleRoleChange = useCallback((index: number, key: keyof PresalesRole, value: string) => {
     setConfig(prev => {
@@ -393,12 +409,83 @@ export default function PresalesConfigurationPage() {
   const removeEstimationColumnRole = (index: number) =>
     setConfig(prev => ({ ...prev, estimationColumnRoles: prev.estimationColumnRoles.filter((_, i) => i !== index) }));
 
-  const handleSyncReferenceData = useCallback(async () => {
-    setSyncingReferenceData(true);
+  const handleSyncItemsFromTemplate = useCallback(async () => {
+    setSyncingItems(true);
+    setError(null);
+    setSuccessMessage(null);
     try {
-      await fetchReferenceData();
+      const { items } = await fetchReferenceData();
+      let added = 0;
+      setConfig(prev => {
+        const existing = new Set(
+          prev.itemActivities
+            .map(mapping => mapping.itemName?.trim().toLowerCase())
+            .filter((name): name is string => Boolean(name))
+        );
+        const additions = (items ?? [])
+          .filter(item => {
+            if (!item) return false;
+            const key = item.trim().toLowerCase();
+            return key.length > 0 && !existing.has(key);
+          })
+          .map(item => ({ itemName: item, activityName: '' }));
+        added = additions.length;
+        if (added === 0) {
+          return prev;
+        }
+        const nextActivities = [...prev.itemActivities, ...additions];
+        return { ...prev, itemActivities: nextActivities };
+      });
+      if (added > 0) {
+        setSuccessMessage(`Added ${added} template item${added > 1 ? 's' : ''} that need activity mapping.`);
+      } else {
+        setSuccessMessage('All project template items already exist in the mapping.');
+      }
+    } catch (err) {
+      console.warn('Failed to sync template items', err);
+      setError(err instanceof Error ? err.message : 'Failed to sync template items');
     } finally {
-      setSyncingReferenceData(false);
+      setSyncingItems(false);
+    }
+  }, [fetchReferenceData]);
+
+  const handleSyncEstimationColumns = useCallback(async () => {
+    setSyncingEstimationColumns(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const { estimationColumns } = await fetchReferenceData();
+      let added = 0;
+      setConfig(prev => {
+        const existing = new Set(
+          prev.estimationColumnRoles
+            .map(mapping => mapping.estimationColumn?.trim().toLowerCase())
+            .filter((name): name is string => Boolean(name))
+        );
+        const additions = (estimationColumns ?? [])
+          .filter(column => {
+            if (!column) return false;
+            const key = column.trim().toLowerCase();
+            return key.length > 0 && !existing.has(key);
+          })
+          .map(column => ({ estimationColumn: column, roleName: '' }));
+        added = additions.length;
+        if (added === 0) {
+          return prev;
+        }
+        const nextRoles = [...prev.estimationColumnRoles, ...additions];
+        return { ...prev, estimationColumnRoles: nextRoles };
+      });
+      if (added > 0) {
+        setSuccessMessage(`Added ${added} estimation column${added > 1 ? 's' : ''} that need role allocation.`);
+      } else {
+        setSuccessMessage('All estimation columns already have role allocations.');
+      }
+    } catch (err) {
+      console.warn('Failed to sync estimation columns', err);
+      setError(err instanceof Error ? err.message : 'Failed to sync estimation columns');
+    } finally {
+      setSyncingEstimationColumns(false);
     }
   }, [fetchReferenceData]);
 
@@ -507,13 +594,27 @@ export default function PresalesConfigurationPage() {
             {error && <Alert severity="error">{error}</Alert>}
             {successMessage && <Alert severity="success">{successMessage}</Alert>}
 
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="h2" className="section-title">Roles &amp; Rates</Typography>
-                <Button startIcon={<AddIcon />} variant="outlined" onClick={addRole}>Add Role</Button>
-              </Stack>
-              <TableContainer>
-                <Table size="small">
+            <Tabs
+              value={activeTab}
+              onChange={handleTabChange}
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+            >
+              <Tab label="Roles & Rates" value="roles" />
+              <Tab label="Activity Groupings" value="activities" />
+              <Tab label="Item → Activity Mapping" value="items" />
+              <Tab label="Estimation Column → Role Allocation" value="columns" />
+            </Tabs>
+
+            {activeTab === 'roles' && (
+              <Stack spacing={2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h2" className="section-title">Roles &amp; Rates</Typography>
+                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addRole}>Add Role</Button>
+                </Stack>
+                <TableContainer>
+                  <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>Role Name</TableCell>
@@ -523,125 +624,122 @@ export default function PresalesConfigurationPage() {
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
-                  <TableBody>
-                    {config.roles.map((role, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={role.roleName}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'roleName', event.target.value)}
-                            placeholder="e.g. Architect"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={role.expectedLevel}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'expectedLevel', event.target.value)}
-                            placeholder="e.g. Senior"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={formatIDR(role.monthlySalary)}
-                            inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
-                            placeholder="e.g. 15.000.000"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={formatIDR(role.ratePerDay)}
-                            inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
-                            placeholder="e.g. 1.500.000"
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton onClick={() => removeRole(index)} aria-label="Remove role">
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="h2" className="section-title">Activity Groupings</Typography>
-                <Button startIcon={<AddIcon />} variant="outlined" onClick={addActivity}>Add Activity</Button>
+                    <TableBody>
+                      {config.roles.map((role, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={role.roleName}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'roleName', event.target.value)}
+                              placeholder="e.g. Architect"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={role.expectedLevel}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleChange(index, 'expectedLevel', event.target.value)}
+                              placeholder="e.g. Senior"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={formatIDR(role.monthlySalary)}
+                              inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
+                              placeholder="e.g. 15.000.000"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={formatIDR(role.ratePerDay)}
+                              inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
+                              placeholder="e.g. 1.500.000"
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <IconButton onClick={() => removeRole(index)} aria-label="Remove role">
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Stack>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Activity Name</TableCell>
-                      <TableCell>Display Order</TableCell>
-                      <TableCell align="right">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {config.activities.map((activity, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            value={activity.activityName}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'activityName', event.target.value)}
-                            placeholder="e.g. Analysis & Design"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            type="number"
-                            inputProps={{ min: 1, step: 1 }}
-                            value={activity.displayOrder}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'displayOrder', event.target.value)}
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton onClick={() => removeActivity(index)} aria-label="Remove activity">
-                            <DeleteIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
+            )}
 
-            <Grid container spacing={4}>
-              <Grid item xs={12} md={6}>
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'flex-start', sm: 'center' }}
-                  spacing={1}
-                  sx={{ mb: 2 }}
-                >
+            {activeTab === 'activities' && (
+              <Stack spacing={2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h2" className="section-title">Activity Groupings</Typography>
+                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addActivity}>Add Activity</Button>
+                </Stack>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Activity Name</TableCell>
+                        <TableCell>Display Order</TableCell>
+                        <TableCell align="right">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {config.activities.map((activity, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={activity.activityName}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'activityName', event.target.value)}
+                              placeholder="e.g. Analysis & Design"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              type="number"
+                              inputProps={{ min: 1, step: 1 }}
+                              value={activity.displayOrder}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'displayOrder', event.target.value)}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <IconButton onClick={() => removeActivity(index)} aria-label="Remove activity">
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Stack>
+            )}
+
+            {activeTab === 'items' && (
+              <Stack spacing={2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
                   <Typography variant="h2" className="section-title">Item → Activity Mapping</Typography>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Button
                       startIcon={<SyncIcon />}
                       variant="outlined"
-                      onClick={handleSyncReferenceData}
-                      disabled={syncingReferenceData || loading}
+                      onClick={handleSyncItemsFromTemplate}
+                      disabled={syncingItems || loading}
                     >
-                      {syncingReferenceData ? 'Syncing…' : 'Sync Reference Data'}
+                      {syncingItems ? 'Syncing…' : 'Sync Template Items'}
                     </Button>
                     <Button startIcon={<AddIcon />} variant="outlined" onClick={addItemActivity}>Add Mapping</Button>
                   </Stack>
@@ -698,12 +796,24 @@ export default function PresalesConfigurationPage() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-              </Grid>
+              </Stack>
+            )}
 
-              <Grid item xs={12} md={6}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            {activeTab === 'columns' && (
+              <Stack spacing={2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
                   <Typography variant="h2" className="section-title">Estimation Column → Role Allocation</Typography>
-                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addEstimationColumnRole}>Add Allocation</Button>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Button
+                      startIcon={<SyncIcon />}
+                      variant="outlined"
+                      onClick={handleSyncEstimationColumns}
+                      disabled={syncingEstimationColumns || loading}
+                    >
+                      {syncingEstimationColumns ? 'Syncing…' : 'Sync Estimation Columns'}
+                    </Button>
+                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addEstimationColumnRole}>Add Allocation</Button>
+                  </Stack>
                 </Stack>
                 <TableContainer>
                   <Table size="small">
@@ -757,8 +867,8 @@ export default function PresalesConfigurationPage() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-              </Grid>
-            </Grid>
+              </Stack>
+            )}
           </Stack>
         )}
       </Paper>
