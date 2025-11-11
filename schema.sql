@@ -284,17 +284,80 @@ CREATE TABLE IF NOT EXISTS presales_activities (
 );
 
 CREATE TABLE IF NOT EXISTS presales_item_activities (
-    item_name TEXT PRIMARY KEY,
-    activity_name TEXT NOT NULL REFERENCES presales_activities(activity_name) ON DELETE CASCADE
+    section_name TEXT NOT NULL DEFAULT '',
+    item_name TEXT NOT NULL DEFAULT '',
+    activity_name TEXT NOT NULL REFERENCES presales_activities(activity_name) ON DELETE CASCADE,
+    display_order INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (section_name, item_name)
 );
+
+ALTER TABLE presales_item_activities
+    ADD COLUMN IF NOT EXISTS section_name TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE presales_item_activities
+    ADD COLUMN IF NOT EXISTS display_order INT NOT NULL DEFAULT 0;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'presales_item_activities_pkey'
+          AND table_name = 'presales_item_activities'
+          AND table_schema = 'public'
+    ) THEN
+        BEGIN
+            EXECUTE 'ALTER TABLE presales_item_activities DROP CONSTRAINT presales_item_activities_pkey';
+        EXCEPTION WHEN invalid_table_definition THEN
+            NULL;
+        END;
+    END IF;
+END $$;
+
+ALTER TABLE presales_item_activities
+    ADD CONSTRAINT presales_item_activities_pkey PRIMARY KEY (section_name, item_name);
 
 CREATE TABLE IF NOT EXISTS presales_estimation_column_roles (
     estimation_column TEXT NOT NULL,
     role_name TEXT NOT NULL,
-    expected_level TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY(estimation_column, role_name, expected_level),
-    FOREIGN KEY(role_name, expected_level) REFERENCES presales_roles(role_name, expected_level) ON DELETE CASCADE
+    PRIMARY KEY(estimation_column, role_name)
 );
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.constraint_column_usage
+        WHERE table_name = 'presales_estimation_column_roles'
+          AND constraint_name = 'presales_estimation_column_roles_role_name_expected_level_fkey'
+    ) THEN
+        BEGIN
+            EXECUTE 'ALTER TABLE presales_estimation_column_roles DROP CONSTRAINT IF EXISTS presales_estimation_column_roles_role_name_expected_level_fkey';
+        EXCEPTION WHEN undefined_object THEN
+            NULL;
+        END;
+    END IF;
+END $$;
+
+ALTER TABLE presales_estimation_column_roles DROP CONSTRAINT IF EXISTS presales_estimation_column_roles_pkey;
+
+WITH duplicates AS (
+    SELECT estimation_column, role_name, MIN(ctid) AS keep_ctid
+    FROM presales_estimation_column_roles
+    GROUP BY estimation_column, role_name
+    HAVING COUNT(*) > 1
+)
+DELETE FROM presales_estimation_column_roles target
+USING duplicates d
+WHERE target.estimation_column = d.estimation_column
+  AND target.role_name = d.role_name
+  AND target.ctid <> d.keep_ctid;
+
+ALTER TABLE presales_estimation_column_roles
+    DROP COLUMN IF EXISTS expected_level;
+
+ALTER TABLE presales_estimation_column_roles
+    ADD CONSTRAINT presales_estimation_column_roles_pkey PRIMARY KEY (estimation_column, role_name);
 
 CREATE TABLE IF NOT EXISTS assessment_timelines (
     assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,

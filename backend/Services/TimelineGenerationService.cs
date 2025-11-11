@@ -449,17 +449,59 @@ public class TimelineGenerationService
         IReadOnlyList<TimelineEstimationReference> references,
         TimelineEstimationRecord estimation)
     {
+        static string BuildMappingKey(string? sectionName, string? itemName)
+        {
+            return $"{sectionName?.Trim() ?? string.Empty}\0{itemName?.Trim() ?? string.Empty}";
+        }
+
+        var sectionItemActivityLookup = config.ItemActivities
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
+                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .ToDictionary(
+                mapping => BuildMappingKey(mapping.SectionName, mapping.ItemName),
+                mapping => mapping.ActivityName.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
         var itemActivityLookup = config.ItemActivities
-            .Where(mapping => !string.IsNullOrWhiteSpace(mapping.ItemName) && !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .Where(mapping =>
+                string.IsNullOrWhiteSpace(mapping.SectionName) &&
+                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping.ActivityName))
             .ToDictionary(mapping => mapping.ItemName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
 
-        var columnRolesLookup = config.EstimationColumnRoles
-            .GroupBy(mapping => mapping.EstimationColumn, StringComparer.OrdinalIgnoreCase)
+        var sectionActivityLookup = config.ItemActivities
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
+                string.IsNullOrWhiteSpace(mapping.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping.ActivityName))
+            .ToDictionary(mapping => mapping.SectionName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        var activityOrderLookup = config.Activities
+            .Where(activity => !string.IsNullOrWhiteSpace(activity.ActivityName))
+            .Select(activity => new
+            {
+                Name = activity.ActivityName.Trim(),
+                Order = activity.DisplayOrder
+            })
+            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Min(entry => entry.Order), StringComparer.OrdinalIgnoreCase);
+
+        var columnRolesLookup = (config.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
+            .Select(mapping => new
+            {
+                Column = mapping.EstimationColumn?.Trim(),
+                Role = mapping.RoleName?.Trim()
+            })
+            .Where(mapping => !string.IsNullOrWhiteSpace(mapping.Column))
+            .GroupBy(mapping => mapping.Column!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
-                group => group.Key.Trim(),
+                group => group.Key,
                 group => group
-                    .Select(entry => PresalesRoleFormatter.BuildLabel(entry.RoleName, entry.ExpectedLevel))
+                    .Select(entry => entry.Role)
                     .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => name!)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
@@ -468,6 +510,7 @@ public class TimelineGenerationService
         var columnActivities = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
         {
+            var sectionName = section.SectionName?.Trim();
             foreach (var item in section.Items ?? new List<AssessmentItem>())
             {
                 if (!item.IsNeeded)
@@ -481,9 +524,25 @@ public class TimelineGenerationService
                     continue;
                 }
 
-                var activity = itemActivityLookup.TryGetValue(itemName, out var mappedActivity)
-                    ? mappedActivity
-                    : "Unmapped";
+                var activity = string.Empty;
+                if (!string.IsNullOrWhiteSpace(sectionName) &&
+                    !string.IsNullOrWhiteSpace(itemName) &&
+                    sectionItemActivityLookup.TryGetValue(BuildMappingKey(sectionName, itemName), out var combinedActivity))
+                {
+                    activity = combinedActivity;
+                }
+                else if (!string.IsNullOrWhiteSpace(itemName) && itemActivityLookup.TryGetValue(itemName, out var mappedActivity))
+                {
+                    activity = mappedActivity;
+                }
+                else if (!string.IsNullOrWhiteSpace(sectionName) && sectionActivityLookup.TryGetValue(sectionName, out var sectionActivity))
+                {
+                    activity = sectionActivity;
+                }
+                else
+                {
+                    activity = "Unmapped";
+                }
 
                 foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
                 {
@@ -522,7 +581,20 @@ public class TimelineGenerationService
                     ? mappedRoles
                     : new List<string>();
                 var activities = columnActivities.TryGetValue(columnName, out var set) && set.Count > 0
-                    ? set.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToList()
+                    ? set
+                        .OrderBy(value => value, Comparer<string>.Create((a, b) =>
+                        {
+                            var aOrder = activityOrderLookup.TryGetValue(a, out var aValue) ? aValue : int.MaxValue;
+                            var bOrder = activityOrderLookup.TryGetValue(b, out var bValue) ? bValue : int.MaxValue;
+                            var orderComparison = aOrder.CompareTo(bOrder);
+                            if (orderComparison != 0)
+                            {
+                                return orderComparison;
+                            }
+
+                            return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+                        }))
+                        .ToList()
                     : new List<string> { "Unmapped" };
 
                 var actorString = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
@@ -550,7 +622,8 @@ public class TimelineGenerationService
 
         var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
         var phaseSummaries = activityManDays
-            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(kvp => activityOrderLookup.TryGetValue(kvp.Key, out var order) ? order : int.MaxValue)
+            .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
             .Select(kvp =>
             {
                 var activityName = kvp.Key;
@@ -625,7 +698,7 @@ public class TimelineGenerationService
         var estimatorSummaryText = string.Join(Environment.NewLine, estimatorSummaryLines);
 
         var allRoles = (config.Roles ?? new List<PresalesRole>())
-            .Select(role => PresalesRoleFormatter.BuildLabel(role.RoleName, role.ExpectedLevel))
+            .Select(role => role.RoleName?.Trim())
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(name => $"\"{name}\"")

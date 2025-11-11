@@ -40,14 +40,22 @@ interface PresalesActivity {
 }
 
 interface ItemActivityMapping {
+  sectionName: string;
   itemName: string;
   activityName: string;
+  displayOrder: number;
+}
+
+interface TemplateTaskReference {
+  sectionName: string;
+  sectionOrder: number;
+  itemName: string;
+  itemOrder: number;
 }
 
 interface EstimationColumnRoleMapping {
   estimationColumn: string;
   roleName: string;
-  expectedLevel: string;
 }
 
 interface PresalesConfiguration {
@@ -78,24 +86,6 @@ const buildRoleLabel = (roleName?: string | null, expectedLevel?: string | null)
   return level ? `${name}${ROLE_LABEL_SEPARATOR}${level}` : name;
 };
 
-const buildRoleValue = (roleName?: string | null, expectedLevel?: string | null) => {
-  const name = normalizeRolePart(roleName);
-  if (!name) return '';
-  const level = normalizeRolePart(expectedLevel);
-  return level ? `${name}${ROLE_VALUE_SEPARATOR}${level}` : name;
-};
-
-const parseRoleValue = (value: string) => {
-  if (!value) {
-    return { roleName: '', expectedLevel: '' };
-  }
-  const [name, level] = value.split(ROLE_VALUE_SEPARATOR);
-  return {
-    roleName: normalizeRolePart(name),
-    expectedLevel: normalizeRolePart(level),
-  };
-};
-
 const enumerateCostKeys = (roleName?: string | null, expectedLevel?: string | null) => {
   const name = normalizeRolePart(roleName);
   if (!name) return [] as string[];
@@ -112,9 +102,6 @@ const enumerateCostKeys = (roleName?: string | null, expectedLevel?: string | nu
 
 const buildRoleLabelFromRole = (role: Pick<PresalesRole, 'roleName' | 'expectedLevel'>) =>
   buildRoleLabel(role.roleName, role.expectedLevel);
-
-const buildRoleValueFromRole = (role: Pick<PresalesRole, 'roleName' | 'expectedLevel'>) =>
-  buildRoleValue(role.roleName, role.expectedLevel);
 
 const enumerateCostKeysForRole = (role: Pick<PresalesRole, 'roleName' | 'expectedLevel'>) =>
   enumerateCostKeys(role.roleName, role.expectedLevel);
@@ -172,7 +159,7 @@ const prepareRateCard = (config: CostEstimationConfiguration, key: string) => {
 export default function PresalesConfigurationPage() {
   const [config, setConfig] = useState<PresalesConfiguration>(emptyConfig);
   const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
-  const [availableItems, setAvailableItems] = useState<string[]>([]);
+  const [availableTasks, setAvailableTasks] = useState<TemplateTaskReference[]>([]);
   const [availableEstimationColumns, setAvailableEstimationColumns] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('roles');
   const [syncingItems, setSyncingItems] = useState(false);
@@ -183,7 +170,7 @@ export default function PresalesConfigurationPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchReferenceData = useCallback(async () => {
-    let items: string[] = [];
+    let items: TemplateTaskReference[] = [];
     let estimationColumns: string[] = [];
 
     try {
@@ -195,7 +182,32 @@ export default function PresalesConfigurationPage() {
       if (itemsRes.ok) {
         try {
           const data = await itemsRes.json();
-          items = Array.isArray(data) ? data : [];
+          if (Array.isArray(data)) {
+            items = data
+              .map(item => {
+                if (!item || typeof item !== 'object') return null;
+                const sectionName = typeof item.sectionName === 'string' ? item.sectionName.trim() : '';
+                const itemName = typeof item.itemName === 'string' ? item.itemName.trim() : '';
+                const rawSectionOrderValue = (item as { sectionOrder?: unknown }).sectionOrder;
+                const sectionOrder = typeof rawSectionOrderValue === 'number' && Number.isFinite(rawSectionOrderValue)
+                  ? rawSectionOrderValue
+                  : 0;
+                const rawItemOrderValue = (item as { itemOrder?: unknown }).itemOrder;
+                const itemOrder = typeof rawItemOrderValue === 'number' && Number.isFinite(rawItemOrderValue)
+                  ? rawItemOrderValue
+                  : 0;
+                if (!sectionName) return null;
+                return {
+                  sectionName,
+                  sectionOrder,
+                  itemName,
+                  itemOrder,
+                } satisfies TemplateTaskReference;
+              })
+              .filter((entry): entry is TemplateTaskReference => Boolean(entry));
+          } else {
+            items = [];
+          }
         } catch (err) {
           console.warn('Failed to parse item list', err);
           items = [];
@@ -221,7 +233,7 @@ export default function PresalesConfigurationPage() {
       console.warn('Failed to load reference data', err);
     }
 
-    setAvailableItems(items);
+    setAvailableTasks(items);
     setAvailableEstimationColumns(estimationColumns);
     return { items, estimationColumns };
   }, []);
@@ -283,11 +295,18 @@ export default function PresalesConfigurationPage() {
           };
         }),
         activities: presalesData.activities ?? [],
-        itemActivities: presalesData.itemActivities ?? [],
-        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map((mapping: EstimationColumnRoleMapping) => ({
-          ...mapping,
-          expectedLevel: mapping.expectedLevel ?? '',
+        itemActivities: (presalesData.itemActivities ?? []).map((mapping: Partial<ItemActivityMapping>) => ({
+          sectionName: mapping.sectionName ?? '',
+          itemName: mapping.itemName ?? '',
+          activityName: mapping.activityName ?? '',
+          displayOrder: typeof mapping.displayOrder === 'number' ? mapping.displayOrder : 0,
         })),
+        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map(
+          (mapping: Partial<EstimationColumnRoleMapping>) => ({
+            estimationColumn: mapping.estimationColumn ?? '',
+            roleName: mapping.roleName ?? '',
+          })
+        ),
       });
       setCostConfig(normalizedCost);
     } catch (err) {
@@ -438,20 +457,6 @@ export default function PresalesConfigurationPage() {
     });
   }, []);
 
-  const handleItemActivityChange = useCallback((index: number, key: keyof ItemActivityMapping, value: string) => {
-    setConfig(prev => {
-      const itemActivities = [...prev.itemActivities];
-      const mapping = { ...itemActivities[index] };
-      if (key === 'itemName') {
-        mapping.itemName = value;
-      } else if (key === 'activityName') {
-        mapping.activityName = value;
-      }
-      itemActivities[index] = mapping;
-      return { ...prev, itemActivities };
-    });
-  }, []);
-
   const handleEstimationRoleChange = useCallback((index: number, key: 'estimationColumn' | 'roleName', value: string) => {
     setConfig(prev => {
       const estimationColumnRoles = [...prev.estimationColumnRoles];
@@ -459,9 +464,7 @@ export default function PresalesConfigurationPage() {
       if (key === 'estimationColumn') {
         mapping.estimationColumn = value;
       } else if (key === 'roleName') {
-        const { roleName, expectedLevel } = parseRoleValue(value);
-        mapping.roleName = roleName;
-        mapping.expectedLevel = expectedLevel;
+        mapping.roleName = value;
       }
       estimationColumnRoles[index] = mapping;
       return { ...prev, estimationColumnRoles };
@@ -480,12 +483,12 @@ export default function PresalesConfigurationPage() {
   const addItemActivity = () =>
     setConfig(prev => ({
       ...prev,
-      itemActivities: [...prev.itemActivities, { itemName: '', activityName: '' }],
+      itemActivities: [...prev.itemActivities, { sectionName: '', itemName: '', activityName: '', displayOrder: 0 }],
     }));
   const addEstimationColumnRole = () =>
     setConfig(prev => ({
       ...prev,
-      estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '', expectedLevel: '' }],
+      estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '' }],
     }));
 
   const removeRole = (index: number) =>
@@ -536,17 +539,31 @@ export default function PresalesConfigurationPage() {
       let added = 0;
       setConfig(prev => {
         const existing = new Set(
-          prev.itemActivities
-            .map(mapping => mapping.itemName?.trim().toLowerCase())
-            .filter((name): name is string => Boolean(name))
-        );
-        const additions = (items ?? [])
-          .filter(item => {
-            if (!item) return false;
-            const key = item.trim().toLowerCase();
-            return key.length > 0 && !existing.has(key);
+          prev.itemActivities.map(mapping => {
+            const section = mapping.sectionName?.trim().toLowerCase() ?? '';
+            const item = mapping.itemName?.trim().toLowerCase() ?? '';
+            return `${section}::${item}`;
           })
-          .map(item => ({ itemName: item, activityName: '' }));
+        );
+
+        const additions: ItemActivityMapping[] = [];
+        for (const task of items ?? []) {
+          if (!task) continue;
+          const section = task.sectionName?.trim();
+          const item = task.itemName?.trim();
+          if (!section || !item) {
+            continue;
+          }
+
+          const key = `${section.toLowerCase()}::${item.toLowerCase()}`;
+          if (existing.has(key)) {
+            continue;
+          }
+
+          existing.add(key);
+          additions.push({ sectionName: section, itemName: item, activityName: '', displayOrder: 0 });
+        }
+
         added = additions.length;
         if (added === 0) {
           return prev;
@@ -586,7 +603,7 @@ export default function PresalesConfigurationPage() {
             const key = column.trim().toLowerCase();
             return key.length > 0 && !existing.has(key);
           })
-          .map(column => ({ estimationColumn: column, roleName: '', expectedLevel: '' }));
+          .map(column => ({ estimationColumn: column, roleName: '' }));
         added = additions.length;
         if (added === 0) {
           return prev;
@@ -668,11 +685,18 @@ export default function PresalesConfigurationPage() {
           };
         }),
         activities: presalesData.activities ?? [],
-        itemActivities: presalesData.itemActivities ?? [],
-        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map((mapping: EstimationColumnRoleMapping) => ({
-          ...mapping,
-          expectedLevel: mapping.expectedLevel ?? '',
+        itemActivities: (presalesData.itemActivities ?? []).map((mapping: Partial<ItemActivityMapping>) => ({
+          sectionName: mapping.sectionName ?? '',
+          itemName: mapping.itemName ?? '',
+          activityName: mapping.activityName ?? '',
+          displayOrder: typeof mapping.displayOrder === 'number' ? mapping.displayOrder : 0,
         })),
+        estimationColumnRoles: (presalesData.estimationColumnRoles ?? []).map(
+          (mapping: Partial<EstimationColumnRoleMapping>) => ({
+            estimationColumn: mapping.estimationColumn ?? '',
+            roleName: mapping.roleName ?? '',
+          })
+        ),
       });
       setSuccessMessage('Configuration saved successfully.');
     } catch (err) {
@@ -685,13 +709,14 @@ export default function PresalesConfigurationPage() {
   const roleOptions = useMemo(() => {
     const seen = new Set<string>();
     return config.roles.reduce<{ value: string; label: string }[]>((acc, role) => {
-      const value = buildRoleValueFromRole(role);
-      const label = buildRoleLabelFromRole(role);
-      if (!value || !label || seen.has(value)) {
+      const name = normalizeRolePart(role.roleName);
+      if (!name) return acc;
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
         return acc;
       }
-      seen.add(value);
-      acc.push({ value, label });
+      seen.add(key);
+      acc.push({ value: name, label: name });
       return acc;
     }, []);
   }, [config.roles]);
@@ -699,6 +724,185 @@ export default function PresalesConfigurationPage() {
     () => config.activities.map(activity => activity.activityName?.trim()).filter((name): name is string => Boolean(name)),
     [config.activities]
   );
+
+  const activityOrderLookup = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const activity of config.activities) {
+      const name = activity.activityName?.trim();
+      if (!name) continue;
+      map.set(name, typeof activity.displayOrder === 'number' ? activity.displayOrder : Number(activity.displayOrder) || 0);
+    }
+    return map;
+  }, [config.activities]);
+
+  const sectionOrderLookup = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const task of availableTasks) {
+      const section = task.sectionName?.trim();
+      if (!section) continue;
+      const order = typeof task.sectionOrder === 'number' ? task.sectionOrder : 0;
+      const current = map.get(section);
+      if (current === undefined || order < current) {
+        map.set(section, order);
+      }
+    }
+    return map;
+  }, [availableTasks]);
+
+  const itemOrderLookup = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const task of availableTasks) {
+      const section = task.sectionName?.trim();
+      if (!section) continue;
+      const item = task.itemName?.trim() ?? '';
+      const key = `${section}\0${item}`;
+      const order = typeof task.itemOrder === 'number' ? task.itemOrder : (item ? 0 : -1);
+      const current = map.get(key);
+      if (current === undefined || order < current) {
+        map.set(key, order);
+      }
+    }
+    return map;
+  }, [availableTasks]);
+
+  const sectionOptions = useMemo(
+    () =>
+      Array.from(sectionOrderLookup.entries())
+        .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+        .map(([value]) => value),
+    [sectionOrderLookup]
+  );
+
+  const itemsBySection = useMemo(() => {
+    const map = new Map<string, string[]>();
+    sectionOptions.forEach(section => {
+      map.set(section, ['']);
+    });
+
+    for (const task of availableTasks) {
+      const section = task.sectionName?.trim();
+      if (!section) continue;
+      if (!map.has(section)) {
+        map.set(section, ['']);
+      }
+
+      const item = task.itemName?.trim() ?? '';
+      if (!item) {
+        continue;
+      }
+
+      const list = map.get(section)!;
+      if (!list.some(existing => existing.localeCompare(item, undefined, { sensitivity: 'accent' }) === 0)) {
+        list.push(item);
+      }
+    }
+
+    map.forEach((list, section) => {
+      list.sort((a, b) => {
+        const orderA = itemOrderLookup.get(`${section}\0${a}`) ?? (a ? Number.MAX_SAFE_INTEGER : -1);
+        const orderB = itemOrderLookup.get(`${section}\0${b}`) ?? (b ? Number.MAX_SAFE_INTEGER : -1);
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return a.localeCompare(b);
+      });
+    });
+
+    return map;
+  }, [availableTasks, itemOrderLookup, sectionOptions]);
+
+  const computeDefaultDisplayOrder = useCallback(
+    (sectionName: string, itemName: string, activityName: string) => {
+      const normalizedActivity = (activityName ?? '').trim();
+      const normalizedSection = (sectionName ?? '').trim();
+      const normalizedItem = (itemName ?? '').trim();
+      const activityOrder = activityOrderLookup.get(normalizedActivity) ?? 10_000;
+      const sectionOrder = sectionOrderLookup.get(normalizedSection) ?? 10_000;
+      const itemKey = `${normalizedSection}\0${normalizedItem}`;
+      const rawItemOrder = itemOrderLookup.get(itemKey);
+      const itemOrder = rawItemOrder !== undefined ? rawItemOrder : (normalizedItem ? 1_000 : -1);
+      const normalizedItemOrder = itemOrder >= 0 ? itemOrder + 1 : 0;
+      return activityOrder * 1_000_000 + sectionOrder * 1_000 + normalizedItemOrder;
+    },
+    [activityOrderLookup, sectionOrderLookup, itemOrderLookup]
+  );
+
+  const applyDefaultDisplayOrder = useCallback(
+    (mapping: ItemActivityMapping): ItemActivityMapping => {
+      if (mapping.displayOrder && mapping.displayOrder > 0) {
+        return mapping;
+      }
+
+      const computed = computeDefaultDisplayOrder(mapping.sectionName, mapping.itemName, mapping.activityName);
+      if (computed <= 0 || computed === mapping.displayOrder) {
+        return mapping;
+      }
+
+      return { ...mapping, displayOrder: computed };
+    },
+    [computeDefaultDisplayOrder]
+  );
+
+  useEffect(() => {
+    setConfig(prev => {
+      let changed = false;
+      const nextItemActivities = prev.itemActivities.map(mapping => {
+        const updated = applyDefaultDisplayOrder(mapping);
+        if (updated !== mapping) {
+          changed = true;
+        }
+        return updated;
+      });
+      if (!changed) {
+        return prev;
+      }
+      return { ...prev, itemActivities: nextItemActivities };
+    });
+  }, [applyDefaultDisplayOrder]);
+
+  const handleItemActivityChange = useCallback(
+    (index: number, key: keyof ItemActivityMapping, value: string) => {
+      setConfig(prev => {
+        const itemActivities = [...prev.itemActivities];
+        const current = { ...itemActivities[index] };
+
+        if (key === 'sectionName') {
+          current.sectionName = value;
+          const normalizedSection = value.trim();
+          if (!normalizedSection) {
+            current.itemName = '';
+          } else if (current.itemName) {
+            const normalizedItem = current.itemName.trim();
+            const normalizedSectionLower = normalizedSection.toLowerCase();
+            const normalizedItemLower = normalizedItem.toLowerCase();
+            const hasItem = availableTasks.some(task => {
+              const taskSection = task.sectionName ? task.sectionName.trim().toLowerCase() : '';
+              if (!taskSection || taskSection !== normalizedSectionLower) {
+                return false;
+              }
+              const taskItem = task.itemName ? task.itemName.trim().toLowerCase() : '';
+              return taskItem === normalizedItemLower;
+            });
+            if (!hasItem) {
+              current.itemName = '';
+            }
+          }
+        } else if (key === 'itemName') {
+          current.itemName = value;
+        } else if (key === 'activityName') {
+          current.activityName = value;
+        } else if (key === 'displayOrder') {
+          current.displayOrder = value ? parseInt(value, 10) || 0 : 0;
+        }
+
+        const updated = applyDefaultDisplayOrder(current);
+        itemActivities[index] = updated;
+        return { ...prev, itemActivities };
+      });
+    },
+    [applyDefaultDisplayOrder, availableTasks]
+  );
+
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -885,51 +1089,90 @@ export default function PresalesConfigurationPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Item Name</TableCell>
+                        <TableCell>Section</TableCell>
+                        <TableCell>Item</TableCell>
                         <TableCell>Activity</TableCell>
+                        <TableCell>Ordering</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {config.itemActivities.map((mapping, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <Autocomplete
-                              options={availableItems}
-                              value={mapping.itemName || ''}
-                              onChange={(_, newValue) => handleItemActivityChange(index, 'itemName', newValue ?? '')}
-                              autoHighlight
-                              renderInput={params => (
-                                <TextField
-                                  {...params}
-                                  fullWidth
-                                  size="small"
-                                  placeholder="Select item"
-                                />
-                              )}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              select
-                              fullWidth
-                              size="small"
-                              value={mapping.activityName}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleItemActivityChange(index, 'activityName', event.target.value)}
-                            >
-                              {activityNames.length === 0 && <MenuItem value="">—</MenuItem>}
-                              {activityNames.map(name => (
-                                <MenuItem key={name} value={name}>{name}</MenuItem>
-                              ))}
-                            </TextField>
-                          </TableCell>
-                          <TableCell align="right">
-                            <IconButton onClick={() => removeItemActivity(index)} aria-label="Remove mapping">
-                              <DeleteIcon />
-                            </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {config.itemActivities.map((mapping, index) => {
+                        const sectionValue = mapping.sectionName || '';
+                        const normalizedSection = sectionValue.trim();
+                        const itemOptions = itemsBySection.get(normalizedSection) ?? [''];
+                        return (
+                          <TableRow key={index}>
+                            <TableCell>
+                              <Autocomplete
+                                options={sectionOptions}
+                                freeSolo
+                                autoSelect
+                                value={sectionValue}
+                                onChange={(_, newValue) => handleItemActivityChange(index, 'sectionName', newValue ?? '')}
+                                onInputChange={(_, newValue) => handleItemActivityChange(index, 'sectionName', newValue ?? '')}
+                                renderInput={params => (
+                                  <TextField
+                                    {...params}
+                                    fullWidth
+                                    size="small"
+                                    placeholder="Select section"
+                                  />
+                                )}
+                                isOptionEqualToValue={(option, value) => option === value}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Autocomplete
+                                options={itemOptions}
+                                freeSolo
+                                autoSelect
+                                value={mapping.itemName || ''}
+                                onChange={(_, newValue) => handleItemActivityChange(index, 'itemName', newValue ?? '')}
+                                onInputChange={(_, newValue) => handleItemActivityChange(index, 'itemName', newValue ?? '')}
+                                getOptionLabel={option => (option ? option : 'Entire Section')}
+                                renderInput={params => (
+                                  <TextField
+                                    {...params}
+                                    fullWidth
+                                    size="small"
+                                    placeholder="Select item or leave blank for entire section"
+                                  />
+                                )}
+                                isOptionEqualToValue={(option, value) => option === value}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                select
+                                fullWidth
+                                size="small"
+                                value={mapping.activityName}
+                                onChange={(event: ChangeEvent<HTMLInputElement>) => handleItemActivityChange(index, 'activityName', event.target.value)}
+                              >
+                                {activityNames.length === 0 && <MenuItem value="">—</MenuItem>}
+                                {activityNames.map(name => (
+                                  <MenuItem key={name} value={name}>{name}</MenuItem>
+                                ))}
+                              </TextField>
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                type="number"
+                                value={mapping.displayOrder ?? 0}
+                                onChange={(event: ChangeEvent<HTMLInputElement>) => handleItemActivityChange(index, 'displayOrder', event.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell align="right">
+                              <IconButton onClick={() => removeItemActivity(index)} aria-label="Remove mapping">
+                                <DeleteIcon />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -985,7 +1228,7 @@ export default function PresalesConfigurationPage() {
                               select
                               fullWidth
                               size="small"
-                              value={buildRoleValue(mapping.roleName, mapping.expectedLevel)}
+                              value={mapping.roleName || ''}
                               onChange={(event: ChangeEvent<HTMLInputElement>) => handleEstimationRoleChange(index, 'roleName', event.target.value)}
                               SelectProps={{
                                 displayEmpty: true,
