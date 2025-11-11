@@ -296,12 +296,11 @@ public class TimelineGenerationService
             }
         }
 
-        foreach (var roleName in config.Roles.Select(r => r.RoleName))
+        foreach (var roleLabel in config.Roles
+                     .Select(role => PresalesRoleFormatter.BuildLabel(role.RoleName, role.ExpectedLevel))
+                     .Where(label => !string.IsNullOrWhiteSpace(label)))
         {
-            if (!string.IsNullOrWhiteSpace(roleName))
-            {
-                EnsureRoleLength(roleName);
-            }
+            EnsureRoleLength(roleLabel);
         }
 
         foreach (var detail in allDetails)
@@ -349,14 +348,42 @@ public class TimelineGenerationService
             }
         }
 
-        static bool RoleMatches(string candidate, string target) =>
-            !string.IsNullOrWhiteSpace(candidate) &&
-            candidate.Equals(target, StringComparison.OrdinalIgnoreCase);
+        static bool RoleMatches(string candidate, string target)
+        {
+            if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(target))
+            {
+                return false;
+            }
+
+            if (candidate.Equals(target, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var baseRole = PresalesRoleFormatter.ExtractBaseRole(candidate);
+            if (string.IsNullOrWhiteSpace(baseRole))
+            {
+                return false;
+            }
+
+            if (baseRole.Equals(target, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (target.Equals("PM", StringComparison.OrdinalIgnoreCase) &&
+                baseRole.Equals("Project Manager", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
 
         foreach (var specialRole in new[] { "PM", "Architect" })
         {
             var hasRole = allocation.Keys.Any(role => RoleMatches(role, specialRole)) ||
-                          config.Roles.Any(r => RoleMatches(r.RoleName, specialRole));
+                          config.Roles.Any(r => RoleMatches(PresalesRoleFormatter.BuildLabel(r.RoleName, r.ExpectedLevel), specialRole));
             if (!hasRole)
             {
                 continue;
@@ -371,9 +398,9 @@ public class TimelineGenerationService
         }
 
         var orderLookup = config.Roles
-            .Select((role, index) => new { role.RoleName, index })
-            .Where(x => !string.IsNullOrWhiteSpace(x.RoleName))
-            .ToDictionary(x => x.RoleName, x => x.index, StringComparer.OrdinalIgnoreCase);
+            .Select((role, index) => new { Label = PresalesRoleFormatter.BuildLabel(role.RoleName, role.ExpectedLevel), index })
+            .Where(x => !string.IsNullOrWhiteSpace(x.Label))
+            .ToDictionary(x => x.Label, x => x.index, StringComparer.OrdinalIgnoreCase);
 
         var result = allocation
             .Select(kvp =>
@@ -431,7 +458,7 @@ public class TimelineGenerationService
             .ToDictionary(
                 group => group.Key.Trim(),
                 group => group
-                    .Select(entry => entry.RoleName?.Trim())
+                    .Select(entry => PresalesRoleFormatter.BuildLabel(entry.RoleName, entry.ExpectedLevel))
                     .Where(name => !string.IsNullOrWhiteSpace(name))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
@@ -598,7 +625,7 @@ public class TimelineGenerationService
         var estimatorSummaryText = string.Join(Environment.NewLine, estimatorSummaryLines);
 
         var allRoles = (config.Roles ?? new List<PresalesRole>())
-            .Select(role => role.RoleName?.Trim())
+            .Select(role => PresalesRoleFormatter.BuildLabel(role.RoleName, role.ExpectedLevel))
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(name => $"\"{name}\"")

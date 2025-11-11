@@ -272,9 +272,10 @@ CREATE TABLE IF NOT EXISTS ticket_ai_assignments (
 );
 
 CREATE TABLE IF NOT EXISTS presales_roles (
-    role_name TEXT PRIMARY KEY,
+    role_name TEXT NOT NULL,
     expected_level TEXT NOT NULL DEFAULT '',
-    cost_per_day NUMERIC(18,2) NOT NULL DEFAULT 0
+    cost_per_day NUMERIC(18,2) NOT NULL DEFAULT 0,
+    PRIMARY KEY (role_name, expected_level)
 );
 
 CREATE TABLE IF NOT EXISTS presales_activities (
@@ -289,8 +290,10 @@ CREATE TABLE IF NOT EXISTS presales_item_activities (
 
 CREATE TABLE IF NOT EXISTS presales_estimation_column_roles (
     estimation_column TEXT NOT NULL,
-    role_name TEXT NOT NULL REFERENCES presales_roles(role_name) ON DELETE CASCADE,
-    PRIMARY KEY(estimation_column, role_name)
+    role_name TEXT NOT NULL,
+    expected_level TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(estimation_column, role_name, expected_level),
+    FOREIGN KEY(role_name, expected_level) REFERENCES presales_roles(role_name, expected_level) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS assessment_timelines (

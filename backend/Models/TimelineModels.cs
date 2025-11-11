@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace backend.Models;
 
@@ -77,6 +78,7 @@ public class EstimationColumnRoleMapping
 {
     public string EstimationColumn { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
+    public string ExpectedLevel { get; set; } = string.Empty;
 }
 
 public class PresalesConfiguration
@@ -129,4 +131,97 @@ public class TimelineGenerationAttempt
     public string RawResponse { get; set; } = string.Empty;
     public string? Error { get; set; }
     public bool Success { get; set; }
+}
+
+public static class PresalesRoleFormatter
+{
+    private static readonly string[] DisplaySeparators = { " – ", " — ", " - " };
+
+    public static string BuildLabel(string? roleName, string? expectedLevel)
+    {
+        var name = (roleName ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.Empty;
+        }
+
+        var level = (expectedLevel ?? string.Empty).Trim();
+        return string.IsNullOrEmpty(level) ? name : $"{name} – {level}";
+    }
+
+    public static IEnumerable<string> EnumerateLookupKeys(string? roleName, string? expectedLevel)
+    {
+        var name = (roleName ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            yield break;
+        }
+
+        var level = (expectedLevel ?? string.Empty).Trim();
+        if (!string.IsNullOrEmpty(level))
+        {
+            yield return $"{name} – {level}";
+            yield return $"{name} {level}";
+            yield return $"{name}::{level}";
+        }
+
+        yield return name;
+    }
+
+    public static IEnumerable<string> EnumerateLookupKeysFromLabel(string? label)
+    {
+        var value = (label ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(value))
+        {
+            yield break;
+        }
+
+        yield return value;
+
+        var separatorInfo = DisplaySeparators
+            .Select(separator => new { Separator = separator, Index = value.IndexOf(separator, StringComparison.Ordinal) })
+            .Where(entry => entry.Index > 0)
+            .OrderBy(entry => entry.Index)
+            .FirstOrDefault();
+
+        if (separatorInfo == null)
+        {
+            yield break;
+        }
+
+        var baseName = value[..separatorInfo.Index].Trim();
+        var level = value[(separatorInfo.Index + separatorInfo.Separator.Length)..].Trim();
+
+        if (!string.IsNullOrEmpty(baseName) && !string.IsNullOrEmpty(level))
+        {
+            foreach (var key in EnumerateLookupKeys(baseName, level))
+            {
+                yield return key;
+            }
+        }
+        else if (!string.IsNullOrEmpty(baseName))
+        {
+            yield return baseName;
+        }
+    }
+
+    public static string ExtractBaseRole(string? label)
+    {
+        var value = (label ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        foreach (var separator in DisplaySeparators)
+        {
+            var index = value.IndexOf(separator, StringComparison.Ordinal);
+            if (index > 0)
+            {
+                return value[..index].Trim();
+            }
+        }
+
+        return value;
+    }
 }

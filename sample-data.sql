@@ -216,14 +216,14 @@ SET
 
 
 INSERT INTO presales_roles (role_name, expected_level, cost_per_day) VALUES
-  ('Architect', 'Senior Architect', 900),
-  ('Analyst', 'Business Analyst', 650),
-  ('Dev Senior', 'Senior Developer', 800),
-  ('Dev Junior', 'Junior Developer', 500),
-  ('QA Tester', 'QA Engineer', 600)
-ON CONFLICT (role_name) DO UPDATE
-SET expected_level = EXCLUDED.expected_level,
-    cost_per_day = EXCLUDED.cost_per_day;
+  ('Project Manager', 'Lead', 950),
+  ('Business Analyst', 'Senior', 700),
+  ('Business Analyst', 'Junior', 620),
+  ('Developer', 'Senior', 800),
+  ('Developer', 'Junior', 520),
+  ('Quality Engineer', 'Specialist', 610)
+ON CONFLICT (role_name, expected_level) DO UPDATE
+SET cost_per_day = EXCLUDED.cost_per_day;
 
 INSERT INTO presales_activities (activity_name, display_order) VALUES
   ('Project Preparation', 1),
@@ -242,8 +242,10 @@ INSERT INTO presales_item_activities (item_name, activity_name) VALUES
 ON CONFLICT (item_name) DO UPDATE
 SET activity_name = EXCLUDED.activity_name;
 
-INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALUES
-  ('Solution Architect', 'Architect'),
-  ('Business Analyst', 'Analyst'),
-  ('Quality Engineer', 'QA Tester')
-ON CONFLICT (estimation_column, role_name) DO NOTHING;
+INSERT INTO presales_estimation_column_roles (estimation_column, role_name, expected_level) VALUES
+  ('Solution Architect', 'Project Manager', 'Lead'),
+  ('Business Analyst', 'Business Analyst', 'Senior'),
+  ('Quality Engineer', 'Quality Engineer', 'Specialist'),
+  ('Development', 'Developer', 'Senior'),
+  ('Development Support', 'Developer', 'Junior')
+ON CONFLICT (estimation_column, role_name, expected_level) DO NOTHING;

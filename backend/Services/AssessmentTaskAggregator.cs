@@ -143,7 +143,7 @@ public static class AssessmentTaskAggregator
         {
             var roles = configuration.EstimationColumnRoles
                 .Where(tr => tr.EstimationColumn.Equals(columnName, StringComparison.OrdinalIgnoreCase))
-                .Select(tr => tr.RoleName)
+                .Select(tr => PresalesRoleFormatter.BuildLabel(tr.RoleName, tr.ExpectedLevel))
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

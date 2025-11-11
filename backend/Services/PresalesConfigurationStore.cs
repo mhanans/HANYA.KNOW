@@ -53,7 +53,7 @@ public class PresalesConfigurationStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        const string roleSql = "SELECT role_name, expected_level, cost_per_day FROM presales_roles ORDER BY role_name";
+        const string roleSql = "SELECT role_name, expected_level, cost_per_day FROM presales_roles ORDER BY role_name, expected_level";
         await using (var roleCmd = new NpgsqlCommand(roleSql, conn))
         await using (var reader = await roleCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -108,7 +108,7 @@ public class PresalesConfigurationStore
             }
         }
 
-        const string columnRoleSql = "SELECT estimation_column, role_name FROM presales_estimation_column_roles ORDER BY estimation_column, role_name";
+        const string columnRoleSql = "SELECT estimation_column, role_name, expected_level FROM presales_estimation_column_roles ORDER BY estimation_column, role_name, expected_level";
         await using (var columnRoleCmd = new NpgsqlCommand(columnRoleSql, conn))
         await using (var reader = await columnRoleCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -118,6 +118,7 @@ public class PresalesConfigurationStore
                 {
                     EstimationColumn = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
                     RoleName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                    ExpectedLevel = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
                 };
                 if (!string.IsNullOrWhiteSpace(mapping.EstimationColumn) && !string.IsNullOrWhiteSpace(mapping.RoleName))
                 {
@@ -201,7 +202,7 @@ public class PresalesConfigurationStore
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            const string insertColumnRoleSql = "INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALUES (@column, @role)";
+            const string insertColumnRoleSql = "INSERT INTO presales_estimation_column_roles (estimation_column, role_name, expected_level) VALUES (@column, @role, @level)";
             foreach (var mapping in configuration.EstimationColumnRoles)
             {
                 if (string.IsNullOrWhiteSpace(mapping?.EstimationColumn) || string.IsNullOrWhiteSpace(mapping.RoleName))
@@ -212,6 +213,7 @@ public class PresalesConfigurationStore
                 await using var cmd = new NpgsqlCommand(insertColumnRoleSql, conn, tx);
                 cmd.Parameters.AddWithValue("column", mapping.EstimationColumn.Trim());
                 cmd.Parameters.AddWithValue("role", mapping.RoleName.Trim());
+                cmd.Parameters.AddWithValue("level", mapping.ExpectedLevel?.Trim() ?? string.Empty);
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
