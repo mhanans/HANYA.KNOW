@@ -31,6 +31,9 @@ public static class AssessmentTaskAggregator
         ["Code Review"] = "Testing & QA"
     };
 
+    private static readonly object ColumnDiagnosticsLock = new();
+    private static bool _hasLoggedColumnDiagnostics;
+
     public static Dictionary<string, double> AggregateEstimationColumnEffort(ProjectAssessment assessment)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -169,50 +172,24 @@ public static class AssessmentTaskAggregator
         ProjectAssessment assessment,
         PresalesConfiguration configuration)
     {
+        _ = configuration;
+
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (assessment?.Sections == null)
         {
             return result;
         }
 
-        var itemActivities = configuration?.ItemActivities ?? new List<ItemActivityMapping>();
-        var columnActivityLookup = itemActivities
-            .Where(mapping =>
-                string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(mapping => mapping.ItemName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
-
-        var sectionItemActivityLookup = itemActivities
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(mapping => BuildMappingKey(mapping.SectionName, mapping.ItemName), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
-
-        var sectionActivityLookup = itemActivities
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(mapping => mapping.SectionName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
-
         foreach (var section in assessment.Sections)
         {
-            if (section == null)
-            {
-                continue;
-            }
-
-            var sectionName = section.SectionName?.Trim() ?? string.Empty;
-            foreach (var item in section.Items ?? new List<AssessmentItem>())
+            var sectionName = section?.SectionName?.Trim() ?? string.Empty;
+            foreach (var item in section?.Items ?? new List<AssessmentItem>())
             {
                 if (item == null || !item.IsNeeded)
                 {
                     continue;
                 }
 
-                var itemName = item.ItemName?.Trim() ?? string.Empty;
                 foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
                 {
                     if (estimate.Value is not double hours || hours <= 0)
@@ -220,34 +197,13 @@ public static class AssessmentTaskAggregator
                         continue;
                     }
 
-                    var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName))
-                    {
-                        continue;
-                    }
-
-                    var activity = ResolveActivityName(
-                        columnName,
-                        sectionName,
-                        itemName,
-                        columnActivityLookup,
-                        sectionItemActivityLookup,
-                        sectionActivityLookup);
-
                     var manDays = hours / 8d;
-                    if (manDays <= 0 || string.IsNullOrWhiteSpace(activity))
-                    {
-                        continue;
-                    }
+                    var columnName = estimate.Key?.Trim() ?? string.Empty;
+                    var activityName = ResolveActivityName(sectionName, columnName);
 
-                    if (result.TryGetValue(activity, out var current))
-                    {
-                        result[activity] = current + manDays;
-                    }
-                    else
-                    {
-                        result[activity] = manDays;
-                    }
+                    result[activityName] = result.TryGetValue(activityName, out var current)
+                        ? current + manDays
+                        : manDays;
                 }
             }
         }
@@ -255,44 +211,24 @@ public static class AssessmentTaskAggregator
         return result;
     }
 
-    private static string ResolveActivityName(
-        string columnName,
-        string sectionName,
-        string itemName,
-        IReadOnlyDictionary<string, string> columnActivityLookup,
-        IReadOnlyDictionary<string, string> sectionItemActivityLookup,
-        IReadOnlyDictionary<string, string> sectionActivityLookup)
+    private static string ResolveActivityName(string sectionName, string columnName)
     {
-        if (columnActivityLookup.TryGetValue(columnName, out var activityFromColumn) && !string.IsNullOrWhiteSpace(activityFromColumn))
-        {
-            return activityFromColumn;
-        }
-
-        if (!string.IsNullOrWhiteSpace(sectionName) && DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
+        if (DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
         {
             return directPhase;
         }
 
-        if (!string.IsNullOrWhiteSpace(sectionName) && !string.IsNullOrWhiteSpace(itemName))
-        {
-            var key = BuildMappingKey(sectionName, itemName);
-            if (sectionItemActivityLookup.TryGetValue(key, out var sectionItemActivity) && !string.IsNullOrWhiteSpace(sectionItemActivity))
-            {
-                return sectionItemActivity;
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(sectionName) && sectionActivityLookup.TryGetValue(sectionName, out var activityFromSection) && !string.IsNullOrWhiteSpace(activityFromSection))
-        {
-            return activityFromSection;
-        }
-
-        if (LogicalPhaseMapping.TryGetValue(columnName, out var logicalPhase) && !string.IsNullOrWhiteSpace(logicalPhase))
+        if (!string.IsNullOrWhiteSpace(columnName) && LogicalPhaseMapping.TryGetValue(columnName, out var logicalPhase))
         {
             return logicalPhase;
         }
 
-        return string.IsNullOrWhiteSpace(columnName) ? "Uncategorized" : columnName;
+        if (!string.IsNullOrWhiteSpace(sectionName))
+        {
+            return sectionName;
+        }
+
+        return "Uncategorized";
     }
 
     public static Dictionary<string, double> CalculateRoleManDays(
@@ -302,7 +238,26 @@ public static class AssessmentTaskAggregator
         var columnEffort = AggregateEstimationColumnEffort(assessment);
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        var columnRoleMappings = configuration?.EstimationColumnRoles ?? Enumerable.Empty<EstimationColumnRoleMapping>();
+        var columnRoleLookup = (configuration?.EstimationColumnRoles ?? Enumerable.Empty<EstimationColumnRoleMapping>())
+            .Select(mapping => new
+            {
+                Column = mapping.EstimationColumn?.Trim(),
+                Role = mapping.RoleName?.Trim()
+            })
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.Column) &&
+                !string.IsNullOrWhiteSpace(mapping.Role))
+            .GroupBy(mapping => mapping.Column!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .Select(entry => entry.Role!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var uniqueColumns = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unmappedColumns = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (columnName, manDays) in columnEffort)
         {
@@ -312,22 +267,12 @@ public static class AssessmentTaskAggregator
                 continue;
             }
 
-            var roles = columnRoleMappings
-                .Select(mapping => new
-                {
-                    Column = mapping.EstimationColumn?.Trim(),
-                    Role = mapping.RoleName?.Trim()
-                })
-                .Where(mapping =>
-                    !string.IsNullOrWhiteSpace(mapping.Column) &&
-                    string.Equals(mapping.Column, normalizedColumn, StringComparison.OrdinalIgnoreCase))
-                .Select(mapping => mapping.Role)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            uniqueColumns.Add(normalizedColumn);
 
-            if (roles.Count == 0)
+            if (!columnRoleLookup.TryGetValue(normalizedColumn, out var roles) || roles.Count == 0)
             {
+                unmappedColumns.Add(normalizedColumn);
+
                 const string unspecified = "Unassigned";
                 result[unspecified] = result.TryGetValue(unspecified, out var existing)
                     ? existing + manDays
@@ -336,19 +281,58 @@ public static class AssessmentTaskAggregator
             }
 
             var share = manDays / roles.Count;
+            if (share <= 0)
+            {
+                continue;
+            }
+
             foreach (var role in roles)
             {
-                if (share <= 0)
-                {
-                    continue;
-                }
-
                 result[role] = result.TryGetValue(role, out var roleManDays)
                     ? roleManDays + share
                     : share;
             }
         }
 
+        LogColumnDiagnostics(uniqueColumns, unmappedColumns);
+
         return result;
+    }
+
+    private static void LogColumnDiagnostics(
+        IReadOnlyCollection<string> uniqueColumns,
+        IReadOnlyCollection<string> unmappedColumns)
+    {
+        if (uniqueColumns.Count == 0)
+        {
+            return;
+        }
+
+        lock (ColumnDiagnosticsLock)
+        {
+            if (_hasLoggedColumnDiagnostics)
+            {
+                return;
+            }
+
+            var sortedColumns = uniqueColumns
+                .OrderBy(column => column, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            Console.WriteLine(
+                "[AssessmentTaskAggregator] Unique estimation columns detected: " +
+                string.Join(", ", sortedColumns));
+
+            if (unmappedColumns.Count > 0)
+            {
+                var sortedUnmapped = unmappedColumns
+                    .OrderBy(column => column, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                Console.WriteLine(
+                    "[AssessmentTaskAggregator] Estimation columns without role mappings: " +
+                    string.Join(", ", sortedUnmapped));
+            }
+
+            _hasLoggedColumnDiagnostics = true;
+        }
     }
 }

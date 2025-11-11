@@ -80,7 +80,7 @@ public class AssessmentTaskAggregatorTests
         AssertClose(2, result.GetValueOrDefault("Project Preparation"));
         AssertClose(6, result.GetValueOrDefault("Analysis & Design"));
         AssertClose(3, result.GetValueOrDefault("Architecture & Setup"));
-        AssertClose(15, result.GetValueOrDefault("Application Development"));
+        AssertClose(15, result.GetValueOrDefault("Development"));
         AssertClose(2, result.GetValueOrDefault("Testing & QA"));
     }
 
