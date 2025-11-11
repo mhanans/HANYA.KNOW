@@ -48,9 +48,18 @@ WHERE r.name = 'admin'
 ON CONFLICT DO NOTHING;
 
 -- Timeline estimation reference samples
-INSERT INTO timeline_estimation_references (phase_name, input_man_hours, input_resource_count, output_duration_days) VALUES
-  ('Application Development', 120, 2, 25),
-  ('Testing & Bug Fixing', 80, 2, 15)
+INSERT INTO timeline_estimation_references (
+  project_scale,
+  phase_durations,
+  total_duration_days,
+  resource_allocation
+) VALUES
+  (
+    'Medium',
+    '{"Application Development": 25, "Testing & Bug Fixing": 15}'::jsonb,
+    45,
+    '{"Developer": 3, "Quality Engineer": 2}'::jsonb
+  )
 ON CONFLICT DO NOTHING;
 
 -- Ticket categories
@@ -249,3 +258,22 @@ INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALU
   ('Development', 'Developer'),
   ('Development Support', 'Developer')
 ON CONFLICT (estimation_column, role_name) DO NOTHING;
+
+INSERT INTO presales_team_types (id, team_type_name, min_man_days, max_man_days) VALUES
+  (1, 'Small Team', 0, 150),
+  (2, 'Medium Team', 151, 400),
+  (3, 'Large Team', 401, 9999)
+ON CONFLICT (id) DO UPDATE
+SET
+  team_type_name = EXCLUDED.team_type_name,
+  min_man_days = EXCLUDED.min_man_days,
+  max_man_days = EXCLUDED.max_man_days;
+
+INSERT INTO presales_team_type_roles (team_type_id, role_name, headcount)
+VALUES
+  (2, 'Architect', 1.0),
+  (2, 'Business Analyst', 1.5),
+  (2, 'Developer', 3.0),
+  (2, 'Project Manager', 0.5)
+ON CONFLICT (team_type_id, role_name) DO UPDATE
+SET headcount = EXCLUDED.headcount;

@@ -18,6 +18,9 @@ import {
 } from '@mui/material';
 import Swal from 'sweetalert2';
 import { apiFetch } from '../../../lib/api';
+import RawInputSummary, {
+  TimelineEstimatorRawInput,
+} from '../../../components/pre-sales/RawInputSummary';
 
 interface TimelinePhaseEstimate {
   phaseName: string;
@@ -34,6 +37,11 @@ interface TimelineRoleEstimate {
   role: string;
   estimatedHeadcount: number;
   totalManDays: number;
+}
+
+interface TimelineEstimationDetails {
+  estimationResult: TimelineEstimationRecord;
+  rawInput?: TimelineEstimatorRawInput | null;
 }
 
 interface TimelineEstimationRecord {
@@ -70,11 +78,15 @@ export default function TimelineEstimatorDetailPage() {
     return Number.isNaN(parsed) ? null : parsed;
   }, [assessmentId]);
 
-  const [estimation, setEstimation] = useState<TimelineEstimationRecord | null>(null);
+  const [data, setData] = useState<TimelineEstimationDetails | null>(null);
   const [activities, setActivities] = useState<PresalesActivity[]>([]);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const estimation = data?.estimationResult ?? null;
+  const rawInput = data?.rawInput ?? null;
+  const roleEstimates = Array.isArray(estimation?.roles) ? estimation.roles : [];
 
   const loadEstimation = useCallback(async () => {
     if (!resolvedId) return;
@@ -87,7 +99,7 @@ export default function TimelineEstimatorDetailPage() {
         throw new Error(text || 'Failed to load timeline estimation');
       }
       const data = await res.json();
-      setEstimation(data);
+      setData(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load timeline estimation');
     } finally {
@@ -315,6 +327,8 @@ export default function TimelineEstimatorDetailPage() {
         </Typography>
       </Paper>
 
+      {rawInput && <RawInputSummary rawInput={rawInput} />}
+
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
         <Typography variant="h6" gutterBottom>
           Phase Duration Guidance
@@ -362,14 +376,14 @@ export default function TimelineEstimatorDetailPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {estimation.roles.map(role => (
+              {roleEstimates.map(role => (
                 <TableRow key={role.role}>
                   <TableCell>{role.role}</TableCell>
                   <TableCell align="right">{role.estimatedHeadcount.toFixed(2)}</TableCell>
                   <TableCell align="right">{role.totalManDays.toFixed(2)}</TableCell>
                 </TableRow>
               ))}
-              {estimation.roles.length === 0 && (
+              {roleEstimates.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={3} align="center">
                     No resource guidance available.

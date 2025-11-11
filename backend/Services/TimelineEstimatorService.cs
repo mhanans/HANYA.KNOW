@@ -60,19 +60,59 @@ public class TimelineEstimatorService
 
         var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
         var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
-        var totalRoleManDays = roleManDays.Values.Sum();
-        const double targetTeamSizeFte = 4d;
-        var idealDuration = targetTeamSizeFte > 0
-            ? (int)Math.Max(1, Math.Round(totalRoleManDays / targetTeamSizeFte))
-            : Math.Max(1, (int)Math.Round(totalRoleManDays));
         var references = await _referenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
+
+        var totalManDays = roleManDays.Values.Sum();
+        var teamType = config.TeamTypes
+            .OrderBy(t => t.MinManDays)
+            .FirstOrDefault(t => totalManDays >= t.MinManDays && (t.MaxManDays <= 0 || totalManDays <= t.MaxManDays))
+            ?? config.TeamTypes.FirstOrDefault(t => t.Name.Contains("Medium", StringComparison.OrdinalIgnoreCase))
+            ?? config.TeamTypes.FirstOrDefault();
+
+        if (teamType == null)
+        {
+            throw new InvalidOperationException("No suitable team type configuration found for this project scale.");
+        }
+
+        var durationsPerRole = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (role, manDays) in roleManDays)
+        {
+            if (manDays <= 0)
+            {
+                continue;
+            }
+
+            var roleConfig = teamType.Roles.FirstOrDefault(r => string.Equals(r.RoleName, role, StringComparison.OrdinalIgnoreCase));
+            var headcount = roleConfig?.Headcount ?? 1d;
+            if (!double.IsFinite(headcount) || headcount <= 0)
+            {
+                headcount = 1d;
+            }
+
+            var duration = (int)Math.Ceiling(manDays / headcount);
+            durationsPerRole[role] = Math.Max(1, duration);
+        }
+
+        var durationAnchor = durationsPerRole.Values.Any()
+            ? durationsPerRole.Values.Max()
+            : Math.Max(1, (int)Math.Ceiling(totalManDays));
+
+        var rawInputData = new TimelineEstimatorRawInput
+        {
+            ActivityManDays = new Dictionary<string, double>(activityManDays, StringComparer.OrdinalIgnoreCase),
+            RoleManDays = new Dictionary<string, double>(roleManDays, StringComparer.OrdinalIgnoreCase),
+            TotalRoleManDays = totalManDays,
+            DurationsPerRole = durationsPerRole,
+            SelectedTeamType = CloneTeamType(teamType),
+            DurationAnchor = durationAnchor
+        };
 
         var prompt = BuildEstimatorPrompt(
             assessment,
-            activityManDays,
-            roleManDays,
-            config,
-            idealDuration);
+            rawInputData.ActivityManDays,
+            rawInputData.DurationsPerRole,
+            rawInputData.DurationAnchor,
+            rawInputData.SelectedTeamType?.Name ?? teamType.Name);
         string rawResponse = string.Empty;
         TimelineEstimationRecord estimation;
 
@@ -96,6 +136,12 @@ public class TimelineEstimatorService
         {
             _logger.LogWarning(ex, "AI timeline estimation failed. Falling back to heuristic estimation.");
             estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
+        }
+
+        estimation.RawInputData = rawInputData;
+        if (string.IsNullOrWhiteSpace(estimation.ProjectScale))
+        {
+            estimation.ProjectScale = rawInputData.SelectedTeamType?.Name ?? teamType.Name;
         }
 
         if (estimation.Roles == null || !estimation.Roles.Any())
@@ -382,46 +428,82 @@ public class TimelineEstimatorService
         return "Parallel";
     }
 
+    private static TeamType? CloneTeamType(TeamType? source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        var clone = new TeamType
+        {
+            Id = source.Id,
+            Name = source.Name,
+            MinManDays = source.MinManDays,
+            MaxManDays = source.MaxManDays,
+            Roles = new List<TeamTypeRole>()
+        };
+
+        foreach (var role in source.Roles ?? Enumerable.Empty<TeamTypeRole>())
+        {
+            if (role == null)
+            {
+                continue;
+            }
+
+            clone.Roles.Add(new TeamTypeRole
+            {
+                Id = role.Id,
+                TeamTypeId = role.TeamTypeId,
+                RoleName = role.RoleName,
+                Headcount = role.Headcount
+            });
+        }
+
+        return clone;
+    }
+
     private string BuildEstimatorPrompt(
         ProjectAssessment assessment,
         Dictionary<string, double> activityManDays,
-        Dictionary<string, double> roleManDays,
-        PresalesConfiguration config,
-        int idealDuration)
+        Dictionary<string, int> durationsPerRole,
+        int durationAnchor,
+        string teamTypeName)
     {
-        var totalManDays = roleManDays.Values.Sum();
+        _ = assessment;
+
         var activityLines = activityManDays
             .OrderBy(kvp => kvp.Key)
-            .Select(kvp =>
-            {
-                var percentage = totalManDays > 0 ? (kvp.Value / totalManDays) * 100 : 0;
-                return $"  - Phase: \"{kvp.Key}\", Effort: {kvp.Value:F1} man-days ({percentage:F1}%)";
-            });
+            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days");
+
+        var roleDurationLines = durationsPerRole
+            .OrderByDescending(kvp => kvp.Value)
+            .Select(kvp => $"  - {kvp.Key}: Requires minimum {kvp.Value} days.");
 
         return $@"
-You are a precise and methodical project planning AI. You MUST follow all instructions and constraints exactly.
+You are an expert Project Scheduler. Your task is to create a realistic project plan.
 
 **Project Data:**
-- Total Project Effort: {totalManDays:F1} man-days.
-- Target Duration Anchor: Your final `totalDurationDays` MUST be around **{idealDuration} working days**. This is the most important constraint.
-- Phase Effort Distribution:
+1.  **Team Configuration:** A '{teamTypeName}' has been selected for this project.
+2.  **Phase Effort Breakdown:** The work required for each phase.
 {string.Join("\n", activityLines)}
 
-**Instructions:**
-1.  **Set Total Duration:** Your primary task is to set `totalDurationDays` to be very close to the anchor value of **{idealDuration} days**.
-2.  **Calculate Phase Durations:** For each phase, calculate its duration. Use this logic: a phase's duration should be proportional to its share of the total effort. For example, if 'Development' is 40% of the total effort and the total project timeline has parts that can overlap, its duration might be `(totalDurationDays * 0.4) / (average_parallelism_factor)`. As a simple rule, start by calculating `duration = totalDurationDays * phase_percentage`. Then, adjust slightly for dependencies. The sum of your phase durations will likely be longer than `totalDurationDays`.
-3.  **Determine Sequence:** Sequence the phases logically (e.g., 'Analysis & Design' is 'Serial' at the start, 'Development' and 'Testing & QA' can have 'Parallel' or 'Subsequent' overlap, 'Deployment' is 'Subsequent' at the end).
-4.  **Self-Correction:** Your calculated `totalDurationDays` from sequencing MUST match your anchor `totalDurationDays`. If your Gantt chart calculation results in 100 days, but the anchor is 75, you must increase parallelism or shorten phases to meet the 75-day target.
-5.  **Output:** Provide a minified JSON response. DO NOT include the 'roles' array.
+3.  **Resource Bottleneck Analysis:** This is the minimum time each role needs to complete their tasks based on the selected team. The project CANNOT be shorter than the longest duration listed here.
+{string.Join("\n", roleDurationLines)}
 
-**JSON Output Structure Example:**
+**Instructions:**
+1.  **Identify Critical Path:** The final `totalDurationDays` is determined by the project's critical path. It MUST be greater than or equal to the primary bottleneck of **{durationAnchor} days**.
+2.  **Sequence Phases:** Arrange the phases logically. Use 'Serial' for strict dependencies, and 'Subsequent' or 'Parallel' for overlaps (e.g., Development and Testing).
+3.  **Construct Timeline:** Based on your sequence, determine the final `totalDurationDays`. This will likely be longer than {durationAnchor} days due to phase dependencies.
+4.  **Assign Phase Durations:** Assign a `durationDays` to each phase that fits within your total timeline.
+5.  **Output:** Provide a minified JSON response. DO NOT include 'roles'.
+
+**JSON Output Example:**
 {{
-  ""projectScale"": ""Long"",
-  ""totalDurationDays"": {idealDuration},
-  ""sequencingNotes"": ""Timeline is anchored to {idealDuration} days. Development and Testing phases overlap significantly to meet this target, resulting in a total duration shorter than the sum of phase durations."",
-  ""phases"": [
-    {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 15, ""sequenceType"": ""Serial"" }}
-  ]
+  ""projectScale"": ""Medium"",
+  ""totalDurationDays"": {durationAnchor + 10},
+  ""sequencingNotes"": ""Based on a {teamTypeName}, the critical path is driven by the Developer's {durationsPerRole.GetValueOrDefault("Developer", durationAnchor)}-day task duration. Including pre-development and post-development phases, the total estimated timeline is {durationAnchor + 10} days."",
+  ""phases"": [ {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 20, ""sequenceType"": ""Serial"" }} ]
 }}
 
 Return ONLY the JSON object.
