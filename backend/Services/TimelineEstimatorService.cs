@@ -62,6 +62,16 @@ public class TimelineEstimatorService
         var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
         var references = await _referenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
 
+        // --- ADD THIS TEMPORARY LOG ---
+        _logger.LogWarning("--- AGGREGATION VERIFICATION ---");
+        _logger.LogWarning($"Total Man-Days Calculated: {roleManDays.Values.Sum()}");
+        foreach(var entry in roleManDays)
+        {
+            _logger.LogWarning($"Role: {entry.Key}, ManDays: {entry.Value}");
+        }
+        _logger.LogWarning("---------------------------------");
+        // --- END OF LOG ---
+
         var totalManDays = roleManDays.Values.Sum();
         var teamType = config.TeamTypes
             .OrderBy(t => t.MinManDays)
@@ -478,31 +488,31 @@ public class TimelineEstimatorService
 
         var roleDurationLines = durationsPerRole
             .OrderByDescending(kvp => kvp.Value)
-            .Select(kvp => $"  - {kvp.Key}: Requires minimum {kvp.Value} days.");
+            .Select(kvp => $"  - {kvp.Key}: Requires a minimum of {kvp.Value} working days.");
 
         return $@"
-You are an expert Project Scheduler. Your task is to create a realistic project plan.
+You are an expert Project Scheduler. Your task is to create a realistic project plan based on the provided data.
 
 **Project Data:**
-1.  **Team Configuration:** A '{teamTypeName}' has been selected for this project.
-2.  **Phase Effort Breakdown:** The work required for each phase.
+1.  **Team Configuration:** A '{teamTypeName}' configuration is used.
+2.  **Phase Effort Breakdown:** The total work required for each phase.
 {string.Join("\n", activityLines)}
 
-3.  **Resource Bottleneck Analysis:** This is the minimum time each role needs to complete their tasks based on the selected team. The project CANNOT be shorter than the longest duration listed here.
+3.  **Resource Bottleneck Analysis:** This is the minimum time each role needs to finish their work. The project CANNOT be shorter than the longest duration listed here.
 {string.Join("\n", roleDurationLines)}
 
 **Instructions:**
-1.  **Identify Critical Path:** The final `totalDurationDays` is determined by the project's critical path. It MUST be greater than or equal to the primary bottleneck of **{durationAnchor} days**.
-2.  **Sequence Phases:** Arrange the phases logically. Use 'Serial' for strict dependencies, and 'Subsequent' or 'Parallel' for overlaps (e.g., Development and Testing).
-3.  **Construct Timeline:** Based on your sequence, determine the final `totalDurationDays`. This will likely be longer than {durationAnchor} days due to phase dependencies.
-4.  **Assign Phase Durations:** Assign a `durationDays` to each phase that fits within your total timeline.
-5.  **Output:** Provide a minified JSON response. DO NOT include 'roles'.
+1.  **Critical Path Anchor:** The project's critical path is determined by the longest bottleneck. Therefore, the final `totalDurationDays` MUST be greater than or equal to **{durationAnchor} days**.
+2.  **Sequence Phases:** Arrange the phases logically (e.g., Design before Development, Testing overlaps with Development). Use 'Serial', 'Subsequent', and 'Parallel'.
+3.  **Construct Timeline:** Based on your sequence, determine the final `totalDurationDays`. This will likely be longer than the {durationAnchor}-day anchor due to dependencies.
+4.  **Assign Phase Durations:** Assign a `durationDays` to each phase that is logical within your total timeline.
+5.  **Output:** Provide a minified JSON response. DO NOT include the 'roles' array.
 
 **JSON Output Example:**
 {{
-  ""projectScale"": ""Medium"",
-  ""totalDurationDays"": {durationAnchor + 10},
-  ""sequencingNotes"": ""Based on a {teamTypeName}, the critical path is driven by the Developer's {durationsPerRole.GetValueOrDefault("Developer", durationAnchor)}-day task duration. Including pre-development and post-development phases, the total estimated timeline is {durationAnchor + 10} days."",
+  ""projectScale"": ""{teamTypeName}"",
+  ""totalDurationDays"": {durationAnchor + 15},
+  ""sequencingNotes"": ""The timeline is anchored by the {durationsPerRole.OrderByDescending(kvp => kvp.Value).First().Key}'s {durationAnchor}-day work bottleneck. After accounting for all phase dependencies, the total estimated critical path duration is {durationAnchor + 15} days."",
   ""phases"": [ {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 20, ""sequenceType"": ""Serial"" }} ]
 }}
 
