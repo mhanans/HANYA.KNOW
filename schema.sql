@@ -337,8 +337,18 @@ CREATE TABLE IF NOT EXISTS presales_team_type_roles (
     headcount NUMERIC(4,2) NOT NULL DEFAULT 1.0
 );
 
-ALTER TABLE presales_team_type_roles
-    ADD CONSTRAINT IF NOT EXISTS presales_team_type_roles_unique_role UNIQUE (team_type_id, role_name);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_name = 'presales_team_type_roles'
+          AND constraint_name = 'presales_team_type_roles_unique_role'
+    ) THEN
+        ALTER TABLE presales_team_type_roles
+            ADD CONSTRAINT presales_team_type_roles_unique_role UNIQUE (team_type_id, role_name);
+    END IF;
+END $$;
 
 DO $$
 BEGIN

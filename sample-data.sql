@@ -48,9 +48,18 @@ WHERE r.name = 'admin'
 ON CONFLICT DO NOTHING;
 
 -- Timeline estimation reference samples
-INSERT INTO timeline_estimation_references (phase_name, input_man_hours, input_resource_count, output_duration_days) VALUES
-  ('Application Development', 120, 2, 25),
-  ('Testing & Bug Fixing', 80, 2, 15)
+INSERT INTO timeline_estimation_references (
+  project_scale,
+  phase_durations,
+  total_duration_days,
+  resource_allocation
+) VALUES
+  (
+    'Medium',
+    '{"Application Development": 25, "Testing & Bug Fixing": 15}'::jsonb,
+    45,
+    '{"Developer": 3, "Quality Engineer": 2}'::jsonb
+  )
 ON CONFLICT DO NOTHING;
 
 -- Ticket categories
