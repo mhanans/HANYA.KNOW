@@ -1,4 +1,5 @@
-import { ChangeEvent, DragEvent, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/router';
 import {
   Alert,
   Box,
@@ -18,6 +19,7 @@ import {
   Tabs,
   TextField,
   Typography,
+  Divider,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -59,11 +61,55 @@ interface EstimationColumnRoleMapping {
   roleName: string;
 }
 
+interface TeamTypeRoleForm {
+  id?: number;
+  teamTypeId?: number;
+  roleName: string;
+  headcount: number;
+  clientKey?: string;
+}
+
+interface TeamTypeForm {
+  id?: number;
+  name: string;
+  minManDays: number;
+  maxManDays: number;
+  roles: TeamTypeRoleForm[];
+  clientKey?: string;
+}
+
+interface TimelineEstimatorReferenceResponse {
+  id: number;
+  projectScale: string;
+  totalDurationDays: number;
+  phaseDurations: Record<string, number>;
+  resourceAllocation: Record<string, number>;
+}
+
+interface TimelineEstimatorReference extends TimelineEstimatorReferenceResponse {
+  phaseDurationsText: string;
+  resourceAllocationText: string;
+}
+
+interface TimelineEstimatorReferenceDraft {
+  projectScale: string;
+  totalDurationDays: number;
+  phaseDurationsText: string;
+  resourceAllocationText: string;
+}
+
+const transformReferenceResponse = (item: TimelineEstimatorReferenceResponse): TimelineEstimatorReference => ({
+  ...item,
+  phaseDurationsText: stringifyObject(item.phaseDurations ?? {}),
+  resourceAllocationText: stringifyObject(item.resourceAllocation ?? {}),
+});
+
 interface PresalesConfiguration {
   roles: PresalesRole[];
   activities: PresalesActivity[];
   itemActivities: ItemActivityMapping[];
   estimationColumnRoles: EstimationColumnRoleMapping[];
+  teamTypes: TeamTypeForm[];
 }
 
 const emptyConfig: PresalesConfiguration = {
@@ -71,6 +117,56 @@ const emptyConfig: PresalesConfiguration = {
   activities: [],
   itemActivities: [],
   estimationColumnRoles: [],
+  teamTypes: [],
+};
+
+const createClientKey = () => Math.random().toString(36).slice(2, 11);
+
+const stringifyObject = (value: Record<string, number>) => JSON.stringify(value, null, 2);
+
+const createReferenceDraft = (): TimelineEstimatorReferenceDraft => ({
+  projectScale: 'Medium',
+  totalDurationDays: 30,
+  phaseDurationsText: stringifyObject({ Discovery: 5, Execution: 20, Stabilization: 5 }),
+  resourceAllocationText: stringifyObject({ 'Delivery Lead': 1, 'Solution Architect': 1, 'Engineer': 4 }),
+});
+
+const parseNumericObject = (
+  text: string,
+  { allowFloat, label }: { allowFloat: boolean; label: string }
+): Record<string, number> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${label} must be a valid JSON object.`);
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+
+  const result: Record<string, number> = {};
+  for (const [key, rawValue] of Object.entries(parsed)) {
+    const trimmedKey = key.trim();
+    if (!trimmedKey) {
+      throw new Error(`${label} cannot contain empty keys.`);
+    }
+    const numberValue = Number(rawValue);
+    if (!Number.isFinite(numberValue) || numberValue <= 0) {
+      throw new Error(`${label} must contain positive numbers. Invalid value for "${trimmedKey}".`);
+    }
+    if (!allowFloat && !Number.isInteger(numberValue)) {
+      throw new Error(`${label} must use whole numbers. "${trimmedKey}" has a non-integer value.`);
+    }
+    result[trimmedKey] = allowFloat ? numberValue : Math.round(numberValue);
+  }
+
+  if (Object.keys(result).length === 0) {
+    throw new Error(`${label} must contain at least one entry.`);
+  }
+
+  return result;
 };
 
 const normalizeOrderValue = (value: unknown, fallback = Number.MAX_SAFE_INTEGER) => {
@@ -199,11 +295,43 @@ const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfigurat
     roleName: typeof mapping.roleName === 'string' ? mapping.roleName.trim() : '',
   }));
 
+  const teamTypes = config.teamTypes
+    .map(teamType => {
+      const rawMin = Number(teamType.minManDays);
+      const rawMax = Number(teamType.maxManDays);
+      let minManDays = Number.isFinite(rawMin) ? Math.max(0, Math.round(rawMin)) : 0;
+      let maxManDays = Number.isFinite(rawMax) ? Math.max(0, Math.round(rawMax)) : 0;
+      if (maxManDays > 0 && minManDays > maxManDays) {
+        const temp = minManDays;
+        minManDays = maxManDays;
+        maxManDays = temp;
+      }
+
+      const roles = (teamType.roles ?? [])
+        .map(role => ({
+          id: role.id,
+          teamTypeId: role.teamTypeId,
+          roleName: typeof role.roleName === 'string' ? role.roleName.trim() : '',
+          headcount: Number.isFinite(role.headcount) ? Math.max(0, Number(role.headcount)) : 0,
+        }))
+        .filter(role => role.roleName);
+
+      return {
+        id: teamType.id,
+        name: typeof teamType.name === 'string' ? teamType.name.trim() : '',
+        minManDays,
+        maxManDays,
+        roles,
+      };
+    })
+    .filter(teamType => teamType.name);
+
   return {
     roles,
     activities,
     itemActivities,
     estimationColumnRoles,
+    teamTypes,
   };
 };
 
@@ -251,15 +379,46 @@ const transformPresalesResponse = (
     })
   );
 
+  const teamTypesSource = Array.isArray(presalesData?.teamTypes) ? presalesData.teamTypes : [];
+  const teamTypes = teamTypesSource.map((teamType: Partial<TeamTypeForm> & { roles?: Partial<TeamTypeRoleForm>[] }) => {
+    const roles = Array.isArray(teamType.roles)
+      ? teamType.roles.map(role => ({
+          id: typeof role?.id === 'number' ? role.id : undefined,
+          teamTypeId: typeof role?.teamTypeId === 'number' ? role.teamTypeId : undefined,
+          roleName: typeof role?.roleName === 'string' ? role.roleName : '',
+          headcount:
+            typeof role?.headcount === 'number' && Number.isFinite(role.headcount) ? Number(role.headcount) : 0,
+          clientKey: createClientKey(),
+        }))
+      : [];
+
+    return {
+      id: typeof teamType?.id === 'number' ? teamType.id : undefined,
+      name: typeof teamType?.name === 'string' ? teamType.name : '',
+      minManDays:
+        typeof teamType?.minManDays === 'number' && Number.isFinite(teamType.minManDays)
+          ? Number(teamType.minManDays)
+          : 0,
+      maxManDays:
+        typeof teamType?.maxManDays === 'number' && Number.isFinite(teamType.maxManDays)
+          ? Number(teamType.maxManDays)
+          : 0,
+      roles,
+      clientKey: createClientKey(),
+    } satisfies TeamTypeForm;
+  });
+
   return {
     roles,
     activities: sanitizeActivitiesFromResponse(presalesData?.activities),
     itemActivities: sanitizeItemActivitiesFromResponse(presalesData?.itemActivities),
     estimationColumnRoles,
+    teamTypes,
   };
 };
 
-type TabKey = 'roles' | 'activities' | 'items' | 'columns';
+type TabKey = 'roles' | 'activities' | 'items' | 'columns' | 'timeline';
+const TAB_KEYS: TabKey[] = ['roles', 'activities', 'items', 'columns', 'timeline'];
 
 const ROLE_LABEL_SEPARATOR = ' – ';
 const ROLE_VALUE_SEPARATOR = '::';
@@ -344,6 +503,7 @@ const prepareRateCard = (config: CostEstimationConfiguration, key: string) => {
 };
 
 export default function PresalesConfigurationPage() {
+  const router = useRouter();
   const [config, setConfig] = useState<PresalesConfiguration>(emptyConfig);
   const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
   const [availableTasks, setAvailableTasks] = useState<TemplateTaskReference[]>([]);
@@ -357,6 +517,23 @@ export default function PresalesConfigurationPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [timelineReferences, setTimelineReferences] = useState<TimelineEstimatorReference[]>([]);
+  const [timelineReferenceDraft, setTimelineReferenceDraft] = useState<TimelineEstimatorReferenceDraft>(
+    createReferenceDraft()
+  );
+  const [timelineReferencesLoading, setTimelineReferencesLoading] = useState(false);
+  const [timelineReferencesError, setTimelineReferencesError] = useState<string | null>(null);
+  const [timelineReferencesPermissionDenied, setTimelineReferencesPermissionDenied] = useState(false);
+  const [timelineReferenceSavingId, setTimelineReferenceSavingId] = useState<number | 'new' | null>(null);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const tabParam = router.query.tab;
+    const value = Array.isArray(tabParam) ? tabParam[0] : tabParam;
+    if (value && TAB_KEYS.includes(value as TabKey)) {
+      setActiveTab(value as TabKey);
+    }
+  }, [router.isReady, router.query.tab]);
 
   const fetchReferenceData = useCallback(async () => {
     let items: TemplateTaskReference[] = [];
@@ -427,6 +604,36 @@ export default function PresalesConfigurationPage() {
     return { items, estimationColumns };
   }, []);
 
+  const resetTimelineReferenceDraft = useCallback(() => {
+    setTimelineReferenceDraft(createReferenceDraft());
+  }, []);
+
+  const loadTimelineReferences = useCallback(async () => {
+    setTimelineReferencesLoading(true);
+    setTimelineReferencesError(null);
+    try {
+      const res = await apiFetch('/api/timeline-estimation-references');
+      if (res.status === 403 || res.status === 401) {
+        setTimelineReferences([]);
+        setTimelineReferencesPermissionDenied(true);
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(`Failed to load timeline estimator references (${res.status})`);
+      }
+      const data = await res.json();
+      const items: TimelineEstimatorReferenceResponse[] = Array.isArray(data) ? data : [];
+      setTimelineReferences(items.map(transformReferenceResponse));
+      setTimelineReferencesPermissionDenied(false);
+    } catch (err) {
+      setTimelineReferencesError(
+        err instanceof Error ? err.message : 'Failed to load timeline estimator references'
+      );
+    } finally {
+      setTimelineReferencesLoading(false);
+    }
+  }, []);
+
   const loadConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -478,9 +685,26 @@ export default function PresalesConfigurationPage() {
     fetchReferenceData();
   }, [fetchReferenceData]);
 
-  const handleTabChange = useCallback((_: SyntheticEvent, newValue: string) => {
-    setActiveTab(newValue as TabKey);
-  }, []);
+  useEffect(() => {
+    loadTimelineReferences();
+  }, [loadTimelineReferences]);
+
+  const handleTabChange = useCallback(
+    (_: SyntheticEvent, newValue: string) => {
+      if (!TAB_KEYS.includes(newValue as TabKey)) {
+        return;
+      }
+      setActiveTab(newValue as TabKey);
+      const nextQuery = { ...router.query };
+      if (newValue === 'roles') {
+        delete nextQuery.tab;
+      } else {
+        nextQuery.tab = newValue;
+      }
+      router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+    },
+    [router]
+  );
 
   const handleActivityDragStart = useCallback((event: DragEvent<HTMLElement>, index: number) => {
     setActivityDragIndex(index);
@@ -500,6 +724,158 @@ export default function PresalesConfigurationPage() {
       event.dataTransfer.dropEffect = 'move';
     }
   }, []);
+
+  const updateTimelineReferenceState = useCallback((id: number, patch: Partial<TimelineEstimatorReference>) => {
+    setTimelineReferences(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const handleCreateTimelineReference = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (timelineReferencesPermissionDenied) {
+        setTimelineReferencesError('You do not have permission to manage timeline estimator references.');
+        return;
+      }
+
+      const projectScale = timelineReferenceDraft.projectScale?.trim();
+      const totalDuration = Number(timelineReferenceDraft.totalDurationDays);
+      try {
+        if (!projectScale) {
+          throw new Error('Project scale is required.');
+        }
+        if (!Number.isFinite(totalDuration) || totalDuration <= 0) {
+          throw new Error('Total duration must be greater than zero.');
+        }
+        const phaseDurations = parseNumericObject(timelineReferenceDraft.phaseDurationsText, {
+          allowFloat: false,
+          label: 'Phase durations',
+        });
+        const resourceAllocation = parseNumericObject(timelineReferenceDraft.resourceAllocationText, {
+          allowFloat: true,
+          label: 'Resource allocation',
+        });
+
+        setTimelineReferenceSavingId('new');
+        setTimelineReferencesError(null);
+        const response = await apiFetch('/api/timeline-estimation-references', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectScale,
+            totalDurationDays: Math.round(totalDuration),
+            phaseDurations,
+            resourceAllocation,
+          }),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Failed to create timeline estimator reference.');
+        }
+        setSuccessMessage('Timeline estimator reference added.');
+        resetTimelineReferenceDraft();
+        await loadTimelineReferences();
+      } catch (err) {
+        setTimelineReferencesError(
+          err instanceof Error ? err.message : 'Failed to create timeline estimator reference.'
+        );
+      } finally {
+        setTimelineReferenceSavingId(null);
+      }
+    },
+    [
+      timelineReferenceDraft,
+      timelineReferencesPermissionDenied,
+      loadTimelineReferences,
+      resetTimelineReferenceDraft,
+    ]
+  );
+
+  const handleSaveTimelineReference = useCallback(
+    async (referenceId: number) => {
+      if (timelineReferencesPermissionDenied) {
+        setTimelineReferencesError('You do not have permission to manage timeline estimator references.');
+        return;
+      }
+      const target = timelineReferences.find(item => item.id === referenceId);
+      if (!target) {
+        return;
+      }
+
+      const projectScale = target.projectScale?.trim();
+      const totalDuration = Number(target.totalDurationDays);
+      try {
+        if (!projectScale) {
+          throw new Error('Project scale is required.');
+        }
+        if (!Number.isFinite(totalDuration) || totalDuration <= 0) {
+          throw new Error('Total duration must be greater than zero.');
+        }
+        const phaseDurations = parseNumericObject(target.phaseDurationsText, {
+          allowFloat: false,
+          label: 'Phase durations',
+        });
+        const resourceAllocation = parseNumericObject(target.resourceAllocationText, {
+          allowFloat: true,
+          label: 'Resource allocation',
+        });
+
+        setTimelineReferenceSavingId(referenceId);
+        setTimelineReferencesError(null);
+        const response = await apiFetch(`/api/timeline-estimation-references/${referenceId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectScale,
+            totalDurationDays: Math.round(totalDuration),
+            phaseDurations,
+            resourceAllocation,
+          }),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Failed to update timeline estimator reference.');
+        }
+        setSuccessMessage('Timeline estimator reference updated.');
+        await loadTimelineReferences();
+      } catch (err) {
+        setTimelineReferencesError(
+          err instanceof Error ? err.message : 'Failed to update timeline estimator reference.'
+        );
+      } finally {
+        setTimelineReferenceSavingId(null);
+      }
+    },
+    [timelineReferences, timelineReferencesPermissionDenied, loadTimelineReferences]
+  );
+
+  const handleDeleteTimelineReference = useCallback(
+    async (referenceId: number) => {
+      if (timelineReferencesPermissionDenied) {
+        setTimelineReferencesError('You do not have permission to manage timeline estimator references.');
+        return;
+      }
+      setTimelineReferenceSavingId(referenceId);
+      setTimelineReferencesError(null);
+      try {
+        const response = await apiFetch(`/api/timeline-estimation-references/${referenceId}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Failed to delete timeline estimator reference.');
+        }
+        setSuccessMessage('Timeline estimator reference deleted.');
+        await loadTimelineReferences();
+      } catch (err) {
+        setTimelineReferencesError(
+          err instanceof Error ? err.message : 'Failed to delete timeline estimator reference.'
+        );
+      } finally {
+        setTimelineReferenceSavingId(null);
+      }
+    },
+    [timelineReferencesPermissionDenied, loadTimelineReferences]
+  );
 
   const handleActivityDrop = useCallback(
     (event: DragEvent<HTMLTableRowElement>, index: number) => {
@@ -763,6 +1139,83 @@ export default function PresalesConfigurationPage() {
       estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '' }],
     }));
 
+  const addTeamType = () =>
+    setConfig(prev => ({
+      ...prev,
+      teamTypes: [
+        ...prev.teamTypes,
+        { id: undefined, name: '', minManDays: 0, maxManDays: 0, roles: [], clientKey: createClientKey() },
+      ],
+    }));
+
+  const handleTeamTypeChange = (index: number, key: 'name' | 'minManDays' | 'maxManDays', value: string) => {
+    setConfig(prev => {
+      const teamTypes = [...prev.teamTypes];
+      const current = { ...teamTypes[index] };
+      if (key === 'name') {
+        current.name = value;
+      } else {
+        const numeric = Number(value);
+        current[key] = Number.isFinite(numeric) ? numeric : 0;
+      }
+      teamTypes[index] = current;
+      return { ...prev, teamTypes };
+    });
+  };
+
+  const removeTeamType = (index: number) =>
+    setConfig(prev => ({
+      ...prev,
+      teamTypes: prev.teamTypes.filter((_, i) => i !== index),
+    }));
+
+  const addTeamTypeRole = (teamTypeIndex: number) => {
+    setConfig(prev => {
+      const teamTypes = [...prev.teamTypes];
+      const current = { ...teamTypes[teamTypeIndex] };
+      const roles = [...(current.roles ?? [])];
+      roles.push({ id: undefined, teamTypeId: current.id, roleName: '', headcount: 1, clientKey: createClientKey() });
+      current.roles = roles;
+      teamTypes[teamTypeIndex] = current;
+      return { ...prev, teamTypes };
+    });
+  };
+
+  const handleTeamTypeRoleChange = (
+    teamTypeIndex: number,
+    roleIndex: number,
+    key: 'roleName' | 'headcount',
+    value: string
+  ) => {
+    setConfig(prev => {
+      const teamTypes = [...prev.teamTypes];
+      const teamType = { ...teamTypes[teamTypeIndex] };
+      const roles = [...(teamType.roles ?? [])];
+      const current = { ...roles[roleIndex] };
+      if (key === 'roleName') {
+        current.roleName = value;
+      } else {
+        const numeric = Number(value);
+        current.headcount = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+      }
+      roles[roleIndex] = current;
+      teamType.roles = roles;
+      teamTypes[teamTypeIndex] = teamType;
+      return { ...prev, teamTypes };
+    });
+  };
+
+  const removeTeamTypeRole = (teamTypeIndex: number, roleIndex: number) => {
+    setConfig(prev => {
+      const teamTypes = [...prev.teamTypes];
+      const teamType = { ...teamTypes[teamTypeIndex] };
+      const roles = [...(teamType.roles ?? [])].filter((_, index) => index !== roleIndex);
+      teamType.roles = roles;
+      teamTypes[teamTypeIndex] = teamType;
+      return { ...prev, teamTypes };
+    });
+  };
+
   const removeRole = (index: number) =>
     setConfig(prev => {
       const roles = prev.roles.filter((_, i) => i !== index);
@@ -968,6 +1421,8 @@ export default function PresalesConfigurationPage() {
       return acc;
     }, []);
   }, [config.roles]);
+
+  const isCreatingReference = timelineReferenceSavingId === 'new';
   const activityNames = useMemo(
     () => config.activities.map(activity => activity.activityName?.trim()).filter((name): name is string => Boolean(name)),
     [config.activities]
@@ -1195,6 +1650,7 @@ export default function PresalesConfigurationPage() {
               <Tab label="Activity Groupings" value="activities" />
               <Tab label="Item → Activity Mapping" value="items" />
               <Tab label="Estimation Column → Role Allocation" value="columns" />
+              <Tab label="Timeline Estimator" value="timeline" />
             </Tabs>
 
             {activeTab === 'roles' && (
@@ -1529,6 +1985,367 @@ export default function PresalesConfigurationPage() {
                     </TableBody>
                   </Table>
                 </TableContainer>
+              </Stack>
+            )}
+
+            {activeTab === 'timeline' && (
+              <Stack spacing={3}>
+                <Stack spacing={1}>
+                  <Typography variant="h2" className="section-title">Estimator Team Types</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Define the default presales squads that the Timeline Estimator recommends for different man-day ranges before
+                    the workflow continues to Timeline Generation and Estimated Cost Generation.
+                  </Typography>
+                </Stack>
+
+                <Stack spacing={2}>
+                  {config.teamTypes.length === 0 ? (
+                    <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No team types configured yet. Add a team type to describe the typical mix of roles for a given workload.
+                      </Typography>
+                    </Paper>
+                  ) : (
+                    config.teamTypes.map((teamType, index) => (
+                      <Paper
+                        key={teamType.clientKey ?? teamType.id ?? index}
+                        variant="outlined"
+                        sx={{ p: 3, borderRadius: 2 }}
+                      >
+                        <Stack spacing={2}>
+                          <Stack
+                            direction={{ xs: 'column', md: 'row' }}
+                            spacing={2}
+                            alignItems={{ xs: 'flex-start', md: 'flex-end' }}
+                          >
+                            <TextField
+                              label="Team Type Name"
+                              fullWidth
+                              size="small"
+                              value={teamType.name}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                handleTeamTypeChange(index, 'name', event.target.value)
+                              }
+                              placeholder="e.g. Core Delivery Squad"
+                            />
+                            <TextField
+                              label="Minimum Man-Days"
+                              type="number"
+                              size="small"
+                              value={teamType.minManDays ?? 0}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                handleTeamTypeChange(index, 'minManDays', event.target.value)
+                              }
+                              inputProps={{ min: 0 }}
+                              sx={{ width: { xs: '100%', md: 180 } }}
+                            />
+                            <TextField
+                              label="Maximum Man-Days"
+                              type="number"
+                              size="small"
+                              value={teamType.maxManDays ?? 0}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                handleTeamTypeChange(index, 'maxManDays', event.target.value)
+                              }
+                              inputProps={{ min: 0 }}
+                              sx={{ width: { xs: '100%', md: 180 } }}
+                            />
+                            <Button
+                              variant="text"
+                              color="error"
+                              startIcon={<DeleteIcon />}
+                              onClick={() => removeTeamType(index)}
+                              sx={{ alignSelf: { xs: 'flex-start', md: 'center' } }}
+                            >
+                              Remove
+                            </Button>
+                          </Stack>
+
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell>Role Name</TableCell>
+                                  <TableCell width={160}>Headcount</TableCell>
+                                  <TableCell align="right">Actions</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {teamType.roles?.length ? (
+                                  teamType.roles.map((role, roleIndex) => (
+                                    <TableRow key={role.clientKey ?? role.id ?? roleIndex}>
+                                      <TableCell>
+                                        <TextField
+                                          fullWidth
+                                          size="small"
+                                          value={role.roleName}
+                                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                            handleTeamTypeRoleChange(index, roleIndex, 'roleName', event.target.value)
+                                          }
+                                          placeholder="e.g. Solution Architect"
+                                        />
+                                      </TableCell>
+                                      <TableCell width={160}>
+                                        <TextField
+                                          type="number"
+                                          size="small"
+                                          value={role.headcount ?? 0}
+                                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                            handleTeamTypeRoleChange(index, roleIndex, 'headcount', event.target.value)
+                                          }
+                                          inputProps={{ min: 0, step: 0.1 }}
+                                        />
+                                      </TableCell>
+                                      <TableCell align="right">
+                                        <IconButton
+                                          aria-label="Remove role"
+                                          onClick={() => removeTeamTypeRole(index, roleIndex)}
+                                        >
+                                          <DeleteIcon />
+                                        </IconButton>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={3} align="center" sx={{ color: 'text.secondary' }}>
+                                      No roles configured for this team type yet.
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+
+                          <Stack direction="row" justifyContent="flex-end">
+                            <Button
+                              variant="outlined"
+                              startIcon={<AddIcon />}
+                              onClick={() => addTeamTypeRole(index)}
+                            >
+                              Add Role
+                            </Button>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    ))
+                  )}
+                </Stack>
+
+                <Button
+                  startIcon={<AddIcon />}
+                  variant="outlined"
+                  onClick={addTeamType}
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  Add Team Type
+                </Button>
+
+                <Divider />
+
+                <Stack spacing={1}>
+                  <Typography variant="h2" className="section-title">Timeline Estimator References</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Maintain the historical phase durations and resource allocations that guide the Timeline Estimator before it
+                    prepares execution schedules.
+                  </Typography>
+                </Stack>
+
+                {timelineReferencesPermissionDenied && (
+                  <Alert severity="warning">
+                    Your role does not currently have access to the timeline estimator reference catalog. Ask an administrator to
+                    grant the <code>timeline-estimation-references</code> permission if you need to manage these records.
+                  </Alert>
+                )}
+                {timelineReferencesError && <Alert severity="error">{timelineReferencesError}</Alert>}
+
+                <Box component="form" onSubmit={handleCreateTimelineReference}>
+                  <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                    <Stack spacing={2}>
+                      <Typography variant="subtitle1">Add Reference</Typography>
+                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                        <TextField
+                          label="Project Scale"
+                          placeholder="e.g. Medium"
+                          fullWidth
+                          size="small"
+                          value={timelineReferenceDraft.projectScale}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setTimelineReferenceDraft(prev => ({ ...prev, projectScale: event.target.value }))
+                          }
+                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
+                          required
+                        />
+                        <TextField
+                          label="Total Duration (days)"
+                          type="number"
+                          size="small"
+                          value={timelineReferenceDraft.totalDurationDays}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setTimelineReferenceDraft(prev => ({
+                              ...prev,
+                              totalDurationDays: Number(event.target.value) || 0,
+                            }))
+                          }
+                          inputProps={{ min: 1 }}
+                          sx={{ width: { xs: '100%', md: 200 } }}
+                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
+                          required
+                        />
+                      </Stack>
+                      <TextField
+                        label="Phase Durations (JSON)"
+                        multiline
+                        minRows={4}
+                        value={timelineReferenceDraft.phaseDurationsText}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                          setTimelineReferenceDraft(prev => ({ ...prev, phaseDurationsText: event.target.value }))
+                        }
+                        placeholder={'{\n  "Discovery": 5,\n  "Build": 20,\n  "Stabilization": 5\n}'}
+                        disabled={timelineReferencesPermissionDenied || isCreatingReference}
+                        required
+                      />
+                      <TextField
+                        label="Resource Allocation (JSON)"
+                        multiline
+                        minRows={4}
+                        value={timelineReferenceDraft.resourceAllocationText}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                          setTimelineReferenceDraft(prev => ({ ...prev, resourceAllocationText: event.target.value }))
+                        }
+                        placeholder={'{\n  "Delivery Lead": 1,\n  "Engineer": 4\n}'}
+                        disabled={timelineReferencesPermissionDenied || isCreatingReference}
+                        required
+                      />
+                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Button
+                          type="button"
+                          onClick={resetTimelineReferenceDraft}
+                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
+                        >
+                          Reset
+                        </Button>
+                        <Button
+                          type="submit"
+                          variant="contained"
+                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
+                        >
+                          {isCreatingReference ? 'Saving…' : 'Add Reference'}
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                </Box>
+
+                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                  <Stack spacing={2}>
+                    <Typography variant="subtitle1">Existing References</Typography>
+                    {timelineReferencesLoading ? (
+                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ py: 4 }}>
+                        <CircularProgress size={24} />
+                        <Typography variant="body2">Loading reference library…</Typography>
+                      </Stack>
+                    ) : timelineReferences.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No timeline estimator references found.
+                      </Typography>
+                    ) : (
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Project Scale</TableCell>
+                              <TableCell width={160}>Total Duration (days)</TableCell>
+                              <TableCell>Phase Durations (JSON)</TableCell>
+                              <TableCell>Resource Allocation (JSON)</TableCell>
+                              <TableCell align="right">Actions</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {timelineReferences.map(reference => {
+                              const isSaving = timelineReferenceSavingId === reference.id;
+                              return (
+                                <TableRow key={reference.id} hover>
+                                  <TableCell>
+                                    <TextField
+                                      fullWidth
+                                      size="small"
+                                      value={reference.projectScale}
+                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                        updateTimelineReferenceState(reference.id, { projectScale: event.target.value })
+                                      }
+                                      disabled={timelineReferencesPermissionDenied || isSaving}
+                                    />
+                                  </TableCell>
+                                  <TableCell width={160}>
+                                    <TextField
+                                      type="number"
+                                      size="small"
+                                      value={reference.totalDurationDays}
+                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                        updateTimelineReferenceState(reference.id, {
+                                          totalDurationDays: Number(event.target.value) || 0,
+                                        })
+                                      }
+                                      inputProps={{ min: 1 }}
+                                      disabled={timelineReferencesPermissionDenied || isSaving}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <TextField
+                                      multiline
+                                      minRows={4}
+                                      value={reference.phaseDurationsText}
+                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                        updateTimelineReferenceState(reference.id, {
+                                          phaseDurationsText: event.target.value,
+                                        })
+                                      }
+                                      disabled={timelineReferencesPermissionDenied || isSaving}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <TextField
+                                      multiline
+                                      minRows={4}
+                                      value={reference.resourceAllocationText}
+                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                        updateTimelineReferenceState(reference.id, {
+                                          resourceAllocationText: event.target.value,
+                                        })
+                                      }
+                                      disabled={timelineReferencesPermissionDenied || isSaving}
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                      <Button
+                                        size="small"
+                                        variant="contained"
+                                        onClick={() => handleSaveTimelineReference(reference.id)}
+                                        disabled={timelineReferencesPermissionDenied || isSaving}
+                                      >
+                                        {isSaving ? 'Saving…' : 'Save'}
+                                      </Button>
+                                      <Button
+                                        size="small"
+                                        color="error"
+                                        onClick={() => handleDeleteTimelineReference(reference.id)}
+                                        disabled={timelineReferencesPermissionDenied || isSaving}
+                                      >
+                                        {isSaving ? 'Removing…' : 'Delete'}
+                                      </Button>
+                                    </Stack>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                  </Stack>
+                </Paper>
               </Stack>
             )}
           </Stack>
