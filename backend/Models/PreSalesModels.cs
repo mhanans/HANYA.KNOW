@@ -110,6 +110,14 @@ public class TemplateItem
     public string Category { get; set; } = "New UI";
 }
 
+public class TemplateSectionItemReference
+{
+    public string SectionName { get; set; } = string.Empty;
+    public int SectionOrder { get; set; }
+    public string ItemName { get; set; } = string.Empty;
+    public int ItemOrder { get; set; }
+}
+
 public class ProjectTemplateMetadata
 {
     public int Id { get; set; }
