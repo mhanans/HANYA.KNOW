@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -390,56 +389,43 @@ public class TimelineEstimatorService
         PresalesConfiguration config,
         int idealDuration)
     {
-        var activityOrderLookup = (config.Activities ?? new List<PresalesActivity>())
-            .Where(activity => !string.IsNullOrWhiteSpace(activity.ActivityName))
-            .Select(activity => new
-            {
-                Name = activity.ActivityName.Trim(),
-                Order = activity.DisplayOrder
-            })
-            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.Min(entry => entry.Order), StringComparer.OrdinalIgnoreCase);
-
-        var activityLines = activityManDays
-            .OrderBy(kvp => activityOrderLookup.TryGetValue(kvp.Key, out var order) ? order : int.MaxValue)
-            .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kvp =>
-                $"  - Phase: \"{kvp.Key}\" => {kvp.Value.ToString("F2", CultureInfo.InvariantCulture)} man-days");
         var totalManDays = roleManDays.Values.Sum();
+        var activityLines = activityManDays
+            .OrderBy(kvp => kvp.Key)
+            .Select(kvp =>
+            {
+                var percentage = totalManDays > 0 ? (kvp.Value / totalManDays) * 100 : 0;
+                return $"  - Phase: \"{kvp.Key}\", Effort: {kvp.Value:F1} man-days ({percentage:F1}%)";
+            });
 
         return $@"
-You are a methodical project planning AI. Your task is to create a high-level project timeline based on effort estimates.
+You are a precise and methodical project planning AI. You MUST follow all instructions and constraints exactly.
 
-**Inputs:**
-- Project: {assessment.ProjectName}
-- Total Man-Days: {totalManDays.ToString("F2", CultureInfo.InvariantCulture)}
-- Phase Effort Summary (man-days per logical phase):
+**Project Data:**
+- Total Project Effort: {totalManDays:F1} man-days.
+- Target Duration Anchor: Your final `totalDurationDays` MUST be around **{idealDuration} working days**. This is the most important constraint.
+- Phase Effort Distribution:
 {string.Join("\n", activityLines)}
 
-**Guidance & Constraints:**
-1.  **Primary Anchor:** Based on the total effort, a project of this scale with a standard team size suggests an ideal duration of approximately **{idealDuration} working days**. Your final `totalDurationDays` MUST be very close to this anchor. Do not deviate significantly.
-2.  **Logical Sequencing:** A typical project flow is: Preparation -> Design -> Architecture -> Development -> Testing -> Deployment -> Closing. Use this as a guide for your 'Serial' and 'Subsequent' sequencing. 'Development' and 'Testing' can have some parallel overlap.
+**Instructions:**
+1.  **Set Total Duration:** Your primary task is to set `totalDurationDays` to be very close to the anchor value of **{idealDuration} days**.
+2.  **Calculate Phase Durations:** For each phase, calculate its duration. Use this logic: a phase's duration should be proportional to its share of the total effort. For example, if 'Development' is 40% of the total effort and the total project timeline has parts that can overlap, its duration might be `(totalDurationDays * 0.4) / (average_parallelism_factor)`. As a simple rule, start by calculating `duration = totalDurationDays * phase_percentage`. Then, adjust slightly for dependencies. The sum of your phase durations will likely be longer than `totalDurationDays`.
+3.  **Determine Sequence:** Sequence the phases logically (e.g., 'Analysis & Design' is 'Serial' at the start, 'Development' and 'Testing & QA' can have 'Parallel' or 'Subsequent' overlap, 'Deployment' is 'Subsequent' at the end).
+4.  **Self-Correction:** Your calculated `totalDurationDays` from sequencing MUST match your anchor `totalDurationDays`. If your Gantt chart calculation results in 100 days, but the anchor is 75, you must increase parallelism or shorten phases to meet the 75-day target.
+5.  **Output:** Provide a minified JSON response. DO NOT include the 'roles' array.
 
-**Requirements:**
-1.  Determine the project `projectScale`.
-2.  Estimate a final `totalDurationDays`, using the **{idealDuration} day anchor** as your primary guide.
-3.  For each input phase, assign a `durationDays` and a `sequenceType` ('Serial', 'Subsequent', 'Parallel').
-4.  **Self-Validation:** Before finalizing your JSON, mentally calculate the timeline based on your phase durations and sequences. For example, `Serial(10) + Parallel(30, 20) + Subsequent(5)` results in a timeline of roughly `10 + 30 + 5 = 45` days. Ensure your `totalDurationDays` is consistent with this calculation from your own phase estimates.
-5.  In `sequencingNotes`, explain how overlaps affect the timeline.
-6.  Output strictly valid minified JSON. DO NOT include a 'roles' array.
-
-**JSON Output Structure:**
+**JSON Output Structure Example:**
 {{
-  ""projectScale"": ""Medium"",
+  ""projectScale"": ""Long"",
   ""totalDurationDays"": {idealDuration},
-  ""sequencingNotes"": ""The total duration is less than the sum of phases due to a planned overlap between the Development and Testing phases."",
+  ""sequencingNotes"": ""Timeline is anchored to {idealDuration} days. Development and Testing phases overlap significantly to meet this target, resulting in a total duration shorter than the sum of phase durations."",
   ""phases"": [
-    {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 15, ""sequenceType"": ""Serial"" }},
-    {{ ""phaseName"": ""Development"", ""durationDays"": 40, ""sequenceType"": ""Subsequent"" }}
+    {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 15, ""sequenceType"": ""Serial"" }}
   ]
 }}
 
-Return only the JSON object.";
+Return ONLY the JSON object.
+";
     }
 
     private static AiTimelineEstimationResult ParseAiEstimation(string response)

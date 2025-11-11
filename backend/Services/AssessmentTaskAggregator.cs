@@ -15,30 +15,20 @@ public static class AssessmentTaskAggregator
         ["Post Go Live"] = "Post Go Live"
     };
 
-    private static readonly (string Keyword, string Phase)[] EstimationColumnPhaseMappings =
+    private static readonly Dictionary<string, string> LogicalPhaseMapping = new(StringComparer.OrdinalIgnoreCase)
     {
-        ("requirement", "Analysis & Design"),
-        ("documentation", "Analysis & Design"),
-        ("analysis", "Analysis & Design"),
-        ("design", "Analysis & Design"),
-        ("architect setup", "Architecture & Setup"),
-        ("architect poc", "Architecture & Setup"),
-        ("architecture", "Architecture & Setup"),
-        ("setup", "Architecture & Setup"),
-        ("be development", "Development"),
-        ("backend", "Development"),
-        ("fe development", "Development"),
-        ("frontend", "Development"),
-        ("development", "Development"),
-        ("code review", "Testing & QA"),
-        ("unit test", "Testing & QA"),
-        ("uat", "Testing & QA"),
-        ("sit", "Testing & QA"),
-        ("test", "Testing & QA"),
-        ("deployment", "Deployment & Handover"),
-        ("handover", "Deployment & Handover"),
-        ("go live", "Deployment & Handover"),
-        ("hypercare", "Post Go Live")
+        ["Requirement & Documentation"] = "Analysis & Design",
+        ["Requirement & Documentation (Creating SRS, FSD, and Disccussion)"] = "Analysis & Design",
+        ["BE Development"] = "Development",
+        ["FE Development"] = "Development",
+        ["Architect Setup"] = "Architecture & Setup",
+        ["Architect POC/ Research"] = "Architecture & Setup",
+        ["SIT (Manual by QA)"] = "Testing & QA",
+        ["SIT (with UFT)"] = "Testing & QA",
+        ["UAT (With User)"] = "Testing & QA",
+        ["Unit Test (Manual by QA)"] = "Testing & QA",
+        ["UT (xUnit)"] = "Testing & QA",
+        ["Code Review"] = "Testing & QA"
     };
 
     public static Dictionary<string, double> AggregateEstimationColumnEffort(ProjectAssessment assessment)
@@ -181,39 +171,39 @@ public static class AssessmentTaskAggregator
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        var sectionItemLookup = configuration.ItemActivities
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(
-                mapping => BuildMappingKey(mapping.SectionName.Trim(), mapping.ItemName.Trim()),
-                mapping => mapping.ActivityName.Trim(),
-                StringComparer.OrdinalIgnoreCase);
-
-        var itemLookup = configuration.ItemActivities
-            .Where(mapping =>
-                string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(
-                mapping => mapping.ItemName.Trim(),
-                mapping => mapping.ActivityName.Trim(),
-                StringComparer.OrdinalIgnoreCase);
-
-        var sectionLookup = configuration.ItemActivities
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(
-                mapping => mapping.SectionName.Trim(),
-                mapping => mapping.ActivityName.Trim(),
-                StringComparer.OrdinalIgnoreCase);
-
         foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
         {
-            var sectionName = section?.SectionName?.Trim() ?? string.Empty;
+            var sectionName = section?.SectionName?.Trim() ?? "Uncategorized";
+
+            if (DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
+            {
+                foreach (var item in section?.Items ?? Enumerable.Empty<AssessmentItem>())
+                {
+                    if (item == null || !item.IsNeeded)
+                    {
+                        continue;
+                    }
+
+                    var totalHours = item.Estimates?.Values.Where(v => v.HasValue).Sum(v => v.Value) ?? 0;
+                    if (totalHours <= 0)
+                    {
+                        continue;
+                    }
+
+                    var manDays = totalHours / 8d;
+                    if (manDays <= 0)
+                    {
+                        continue;
+                    }
+
+                    result[directPhase] = result.TryGetValue(directPhase, out var current)
+                        ? current + manDays
+                        : manDays;
+                }
+
+                continue;
+            }
+
             foreach (var item in section?.Items ?? Enumerable.Empty<AssessmentItem>())
             {
                 if (item == null || !item.IsNeeded)
@@ -221,7 +211,6 @@ public static class AssessmentTaskAggregator
                     continue;
                 }
 
-                var itemName = item.ItemName?.Trim() ?? string.Empty;
                 foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
                 {
                     if (estimate.Value is not double hours || hours <= 0)
@@ -229,27 +218,23 @@ public static class AssessmentTaskAggregator
                         continue;
                     }
 
+                    var columnName = estimate.Key?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(columnName))
+                    {
+                        continue;
+                    }
+
+                    var logicalPhase = LogicalPhaseMapping.TryGetValue(columnName, out var phase)
+                        ? phase
+                        : "Development";
+
                     var manDays = hours / 8d;
                     if (manDays <= 0)
                     {
                         continue;
                     }
 
-                    var columnName = estimate.Key?.Trim() ?? string.Empty;
-                    var phase = ResolvePhaseName(
-                        sectionName,
-                        itemName,
-                        columnName,
-                        sectionItemLookup,
-                        itemLookup,
-                        sectionLookup);
-
-                    if (string.IsNullOrWhiteSpace(phase))
-                    {
-                        phase = string.IsNullOrWhiteSpace(sectionName) ? "Unmapped" : sectionName;
-                    }
-
-                    result[phase] = result.TryGetValue(phase, out var current)
+                    result[logicalPhase] = result.TryGetValue(logicalPhase, out var current)
                         ? current + manDays
                         : manDays;
                 }
@@ -257,51 +242,6 @@ public static class AssessmentTaskAggregator
         }
 
         return result;
-    }
-
-    private static string ResolvePhaseName(
-        string sectionName,
-        string itemName,
-        string columnName,
-        IReadOnlyDictionary<string, string> sectionItemLookup,
-        IReadOnlyDictionary<string, string> itemLookup,
-        IReadOnlyDictionary<string, string> sectionLookup)
-    {
-        if (!string.IsNullOrWhiteSpace(sectionName) &&
-            DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
-        {
-            return directPhase;
-        }
-
-        if (!string.IsNullOrWhiteSpace(columnName))
-        {
-            foreach (var (keyword, phase) in EstimationColumnPhaseMappings)
-            {
-                if (columnName.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                {
-                    return phase;
-                }
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(sectionName) &&
-            !string.IsNullOrWhiteSpace(itemName) &&
-            sectionItemLookup.TryGetValue(BuildMappingKey(sectionName, itemName), out var sectionItemActivity))
-        {
-            return sectionItemActivity;
-        }
-
-        if (!string.IsNullOrWhiteSpace(itemName) && itemLookup.TryGetValue(itemName, out var mappedActivity))
-        {
-            return mappedActivity;
-        }
-
-        if (!string.IsNullOrWhiteSpace(sectionName) && sectionLookup.TryGetValue(sectionName, out var sectionActivity))
-        {
-            return sectionActivity;
-        }
-
-        return string.Empty;
     }
 
     public static Dictionary<string, double> CalculateRoleManDays(
