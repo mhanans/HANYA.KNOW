@@ -62,25 +62,21 @@ public static class AssessmentTaskAggregator
                     var columnName = estimate.Key?.Trim();
                     if (string.IsNullOrWhiteSpace(columnName)) continue;
 
-                    // This handles cases where the value might be a non-numeric type from JSON.
-                    if (estimate.Value is not JsonElement element || element.ValueKind != JsonValueKind.Number)
+                    var hoursNullable = estimate.Value;
+                    if (!hoursNullable.HasValue)
                     {
-                        // If your model uses double?, this check is more direct:
-                        if (estimate.Value is not double hours || hours <= 0) continue;
+                        continue;
+                    }
 
-                        var manDays = hours / 8.0;
-                        totalHoursAggregated += hours;
-                        result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
-                    }
-                    else // Handles JsonElement from System.Text.Json
+                    var hours = hoursNullable.Value;
+                    if (hours <= 0)
                     {
-                        if (element.TryGetDouble(out double hours) && hours > 0)
-                        {
-                            var manDays = hours / 8.0;
-                            totalHoursAggregated += hours;
-                            result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
-                        }
+                        continue;
                     }
+
+                    var manDays = hours / 8.0;
+                    totalHoursAggregated += hours;
+                    result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
                 }
             }
         }
