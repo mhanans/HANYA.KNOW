@@ -182,13 +182,13 @@ export default function TimelineEstimatorDetailPage() {
       return [];
     }
 
-    return estimation.phases.map(phase => ({
-      phaseName: (phase?.phaseName ?? '').trim() || '—',
-      durationDays: typeof phase?.durationDays === 'number' && Number.isFinite(phase.durationDays)
-        ? phase.durationDays
-        : null,
-      sequenceType: (phase?.sequenceType ?? '').trim() || '—',
-    }));
+    return [...estimation.phases]
+      .sort((a, b) => (a.phaseName || '').localeCompare(b.phaseName || ''))
+      .map(phase => ({
+        phaseName: phase?.phaseName || '—',
+        durationDays: phase?.durationDays ?? null,
+        sequenceType: phase?.sequenceType || '—',
+      }));
   }, [estimation]);
 
   const sumPhaseDuration = configuredPhases.reduce((sum, phase) => sum + (phase.durationDays ?? 0), 0);

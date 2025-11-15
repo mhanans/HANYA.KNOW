@@ -49,71 +49,7 @@ public class TimelineGenerationService
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
         var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
-
-        var detailedTasks = new List<DetailedTaskDescriptor>();
-        var columnRoleLookup = (config.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.EstimationColumn) &&
-                !string.IsNullOrWhiteSpace(mapping.RoleName))
-            .ToLookup(
-                mapping => mapping.EstimationColumn!.Trim(),
-                mapping => mapping.RoleName!.Trim(),
-                StringComparer.OrdinalIgnoreCase);
-
-        foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
-        {
-            if (section == null)
-            {
-                continue;
-            }
-
-            foreach (var item in section.Items ?? new List<AssessmentItem>())
-            {
-                if (item == null || !item.IsNeeded || item.Estimates == null)
-                {
-                    continue;
-                }
-
-                foreach (var estimate in item.Estimates)
-                {
-                    var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName))
-                    {
-                        continue;
-                    }
-
-                    if (!AssessmentTaskAggregator.TryExtractHours(estimate.Value, out var hours) || hours <= 0)
-                    {
-                        continue;
-                    }
-
-                    var manDays = hours / 8.0;
-                    if (manDays <= 0)
-                    {
-                        continue;
-                    }
-
-                    var activityGroup = AssessmentTaskAggregator.ResolveActivityName(
-                        section.SectionName ?? string.Empty,
-                        item.ItemName,
-                        columnName,
-                        config);
-
-                    var roles = columnRoleLookup[columnName]
-                        .Where(role => !string.IsNullOrWhiteSpace(role))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-                    var actor = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
-
-                    detailedTasks.Add(new DetailedTaskDescriptor(
-                        activityGroup,
-                        item.ItemName?.Trim() ?? string.Empty,
-                        columnName,
-                        actor,
-                        manDays));
-                }
-            }
-        }
+        var detailedTasks = AssessmentTaskAggregator.GetDetailedTasks(assessment, config);
 
         if (estimationColumnEffort.Count == 0 || detailedTasks.Count == 0)
         {
@@ -130,7 +66,7 @@ public class TimelineGenerationService
                 "Run the Timeline Estimator step first to produce scale, phase duration, and headcount guidance.");
         }
 
-        var prompt = ConstructGanttChartAiPrompt(estimatorRecord, detailedTasks);
+        var prompt = ConstructDailySchedulerAiPrompt(estimatorRecord, detailedTasks);
         _logger.LogInformation(
             "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
             assessmentId,
@@ -501,9 +437,9 @@ public class TimelineGenerationService
         return result;
     }
 
-    private string ConstructGanttChartAiPrompt(
+    private string ConstructDailySchedulerAiPrompt(
         TimelineEstimationRecord estimation,
-        IReadOnlyList<DetailedTaskDescriptor> detailedTasks)
+        List<DetailedTask> detailedTasks)
     {
         if (estimation == null)
         {
@@ -515,38 +451,59 @@ public class TimelineGenerationService
             throw new InvalidOperationException("Detailed tasks are required to build the AI prompt.");
         }
 
-        static string Escape(string? value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return string.Empty;
-            }
-
-            return value
-                .Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace("\"", "\\\"", StringComparison.Ordinal);
-        }
+        static string Encode(string? value) => JsonEncodedText.Encode(value ?? string.Empty).ToString();
 
         var taskLines = detailedTasks.Select(task =>
-            $"  - {{ \"activityGroup\": \"{Escape(task.ActivityGroup)}\", \"taskName\": \"{Escape(task.TaskName)}\", \"detail\": \"{Escape(task.Detail)}\", \"actor\": \"{Escape(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
+            $"  - {{ \"activityGroup\": \"{Encode(task.ActivityGroup)}\", \"taskName\": \"{Encode(task.TaskName)}\", \"actor\": \"{Encode(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
 
         var phases = (estimation.Phases ?? new List<TimelinePhaseEstimate>()).ToList();
-        var phaseGuidanceLines = phases.Count > 0
+        var phaseGuidance = phases.Count > 0
             ? string.Join("\n", phases.Select(p =>
                 $"  - {p.PhaseName}: Target Duration = {p.DurationDays} days, Sequencing = {p.SequenceType}"))
             : "  - No specific phase guidance provided.";
 
-        var tasksBlock = string.Join(",\n", taskLines);
+        return $@"
+You are an expert Project Manager AI specializing in creating detailed, day-by-day Gantt charts. Your task is to schedule a specific list of tasks into a daily timeline, strictly adhering to the provided high-level guidance.
 
-        return $@"\nYou are an expert Project Manager AI that creates detailed Gantt charts. Your task is to schedule a specific list of tasks into a daily timeline, respecting high-level guidance.\n\n**High-Level Guidance (Constraints):**\n- **Total Duration Target:** The entire project should be close to **{estimation.TotalDurationDays} days**.\n- **Phase Durations & Sequencing:** Follow this plan. 'Serial' phases must not overlap. 'Subsequent' and 'Parallel' phases can overlap.\n{phaseGuidanceLines}\n\n**Detailed Task List (You MUST schedule every task below):**\n[\n{tasksBlock}\n]\n\n**Scheduling Rules (Follow Exactly):**\n1.  **Use Real Task Names:** Your output `taskName` MUST be the `taskName` from the input list (e.g., \"System Setup\", \"Login Flow Development\"). Your `detail` field should be the specific work type (e.g., \"Architect Setup\", \"FE Development\").\n2.  **Integer Durations:** `durationDays` must be a whole number (>= 1).\n3.  **Man-day Logic:**\n    - A task's `durationDays` MUST be >= its `manDays`.\n    - If `manDays` is 0.5, `durationDays` MUST be 1 (representing a half-day of work).\n    - If `manDays` is 3 and you assign `durationDays` of 1, it implies 3 people are working on it.\n    - If `manDays` is 3 and you assign `durationDays` of 3, it implies 1 person is working on it.\n4.  **Fit to Phase:** Arrange the `startDay` and `durationDays` for each task so that the overall span of an `activityGroup` roughly matches the target duration from the high-level guidance. Use overlaps to achieve this.\n5.  **Resource Allocation:**\n    - For `resourceAllocation`, only include roles that are actually used (have `totalManDays` > 0).\n    - The `dailyEffort` array MUST have a length equal to `totalDurationDays`.\n    - Calculate daily effort precisely. Example: If a 3 man-day task is done over 2 days, the `dailyEffort` for that role is `[1.5, 1.5]` on those days.\n    - **SPECIAL RULE:** The 'Architect' and 'Project Manager' roles must have a minimum `dailyEffort` of 0.5 on every single day of the project, from day 1 to `totalDurationDays`.\n\n**Final JSON Output (Strictly this format, no extra text):**\n{{\n  \"\"totalDurationDays\"\": {estimation.TotalDurationDays},\n  \"\"activities\"\": [\n    {{\n      \"\"activityName\"\": \"\"Project Preparation\"\",\n      \"\"details\"\": [\n        {{ \"\"taskName\"\": \"\"System Setup\"\", \"\"detail\"\": \"\"Architect Setup\"\", \"\"actor\"\": \"\"Architect\"\", \"\"manDays\"\": 2.0, \"\"startDay\"\": 1, \"\"durationDays\"\": 2 }}\n      ]\n    }}\n  ],\n  \"\"resourceAllocation\"\": [\n    {{ \"\"role\"\": \"\"Architect\"\", \"\"totalManDays\"\": 25.5, \"\"dailyEffort\"\": [0.5, 0.5, 1.0, ...] }}\n  ]\n}}\n";
+**High-Level Plan & Constraints (You MUST follow these):**
+- **Total Duration Target:** The entire project timeline must be exactly **{estimation.TotalDurationDays} days**.
+- **Phase Durations & Sequencing:** You must follow this phase plan. 'Serial' phases cannot overlap. 'Subsequent' and 'Parallel' phases should be overlapped to meet the duration targets.
+{phaseGuidance}
+
+**Detailed Task List (You MUST schedule every task below exactly as provided):**
+[
+{string.Join(",\n", taskLines)}
+]
+
+**Scheduling Rules (MANDATORY):**
+1.  **Use Exact Task Data:** Your output `details` array must contain one entry for each task in the ""Detailed Task List"". The `taskName`, `actor`, and `manDays` values MUST be copied exactly from the input. Do not invent or alter tasks.
+2.  **Integer Durations:** `durationDays` must be a whole number (>= 1).
+3.  **Logical Man-day Scheduling:**
+    - A task's `durationDays` must be >= its `manDays`.
+    - For tasks where `manDays` is less than 1 (e.g., 0.5), the `durationDays` MUST be 1.
+    - Schedule the `startDay` and `durationDays` for each task so that the overall timeline of each `activityGroup` respects the phase guidance. Use overlaps heavily to fit within the `{estimation.TotalDurationDays}`-day total duration.
+4.  **Resource Allocation:**
+    - In `resourceAllocation`, only include roles that have a `totalManDays` > 0.
+    - The `dailyEffort` array for each role MUST have a length of exactly `{estimation.TotalDurationDays}`.
+    - Calculate `dailyEffort` precisely. If a 2 man-day task is scheduled over 4 days, the daily effort for that role is `0.5` on those 4 days.
+    - **SPECIAL RULE:** The 'Architect' and 'Project Manager' roles (if they exist in the task list) must have a minimum `dailyEffort` of 0.5 on every day of the project, from day 1 to day {estimation.TotalDurationDays}.
+
+**Final JSON Output (Strictly this format, no extra commentary):**
+{{
+  ""totalDurationDays"": {estimation.TotalDurationDays},
+  ""activities"": [
+    {{
+      ""activityName"": ""Project Preparation"", ""details"": [
+        {{ ""taskName"": ""System Setup"", ""actor"": ""Architect"", ""manDays"": 2.0, ""startDay"": 1, ""durationDays"": 2 }}
+      ]
+    }}
+  ],
+  ""resourceAllocation"": [
+    {{ ""role"": ""Architect"", ""totalManDays"": 25.5, ""dailyEffort"": [0.5, 0.5, 1.0, ...] }}
+  ]
+}}
+";
     }
-
-    private sealed record DetailedTaskDescriptor(
-        string ActivityGroup,
-        string TaskName,
-        string Detail,
-        string Actor,
-        double ManDays);
 
     private sealed class AiTimelineResult
     {
