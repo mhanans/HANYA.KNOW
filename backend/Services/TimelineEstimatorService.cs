@@ -483,8 +483,9 @@ public class TimelineEstimatorService
         _ = assessment; // Assessment object itself not needed in prompt string
 
         var activityLines = activityManDays
-            .OrderBy(kvp => kvp.Key)
-            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days");
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days")
+            .ToList();
 
         var roleDurationLines = durationsPerRole
             .OrderByDescending(kvp => kvp.Value)
