@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -481,46 +482,47 @@ public class TimelineGenerationService
             return $"  - {{ \"activityGroup\": \"{Encode(t.ActivityGroup)}\", \"taskName\": \"{Encode(t.Detail)}\", \"actor\": \"{Encode(t.Actor)}\", \"manDays\": {manDays} }}";
         });
 
-        return $@"
-You are a precise Gantt Chart generation AI. Your only job is to schedule the provided list of tasks into a timeline.
+        var builder = new StringBuilder();
+        builder.AppendLine("You are a precise Gantt Chart generation AI. Your only job is to schedule the provided list of tasks into a timeline.");
+        builder.AppendLine();
+        builder.AppendLine("**MANDATORY CONSTRAINTS:**");
+        builder.AppendLine($"1.  **Total Duration:** The final schedule's `totalDurationDays` MUST be exactly **{totalDurationDays} days**.");
+        builder.AppendLine("2.  **Task List:** You MUST schedule **every single task** from the list below. Do not add, remove, or change any tasks.");
+        builder.AppendLine("3.  **Output Format:** You MUST respond ONLY with a single, minified JSON object matching the final structure. No extra text or explanations.");
+        builder.AppendLine();
+        builder.AppendLine("**TASK LIST TO SCHEDULE:**");
+        builder.AppendLine("[");
+        builder.AppendLine(string.Join(",\n", taskLines));
+        builder.AppendLine("]");
+        builder.AppendLine();
+        builder.AppendLine("**SCHEDULING RULES:**");
+        builder.AppendLine("-   **Structure:** Group the tasks under the correct `activityName` based on their `activityGroup`.");
+        builder.AppendLine("-   **Data Integrity:** Copy the `taskName`, `actor`, and `manDays` for each task exactly as they appear in the input list.");
+        builder.AppendLine("-   **Durations:** `durationDays` must be an integer >= 1.");
+        builder.AppendLine($"-   **Logic:** A task's `durationDays` must be >= its `manDays`. For `manDays` < 1, `durationDays` must be 1. Schedule tasks logically: \"Project Preparation\" tasks must start near Day 1. \"Project Closing\" tasks must end near Day {totalDurationDays}.");
+        builder.AppendLine("-   **Resource Allocation:**");
+        builder.AppendLine("    -   Only include roles in `resourceAllocation` that are assigned to tasks.");
+        builder.AppendLine($"    -   The `dailyEffort` array MUST have a length of exactly {totalDurationDays}.");
+        builder.AppendLine("    -   Calculate `dailyEffort` precisely. The values should be multiples of 0.5 or 1.0 (e.g., 0.5 for a half-day, 1.0 for a full day). Avoid strange decimals. If a 3 man-day task is done over 2 days, the effort is 1.5 per day.");
+        builder.AppendLine("    -   **SPECIAL RULE:** 'Architect' and 'Project Manager' roles (if used) MUST have a minimum `dailyEffort` of 0.5 on every day of the project.");
+        builder.AppendLine();
+        builder.AppendLine("**FINAL JSON OUTPUT STRUCTURE:**");
+        builder.AppendLine("{");
+        builder.AppendLine($"  \"totalDurationDays\": {totalDurationDays},");
+        builder.AppendLine("  \"activities\": [");
+        builder.AppendLine("    {");
+        builder.AppendLine("      \"activityName\": \"Project Preparation\",");
+        builder.AppendLine("      \"details\": [");
+        builder.AppendLine("        { \"taskName\": \"System Setup\", \"actor\": \"Architect\", \"manDays\": 2.0, \"startDay\": 1, \"durationDays\": 2 }");
+        builder.AppendLine("      ]");
+        builder.AppendLine("    }");
+        builder.AppendLine("  ],");
+        builder.AppendLine("  \"resourceAllocation\": [");
+        builder.AppendLine("    { \"role\": \"Architect\", \"totalManDays\": 25.5, \"dailyEffort\": [0.5, 0.5, 1.0, ...] }");
+        builder.AppendLine("  ]");
+        builder.AppendLine("}");
 
-**MANDATORY CONSTRAINTS:**
-1.  **Total Duration:** The final schedule's `totalDurationDays` MUST be exactly **{totalDurationDays} days**.
-2.  **Task List:** You MUST schedule **every single task** from the list below. Do not add, remove, or change any tasks.
-3.  **Output Format:** You MUST respond ONLY with a single, minified JSON object matching the final structure. No extra text or explanations.
-
-**TASK LIST TO SCHEDULE:**
-[
-{string.Join(",\n", taskLines)}
-]
-
-**SCHEDULING RULES:**
--   **Structure:** Group the tasks under the correct `activityName` based on their `activityGroup`.
--   **Data Integrity:** Copy the `taskName`, `actor`, and `manDays` for each task exactly as they appear in the input list.
--   **Durations:** `durationDays` must be an integer >= 1.
--   **Logic:** A task's `durationDays` must be >= its `manDays`. For `manDays` < 1, `durationDays` must be 1. Schedule tasks logically: "Project Preparation" tasks must start near Day 1. "Project Closing" tasks must end near Day {totalDurationDays}.
--   **Resource Allocation:**
-    -   Only include roles in `resourceAllocation` that are assigned to tasks.
-    -   The `dailyEffort` array MUST have a length of exactly {totalDurationDays}.
-    -   Calculate `dailyEffort` precisely. The values should be multiples of 0.5 or 1.0 (e.g., 0.5 for a half-day, 1.0 for a full day). Avoid strange decimals. If a 3 man-day task is done over 2 days, the effort is 1.5 per day.
-    -   **SPECIAL RULE:** 'Architect' and 'Project Manager' roles (if used) MUST have a minimum `dailyEffort` of 0.5 on every day of the project.
-
-**FINAL JSON OUTPUT STRUCTURE:**
-{{
-  ""totalDurationDays"": {totalDurationDays},
-  ""activities"": [
-    {{
-      ""activityName"": ""Project Preparation"",
-      ""details"": [
-        {{ ""taskName"": ""System Setup"", ""actor"": ""Architect"", ""manDays"": 2.0, ""startDay"": 1, ""durationDays"": 2 }}
-      ]
-    }}
-  ],
-  ""resourceAllocation"": [
-    {{ ""role"": ""Architect"", ""totalManDays"": 25.5, ""dailyEffort"": [0.5, 0.5, 1.0, ...] }}
-  ]
-}}
-";
+        return builder.ToString();
     }
 
     private sealed class AiTimelineResult
