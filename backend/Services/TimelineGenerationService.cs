@@ -451,20 +451,10 @@ public class TimelineGenerationService
             throw new InvalidOperationException("Detailed tasks are required to build the AI prompt.");
         }
 
-        static string Escape(string? value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return string.Empty;
-            }
-
-            return value
-                .Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace("\"", "\\\"", StringComparison.Ordinal);
-        }
+        static string Encode(string? value) => JsonEncodedText.Encode(value ?? string.Empty).ToString();
 
         var taskLines = detailedTasks.Select(task =>
-            $"  - {{ \"activityGroup\": \"{Escape(task.ActivityGroup)}\", \"taskName\": \"{Escape(task.TaskName)}\", \"actor\": \"{Escape(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
+            $"  - {{ \"activityGroup\": \"{Encode(task.ActivityGroup)}\", \"taskName\": \"{Encode(task.TaskName)}\", \"actor\": \"{Encode(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
 
         var phases = (estimation.Phases ?? new List<TimelinePhaseEstimate>()).ToList();
         var phaseGuidance = phases.Count > 0

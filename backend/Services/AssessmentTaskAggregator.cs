@@ -57,42 +57,31 @@ public static class AssessmentTaskAggregator
 
         foreach (var section in assessment.Sections)
         {
-            if (section?.Items == null)
-            {
-                continue;
-            }
+            if (section?.Items == null) continue;
 
             foreach (var item in section.Items)
             {
-                if (item == null || !item.IsNeeded || item.Estimates == null)
-                {
-                    continue;
-                }
+                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
 
                 foreach (var estimate in item.Estimates)
                 {
                     var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName))
-                    {
-                        continue;
-                    }
+                    if (string.IsNullOrWhiteSpace(columnName)) continue;
 
-                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    if (TryExtractHours(estimate.Value, out double hours) && hours > 0)
                     {
-                        continue;
+                        totalHoursTracked += hours;
+                        var manDays = hours / 8.0;
+                        result[columnName] = result.TryGetValue(columnName, out var existing)
+                            ? existing + manDays
+                            : manDays;
                     }
-
-                    totalHoursTracked += hours;
-                    var manDays = hours / 8.0;
-                    result[columnName] = result.TryGetValue(columnName, out var existing)
-                        ? existing + manDays
-                        : manDays;
                 }
             }
         }
 
         Console.WriteLine(
-            $"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}. Columns: {string.Join(", ", result.Keys)}");
+            $"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}.");
         return result;
     }
 
