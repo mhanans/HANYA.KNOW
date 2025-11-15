@@ -485,7 +485,7 @@ You are an expert Project Manager AI that creates detailed, day-by-day Gantt cha
 
 **Scheduling Rules (Follow Exactly):**
 1.  **Map Tasks to Activities:** For each task in the input list, create one corresponding entry in the `details` array of the matching `activityName` group in your output. Copy the `taskName` (from `detail`), `actor`, and `manDays` values exactly.
-2.  **Respect Phase Boundaries:** The `startDay` and `durationDays` for all tasks within an `activityGroup` (e.g., "Project Preparation") must be scheduled to respect the `Target Duration` and `Sequencing` from the High-Level Plan. For example, if 'Project Preparation' is 'Serial' with a duration of 5 days, all its tasks must start and end between day 1 and 5.
+2.  **Respect Phase Boundaries:** The `startDay` and `durationDays` for all tasks within an `activityGroup` (e.g., ""Project Preparation"") must be scheduled to respect the `Target Duration` and `Sequencing` from the High-Level Plan. For example, if 'Project Preparation' is 'Serial' with a duration of 5 days, all its tasks must start and end between day 1 and 5.
 3.  **Logical Scheduling:**
     - `durationDays` must be an integer >= 1.
     - `durationDays` must be >= `manDays`. For `manDays` < 1, `durationDays` must be 1.
