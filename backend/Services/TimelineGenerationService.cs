@@ -49,7 +49,7 @@ public class TimelineGenerationService
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
         var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
-        var ganttTasks = GanttTaskAggregator.GetGanttTasks(assessment, config);
+        var ganttTasks = AssessmentTaskAggregator.GetGanttTasks(assessment, config);
 
         if (estimationColumnEffort.Count == 0 || ganttTasks.Count == 0)
         {
@@ -439,7 +439,7 @@ public class TimelineGenerationService
 
     private string ConstructDailySchedulerAiPrompt(
         TimelineEstimationRecord estimation,
-        List<GanttTaskAggregator.GanttTask> ganttTasks)
+        List<AssessmentTaskAggregator.GanttTask> ganttTasks)
     {
         if (estimation == null)
         {
@@ -454,46 +454,45 @@ public class TimelineGenerationService
         static string Encode(string? value) => JsonEncodedText.Encode(value ?? string.Empty).ToString();
 
         var taskLines = ganttTasks.Select(task =>
-            $"  - {{ \"activityGroup\": \"{Encode(task.ActivityGroup)}\", \"detail\": \"{Encode(task.Detail)}\", \"actor\": \"{Encode(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
+            $"  - {{ \"activityGroup\": \"{Encode(task.ActivityGroup)}\", \"taskName\": \"{Encode(task.Detail)}\", \"actor\": \"{Encode(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
+
+        var phaseGuidanceLines = (estimation.Phases ?? new List<TimelinePhaseEstimate>())
+            .Where(phase => !string.IsNullOrWhiteSpace(phase.PhaseName))
+            .Select(phase =>
+                $"  - {Encode(phase.PhaseName)}: Target Duration = {Math.Max(1, phase.DurationDays)} days, Sequencing = {Encode(phase.SequenceType)}")
+            .DefaultIfEmpty("  - No explicit phase guidance provided; follow logical delivery order.");
 
         return $@"
-You are an expert Project Manager AI that creates detailed, day-by-day Gantt charts. You must schedule a specific list of granular tasks into a timeline, strictly adhering to the provided duration.
+You are an expert Project Manager AI that creates detailed, day-by-day Gantt charts. Your task is to schedule a specific list of tasks into a daily timeline, strictly adhering to the provided high-level project plan.
 
-**High-Level Constraint:**
-- **Total Project Duration:** You MUST create a schedule that fits perfectly within **{estimation.TotalDurationDays} days**.
+**High-Level Plan & Constraints (MANDATORY):**
+- **Total Project Duration:** You MUST create a schedule that fits exactly within **{estimation.TotalDurationDays} days**.
+- **Phase Durations & Sequencing:** You MUST follow this phase plan. This is your primary structural guide.
+{string.Join("\n", phaseGuidanceLines)}
 
-**Granular Task List (You MUST schedule every task below):**
+**Detailed Task List (You MUST schedule every task below within its correct activityGroup):**
 [
 {string.Join(",\n", taskLines)}
 ]
 
-**Scheduling Rules (MANDATORY):**
-1.  **Map Tasks Exactly:** For each task in the input list, create one corresponding entry in the `details` array of the correct `activityName` group in your output. Copy the `detail` as `taskName`, and copy `actor` and `manDays` exactly.
-2.  **Logical Sequencing:** Schedule tasks logically. 'Project Preparation' tasks must start on day 1. 'Project Closing' tasks must end on or before day {estimation.TotalDurationDays}. 'Development' and 'Testing & QA' tasks can run in parallel.
-3.  **Integer Durations & Man-days:**
-    - `durationDays` must be a whole number (>= 1).
-    - A task's `durationDays` must be >= its `manDays`.
-    - For a task with `manDays` = 0.5, `durationDays` must be 1.
-    - Use parallelism to meet the schedule. If a 4 man-day task is given a `durationDays` of 2, it implies two people are working on it.
+**Scheduling Rules (Follow Exactly):**
+1.  **Map Tasks to Activities:** For each task in the input list, create one corresponding entry in the `details` array of the matching `activityName` group in your output. Copy the `taskName`, `actor`, and `manDays` values exactly.
+2.  **Respect Phase Boundaries:** The `startDay` and `durationDays` for all tasks within an `activityGroup` must be scheduled so their combined timeline respects the `Target Duration` and `Sequencing` from the High-Level Plan. For example, all "Project Preparation" tasks must finish before downstream phases marked Serial.
+3.  **Logical Scheduling:**
+    - `durationDays` must be an integer >= 1.
+    - A task's `durationDays` must be >= its `manDays`. For `manDays` < 1, `durationDays` must be 1.
+    - If a 4 man-day task is given `durationDays` of 2, it implies 2 people are working on it. Use reasonable parallelism (1-3 people per task) and avoid spreading a single man-day across many days.
 4.  **Resource Allocation:**
-    - Only include roles in `resourceAllocation` that are assigned to tasks.
+    - Only include roles in `resourceAllocation` that are assigned to tasks (`totalManDays` > 0).
     - The `dailyEffort` array MUST have a length of exactly {estimation.TotalDurationDays}.
-    - Calculate `dailyEffort` precisely based on your schedule.
-    - **SPECIAL RULE:** 'Architect' and 'Project Manager' roles (if they exist) must have a minimum `dailyEffort` of 0.5 on every day of the project.
+    - Calculate `dailyEffort` precisely. Values should generally be multiples of 0.5 or 1.0 (e.g., 0.5, 1.0, 1.5, 2.0) to represent half-day or full-day work.
+    - **SPECIAL RULE:** The 'Architect' and 'Project Manager' roles must have a minimum `dailyEffort` of 0.5 on every day of the project.
 
-**Final JSON Output (Strictly this format, no extra text):**
+**Final JSON Output (Strictly this format, no extra commentary):**
 {{
   ""totalDurationDays"": {estimation.TotalDurationDays},
-  ""activities"": [
-    {{
-      ""activityName"": ""Project Preparation"", ""details"": [
-        {{ ""taskName"": ""Architect Setup"", ""actor"": ""Architect"", ""manDays"": 2.0, ""startDay"": 1, ""durationDays"": 2 }}
-      ]
-    }}
-  ],
-  ""resourceAllocation"": [
-    {{ ""role"": ""Architect"", ""totalManDays"": 25.5, ""dailyEffort"": [0.5, 0.5, 1.0, ...] }}
-  ]
+  ""activities"": [{{""activityName"": ""Project Preparation"", ""details"": [{{""taskName"": ""System Setup"", ""actor"": ""Architect"", ""manDays"": 2.0, ""startDay"": 1, ""durationDays"": 2}}]}}],
+  ""resourceAllocation"": [{{""role"": ""Architect"", ""totalManDays"": 25.5, ""dailyEffort"": [0.5, 0.5, 1.0, ...]}}]
 }}
 ";
     }

@@ -76,7 +76,7 @@ public static class AssessmentTaskAggregator
             }
         }
 
-        Console.WriteLine($"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours: {totalHoursTracked}. Total Man-Days: {result.Values.Sum()}.");
+        Console.WriteLine($"[CRITICAL DEBUG] AGGREGATION FINISHED. Total Hours: {totalHoursTracked}. Total Man-Days: {result.Values.Sum()}.");
         return result;
     }
 
@@ -346,33 +346,33 @@ public static class AssessmentTaskAggregator
         {
             case double d when double.IsFinite(d):
                 hours = d;
-                return hours > 0;
+                return true;
             case float f when float.IsFinite(f):
                 hours = f;
-                return hours > 0;
+                return true;
             case decimal dec:
                 hours = (double)dec;
-                return hours > 0;
+                return true;
             case long l:
                 hours = l;
-                return hours > 0;
+                return true;
             case int i:
                 hours = i;
-                return hours > 0;
+                return true;
             case JsonElement element:
                 return TryExtractHoursFromJson(element, out hours);
             case JsonDocument document:
                 return TryExtractHoursFromJson(document.RootElement, out hours);
             case string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed):
                 hours = parsed;
-                return hours > 0;
+                return double.IsFinite(hours);
             default:
                 try
                 {
                     if (rawValue is IConvertible convertible)
                     {
                         hours = convertible.ToDouble(CultureInfo.InvariantCulture);
-                        return hours > 0 && double.IsFinite(hours);
+                        return double.IsFinite(hours);
                     }
                 }
                 catch
@@ -390,10 +390,10 @@ public static class AssessmentTaskAggregator
         switch (element.ValueKind)
         {
             case JsonValueKind.Number:
-                return element.TryGetDouble(out hours) && double.IsFinite(hours) && hours > 0;
+                return element.TryGetDouble(out hours) && double.IsFinite(hours);
             case JsonValueKind.String:
                 var text = element.GetString();
-                return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out hours) && hours > 0;
+                return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out hours) && double.IsFinite(hours);
             case JsonValueKind.Object:
                 foreach (var candidate in JsonHoursPropertyCandidates)
                 {
@@ -538,6 +538,114 @@ public static class AssessmentTaskAggregator
 
             _hasLoggedColumnDiagnostics = true;
         }
+    }
+    public class GanttTask
+    {
+        public string ActivityGroup { get; set; } = string.Empty;
+        public string Detail { get; set; } = string.Empty;
+        public string Actor { get; set; } = string.Empty;
+        public double ManDays { get; set; }
+    }
+
+    public static List<GanttTask> GetGanttTasks(ProjectAssessment assessment, PresalesConfiguration configuration)
+    {
+        var tasks = new List<GanttTask>();
+        if (assessment?.Sections == null)
+        {
+            return tasks;
+        }
+
+        var columnRoleLookup = (configuration?.EstimationColumnRoles ?? Enumerable.Empty<EstimationColumnRoleMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping?.EstimationColumn) &&
+                !string.IsNullOrWhiteSpace(mapping?.RoleName))
+            .ToLookup(
+                mapping => mapping!.EstimationColumn!.Trim(),
+                mapping => mapping!.RoleName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var itemEffort = new Dictionary<string, ItemEffortAccumulator>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in assessment.Sections)
+        {
+            if (section?.Items == null)
+            {
+                continue;
+            }
+
+            foreach (var item in section.Items)
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
+
+                var itemName = item.ItemName?.Trim();
+                if (string.IsNullOrWhiteSpace(itemName))
+                {
+                    continue;
+                }
+
+                foreach (var estimate in item.Estimates)
+                {
+                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (!itemEffort.TryGetValue(itemName, out var accumulator))
+                    {
+                        accumulator = new ItemEffortAccumulator();
+                        itemEffort[itemName] = accumulator;
+                    }
+
+                    accumulator.TotalHours += hours;
+
+                    var columnName = estimate.Key?.Trim() ?? string.Empty;
+                    foreach (var role in columnRoleLookup[columnName])
+                    {
+                        if (!string.IsNullOrWhiteSpace(role))
+                        {
+                            accumulator.Roles.Add(role);
+                        }
+                    }
+                }
+            }
+        }
+
+        var itemActivityMapping = (configuration?.ItemActivities ?? Enumerable.Empty<ItemActivityMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping?.ItemName) &&
+                !string.IsNullOrWhiteSpace(mapping?.ActivityName))
+            .ToDictionary(
+                mapping => mapping!.ItemName!.Trim(),
+                mapping => mapping!.ActivityName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (itemName, accumulator) in itemEffort)
+        {
+            var hasActivity = itemActivityMapping.TryGetValue(itemName, out var activityName);
+            var orderedRoles = accumulator.Roles
+                .OrderBy(role => role, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            tasks.Add(new GanttTask
+            {
+                ActivityGroup = hasActivity && !string.IsNullOrWhiteSpace(activityName)
+                    ? activityName
+                    : "Uncategorized",
+                Detail = itemName,
+                Actor = orderedRoles.Count > 0 ? string.Join(", ", orderedRoles) : "Unassigned",
+                ManDays = accumulator.TotalHours / 8.0
+            });
+        }
+
+        return tasks;
+    }
+
+    private sealed class ItemEffortAccumulator
+    {
+        public double TotalHours { get; set; }
+        public HashSet<string> Roles { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 }
 
