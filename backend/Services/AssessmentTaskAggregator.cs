@@ -40,12 +40,11 @@ public static class AssessmentTaskAggregator
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (assessment?.Sections == null)
         {
-            // Use Console.WriteLine for critical path debugging as it's not filtered by log levels.
             Console.WriteLine("[ERROR] AggregateEstimationColumnEffort: Assessment or Sections collection is null.");
             return result;
         }
 
-        double totalHoursAggregated = 0;
+        double totalHoursTracked = 0;
 
         foreach (var section in assessment.Sections)
         {
@@ -55,33 +54,38 @@ public static class AssessmentTaskAggregator
             {
                 if (item == null || !item.IsNeeded || item.Estimates == null) continue;
 
-                // The original code was correct, but we re-verify its logic.
                 foreach (var estimate in item.Estimates)
                 {
-                    // Explicitly check the key and value before processing.
                     var columnName = estimate.Key?.Trim();
                     if (string.IsNullOrWhiteSpace(columnName)) continue;
 
-                    var hoursNullable = estimate.Value;
-                    if (!hoursNullable.HasValue)
+                    double hours = 0;
+                    if (estimate.Value is double val)
                     {
-                        continue;
+                        hours = val;
+                    }
+                    else if (estimate.Value is JsonElement element && element.TryGetDouble(out double elementVal))
+                    {
+                        hours = elementVal;
+                    }
+                    else if (estimate.Value is long longVal)
+                    {
+                        hours = longVal;
                     }
 
-                    var hours = hoursNullable.Value;
-                    if (hours <= 0)
+                    if (hours > 0)
                     {
-                        continue;
+                        totalHoursTracked += hours;
+                        var manDays = hours / 8.0;
+                        result[columnName] = result.TryGetValue(columnName, out var existing)
+                            ? existing + manDays
+                            : manDays;
                     }
-
-                    var manDays = hours / 8.0;
-                    totalHoursAggregated += hours;
-                    result[columnName] = result.TryGetValue(columnName, out var existing) ? existing + manDays : manDays;
                 }
             }
         }
 
-        Console.WriteLine($"[DEBUG] AggregateEstimationColumnEffort finished. Total Hours: {totalHoursAggregated}. Total Man-Days: {result.Values.Sum()}. Number of Columns: {result.Count}.");
+        Console.WriteLine($"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}.");
         return result;
     }
 
@@ -177,8 +181,6 @@ public static class AssessmentTaskAggregator
         ProjectAssessment assessment,
         PresalesConfiguration configuration)
     {
-        // This logic correctly consolidates all work into logical phases.
-        _ = configuration;
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (assessment?.Sections == null) return result;
 
@@ -193,7 +195,7 @@ public static class AssessmentTaskAggregator
                     if (estimate.Value is not double hours || hours <= 0) continue;
                     var manDays = hours / 8.0;
                     var columnName = estimate.Key?.Trim() ?? string.Empty;
-                    var activityName = ResolveActivityName(sectionName, columnName);
+                    var activityName = ResolveActivityName(sectionName, item.ItemName, columnName, configuration);
 
                     result[activityName] = result.TryGetValue(activityName, out var current) ? current + manDays : manDays;
                 }
@@ -202,20 +204,31 @@ public static class AssessmentTaskAggregator
         return result;
     }
 
-    private static string ResolveActivityName(string sectionName, string columnName)
+    private static string ResolveActivityName(string sectionName, string itemName, string columnName, PresalesConfiguration configuration)
     {
+        var mapping = configuration.ItemActivities.FirstOrDefault(m =>
+            string.Equals(m.SectionName, sectionName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(m.ItemName, itemName, StringComparison.OrdinalIgnoreCase));
+        if (mapping != null && !string.IsNullOrWhiteSpace(mapping.ActivityName))
+        {
+            return mapping.ActivityName;
+        }
+
         if (DirectSectionPhaseMappings.TryGetValue(sectionName, out var directPhase))
         {
             return directPhase;
         }
+
         if (!string.IsNullOrWhiteSpace(columnName) && LogicalPhaseMapping.TryGetValue(columnName, out var logicalPhase))
         {
             return logicalPhase;
         }
+
         if (!string.IsNullOrWhiteSpace(sectionName))
         {
             return sectionName;
         }
+
         return "Uncategorized";
     }
 
