@@ -7,6 +7,14 @@ using backend.Models;
 
 namespace backend.Services;
 
+public class DetailedTask
+{
+    public string ActivityGroup { get; set; } = string.Empty;
+    public string TaskName { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public double ManDays { get; set; }
+}
+
 public static class AssessmentTaskAggregator
 {
     private static readonly Dictionary<string, string> DirectSectionPhaseMappings = new(StringComparer.OrdinalIgnoreCase)
@@ -189,6 +197,100 @@ public static class AssessmentTaskAggregator
             }
         }
         return result;
+    }
+
+    public static List<DetailedTask> GetDetailedTasks(
+        ProjectAssessment assessment,
+        PresalesConfiguration configuration)
+    {
+        var tasks = new List<DetailedTask>();
+        if (assessment?.Sections == null)
+        {
+            return tasks;
+        }
+
+        var effectiveConfiguration = configuration ?? new PresalesConfiguration();
+
+        var columnRoleLookup = (effectiveConfiguration.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.EstimationColumn) &&
+                !string.IsNullOrWhiteSpace(mapping.RoleName))
+            .ToLookup(
+                mapping => mapping.EstimationColumn!.Trim(),
+                mapping => mapping.RoleName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in assessment.Sections)
+        {
+            if (section?.Items == null)
+            {
+                continue;
+            }
+
+            var sectionName = section.SectionName?.Trim() ?? string.Empty;
+            foreach (var item in section.Items)
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
+
+                double totalHours = 0;
+                var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var estimate in item.Estimates)
+                {
+                    var columnName = estimate.Key?.Trim();
+                    if (string.IsNullOrWhiteSpace(columnName))
+                    {
+                        continue;
+                    }
+
+                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    totalHours += hours;
+
+                    foreach (var role in columnRoleLookup[columnName])
+                    {
+                        if (!string.IsNullOrWhiteSpace(role))
+                        {
+                            roles.Add(role);
+                        }
+                    }
+                }
+
+                if (totalHours <= 0)
+                {
+                    continue;
+                }
+
+                var firstColumn = item.Estimates.Keys
+                    .Select(key => key?.Trim())
+                    .FirstOrDefault(key => !string.IsNullOrWhiteSpace(key))
+                    ?? string.Empty;
+
+                var activityGroup = ResolveActivityName(
+                    sectionName,
+                    item.ItemName ?? string.Empty,
+                    firstColumn,
+                    effectiveConfiguration);
+
+                tasks.Add(new DetailedTask
+                {
+                    ActivityGroup = activityGroup,
+                    TaskName = item.ItemName?.Trim() ?? string.Empty,
+                    Actor = roles.Count > 0
+                        ? string.Join(", ", roles.OrderBy(role => role, StringComparer.OrdinalIgnoreCase))
+                        : "Unassigned",
+                    ManDays = totalHours / 8.0
+                });
+            }
+        }
+
+        return tasks;
     }
 
     public static string ResolveActivityName(string sectionName, string itemName, string columnName, PresalesConfiguration configuration)
@@ -544,5 +646,72 @@ public static class AssessmentTaskAggregator
     {
         public double TotalHours { get; set; }
         public HashSet<string> Roles { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+}
+
+public static class GanttTaskAggregator
+{
+    public class GanttTask
+    {
+        public string ActivityGroup { get; set; } = string.Empty;
+        public string Detail { get; set; } = string.Empty;
+        public string Actor { get; set; } = string.Empty;
+        public double ManDays { get; set; }
+    }
+
+    public static List<GanttTask> GetGanttTasks(ProjectAssessment assessment, PresalesConfiguration configuration)
+    {
+        var tasks = new List<GanttTask>();
+        if (assessment?.Sections == null)
+        {
+            return tasks;
+        }
+        var columnRoleLookup = (configuration?.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping?.EstimationColumn) &&
+                !string.IsNullOrWhiteSpace(mapping?.RoleName))
+            .ToLookup(
+                mapping => mapping!.EstimationColumn!.Trim(),
+                mapping => mapping!.RoleName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
+        {
+            foreach (var item in section?.Items ?? Enumerable.Empty<AssessmentItem>())
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
+
+                var activityGroup = AssessmentTaskAggregator.ResolveActivityName(
+                    section?.SectionName ?? string.Empty,
+                    item.ItemName ?? string.Empty,
+                    string.Empty,
+                    configuration);
+
+                foreach (var estimate in item.Estimates)
+                {
+                    if (!AssessmentTaskAggregator.TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    var detailName = estimate.Key?.Trim() ?? string.Empty;
+                    var roles = columnRoleLookup[detailName]
+                        .Where(role => !string.IsNullOrWhiteSpace(role))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(role => role, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    tasks.Add(new GanttTask
+                    {
+                        ActivityGroup = string.IsNullOrWhiteSpace(activityGroup) ? "Uncategorized" : activityGroup,
+                        Detail = string.IsNullOrWhiteSpace(detailName) ? item.ItemName ?? "Task" : detailName,
+                        Actor = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned",
+                        ManDays = hours / 8.0
+                    });
+                }
+            }
+        }
+
+        return tasks;
     }
 }

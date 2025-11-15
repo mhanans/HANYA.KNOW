@@ -118,11 +118,9 @@ public class TimelineEstimatorService
         };
 
         var prompt = BuildEstimatorPrompt(
-            assessment,
-            rawInputData.ActivityManDays,
-            rawInputData.DurationsPerRole,
             rawInputData.DurationAnchor,
-            rawInputData.SelectedTeamType?.Name ?? teamType.Name);
+            rawInputData.SelectedTeamType?.Name ?? teamType.Name,
+            rawInputData.DurationsPerRole);
         string rawResponse = string.Empty;
         TimelineEstimationRecord estimation;
 
@@ -193,7 +191,7 @@ public class TimelineEstimatorService
         estimation.GeneratedAt = DateTime.UtcNow;
         if (string.IsNullOrWhiteSpace(estimation.SequencingNotes))
         {
-            estimation.SequencingNotes = "Total duration differs from summed phases due to assumed overlaps between phases.";
+            estimation.SequencingNotes = "Total duration is anchored on the longest role bottleneck plus setup, overlap, and closing buffers.";
         }
 
         await _estimationStore.SaveAsync(estimation, cancellationToken).ConfigureAwait(false);
@@ -207,22 +205,12 @@ public class TimelineEstimatorService
             throw new InvalidOperationException("AI response did not contain an estimation result.");
         }
 
-        var phases = (result.Phases ?? new List<AiPhaseEstimate>())
-            .Where(p => !string.IsNullOrWhiteSpace(p.PhaseName))
-            .Select(p => new TimelinePhaseEstimate
-            {
-                PhaseName = p.PhaseName.Trim(),
-                DurationDays = Math.Max(1, p.DurationDays),
-                SequenceType = NormaliseSequenceType(p.SequenceType)
-            })
-            .ToList();
-
         var totalDuration = Math.Max(1, result.TotalDurationDays);
         return new TimelineEstimationRecord
         {
             ProjectScale = string.IsNullOrWhiteSpace(result.ProjectScale) ? "Unknown" : result.ProjectScale.Trim(),
             TotalDurationDays = totalDuration,
-            Phases = phases,
+            Phases = new List<TimelinePhaseEstimate>(),
             Roles = new List<TimelineRoleEstimate>(),
             SequencingNotes = result.SequencingNotes?.Trim() ?? string.Empty
         };
@@ -252,65 +240,17 @@ public class TimelineEstimatorService
             totalDuration = Math.Max(1, (int)Math.Ceiling(totalManDays));
         }
 
-        var phases = BuildFallbackPhases(activityManDays, reference, totalDuration);
         var roles = BuildFallbackRoles(roleManDays, totalDuration);
-        var sumPhaseDurations = phases.Sum(p => p.DurationDays);
-        var notes = BuildFallbackNotes(reference, totalDuration, sumPhaseDurations);
+        var notes = BuildFallbackNotes(reference, totalDuration);
 
         return new TimelineEstimationRecord
         {
             ProjectScale = projectScale,
             TotalDurationDays = totalDuration,
-            Phases = phases,
+            Phases = new List<TimelinePhaseEstimate>(),
             Roles = roles,
             SequencingNotes = notes
         };
-    }
-
-    private static List<TimelinePhaseEstimate> BuildFallbackPhases(
-        Dictionary<string, double> activityManDays,
-        TimelineEstimationReference? reference,
-        int totalDuration)
-    {
-        if (activityManDays.Count == 0)
-        {
-            return new List<TimelinePhaseEstimate>
-            {
-                new()
-                {
-                    PhaseName = "Overall Delivery",
-                    DurationDays = totalDuration,
-                    SequenceType = "Serial"
-                }
-            };
-        }
-
-        var totalManDays = activityManDays.Values.Sum();
-        var hasOverlap = reference != null && reference.PhaseDurations.Values.Sum() > reference.TotalDurationDays;
-        var orderedActivities = activityManDays
-            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var phases = new List<TimelinePhaseEstimate>();
-
-        foreach (var (phaseName, manDays) in orderedActivities)
-        {
-            var share = totalManDays > 0 ? manDays / totalManDays : 1d / orderedActivities.Count;
-            var baseline = (int)Math.Max(1, Math.Round(totalDuration * share));
-            if (reference != null && reference.PhaseDurations.TryGetValue(phaseName, out var referenceDuration))
-            {
-                baseline = (int)Math.Max(1, Math.Round((baseline + referenceDuration) / 2d));
-            }
-
-            var sequenceType = InferSequenceType(phaseName, hasOverlap);
-            phases.Add(new TimelinePhaseEstimate
-            {
-                PhaseName = phaseName,
-                DurationDays = baseline,
-                SequenceType = sequenceType
-            });
-        }
-
-        return phases;
     }
 
     private static List<TimelineRoleEstimate> BuildFallbackRoles(
@@ -354,28 +294,15 @@ public class TimelineEstimatorService
 
     private static string BuildFallbackNotes(
         TimelineEstimationReference? reference,
-        int totalDuration,
-        int summedPhaseDurations)
+        int totalDuration)
     {
         var notes = new List<string>();
         if (reference != null)
         {
-            var referenceSum = reference.PhaseDurations.Values.Sum();
-            if (referenceSum != reference.TotalDurationDays)
-            {
-                notes.Add($"Historical {reference.ProjectScale} projects show phase overlap (sum {referenceSum}d vs total {reference.TotalDurationDays}d).");
-            }
+            notes.Add($"Aligned with historical {reference.ProjectScale} projects (baseline {reference.TotalDurationDays}d).");
         }
 
-        if (summedPhaseDurations != totalDuration)
-        {
-            notes.Add($"Total duration ({totalDuration}d) differs from summed phases ({summedPhaseDurations}d) to account for parallel/subsequent work.");
-        }
-
-        if (notes.Count == 0)
-        {
-            notes.Add("Assuming primarily serial sequencing due to limited overlap data.");
-        }
+        notes.Add($"Includes buffer for setup and closing around the {totalDuration}d execution window.");
 
         return string.Join(" ", notes);
     }
@@ -416,28 +343,6 @@ public class TimelineEstimatorService
         return "Long";
     }
 
-    private static string InferSequenceType(string phaseName, bool hasOverlap)
-    {
-        if (!hasOverlap)
-        {
-            return phaseName.Contains("test", StringComparison.OrdinalIgnoreCase)
-                ? "Subsequent"
-                : "Serial";
-        }
-
-        if (phaseName.Contains("deploy", StringComparison.OrdinalIgnoreCase) || phaseName.Contains("launch", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Subsequent";
-        }
-
-        if (phaseName.Contains("plan", StringComparison.OrdinalIgnoreCase) || phaseName.Contains("prep", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Serial";
-        }
-
-        return "Parallel";
-    }
-
     private static TeamType? CloneTeamType(TeamType? source)
     {
         if (source == null)
@@ -474,58 +379,46 @@ public class TimelineEstimatorService
     }
 
     private string BuildEstimatorPrompt(
-        ProjectAssessment assessment,
-        Dictionary<string, double> activityManDays,
-        Dictionary<string, int> durationsPerRole,
         int durationAnchor,
-        string teamTypeName)
+        string teamTypeName,
+        Dictionary<string, int> durationsPerRole)
     {
-        _ = assessment; // Assessment object itself not needed in prompt string
-
-        var activityLines = activityManDays
-            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days")
+        var orderedDurations = (durationsPerRole ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+            .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && kvp.Value > 0)
+            .OrderByDescending(kvp => kvp.Value)
             .ToList();
 
-        var roleDurationLines = durationsPerRole
-            .OrderByDescending(kvp => kvp.Value)
-            .Select(kvp => $"  - {kvp.Key}: Requires minimum {kvp.Value} days to complete their tasks.");
+        if (orderedDurations.Count == 0)
+        {
+            orderedDurations.Add(new KeyValuePair<string, int>("Core Team", Math.Max(1, durationAnchor)));
+        }
 
-        var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
-        var bottleneckRole = durationsPerRole.OrderByDescending(kvp => kvp.Value).First();
+        var bottleneckRole = orderedDurations.First();
+        var supplemental = orderedDurations
+            .Skip(1)
+            .Select(kvp => $"{kvp.Key}: {kvp.Value} days")
+            .DefaultIfEmpty("None")
+            .ToList();
+
+        var supplementalText = string.Join(", ", supplemental);
+
+        var baselineDuration = Math.Max(Math.Max(durationAnchor, bottleneckRole.Value), 1);
 
         return $@"
-You are a precise and logical Project Scheduler AI. Your task is to create a realistic project plan from hard data constraints. Follow all instructions exactly.
+You are a project manager AI. Based on a resource bottleneck, determine a final project duration.
+- The primary bottleneck is the **{bottleneckRole.Key} requiring {durationAnchor} days**.
+- Other roles have shorter bottlenecks: {supplementalText}.
+- A standard project has serial dependencies before and after the main work.
+- Considering these factors, calculate a final `totalDurationDays` that is realistic. It must be >= {durationAnchor} days.
 
-**Project Data & Constraints:**
-
-1.  **Team Configuration:** A '{teamTypeName}' is assigned.
-2.  **Phase Effort:** The work required for each logical project phase.
-{string.Join("\n", activityLines)}
-3.  **Resource Bottleneck Analysis (CRITICAL CONSTRAINT):** The minimum time each role needs based on the team size. The project CANNOT be shorter than the longest duration listed.
-{string.Join("\n", roleDurationLines)}
-
-**Instructions:**
-
-1.  **Establish Anchor:** The project's critical path is dictated by the **{bottleneckRole.Key}'s bottleneck of {durationAnchor} days**. Your final `totalDurationDays` MUST be greater than or equal to this anchor.
-2.  **Plan ALL Phases:** You MUST create a plan that includes a duration and sequence for **every single one of these phases:** {expectedPhases}. Do not omit any phase from your JSON output.
-3.  **Construct Timeline:** Sequence the phases logically ('Serial', 'Subsequent', 'Parallel'). Common sequences are Design -> Development, with Testing running in parallel to Development. Based on your sequencing, calculate the final `totalDurationDays`. This will likely be longer than the {durationAnchor}-day anchor due to dependencies.
-4.  **Assign Durations:** Assign a `durationDays` to each phase. The durations should be logical and reflect the relative effort of each phase within your calculated total timeline.
-5.  **Explain Your Rationale:** In `sequencingNotes`, clearly explain how you derived the `totalDurationDays` starting from the {durationAnchor}-day bottleneck.
-
-**Final Output (Strictly JSON, no extra text):**
+**Output ONLY a minified JSON object with this structure:**
 {{
   ""projectScale"": ""{teamTypeName}"",
-  ""totalDurationDays"": {durationAnchor + 10},
-  ""sequencingNotes"": ""The timeline is driven by the {bottleneckRole.Key}'s {durationAnchor}-day work bottleneck. After sequencing all phases with dependencies and overlaps, the final critical path duration is calculated to be {durationAnchor + 10} days."",
-  ""phases"": [
-      {{""phaseName"": ""Analysis & Design"", ""durationDays"": 15, ""sequenceType"": ""Serial""}},
-      {{""phaseName"": ""Development"", ""durationDays"": 40, ""sequenceType"": ""Subsequent""}}
-  ]
+  ""totalDurationDays"": {baselineDuration + 10},
+  ""sequencingNotes"": ""The timeline is driven by the {bottleneckRole.Key}'s {durationAnchor}-day work bottleneck. After adding time for initial setup and final closing, the total estimated duration is {baselineDuration + 10} days.""
 }}
 ";
     }
-
     private static AiTimelineEstimationResult ParseAiEstimation(string response)
     {
         if (string.IsNullOrWhiteSpace(response))
@@ -567,27 +460,6 @@ You are a precise and logical Project Scheduler AI. Your task is to create a rea
         }
 
         return result;
-    }
-
-    private static string NormaliseSequenceType(string? sequenceType)
-    {
-        if (string.IsNullOrWhiteSpace(sequenceType))
-        {
-            return "Serial";
-        }
-
-        var value = sequenceType.Trim();
-        if (value.Equals("Parallel", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Parallel";
-        }
-
-        if (value.Equals("Subsequent", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Subsequent";
-        }
-
-        return "Serial";
     }
 
     private sealed class AiTimelineEstimationResult
