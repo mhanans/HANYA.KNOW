@@ -183,11 +183,9 @@ export default function TimelineEstimatorDetailPage() {
     }
 
     return estimation.phases.map(phase => ({
-      phaseName: (phase?.phaseName ?? '').trim() || '—',
-      durationDays: typeof phase?.durationDays === 'number' && Number.isFinite(phase.durationDays)
-        ? phase.durationDays
-        : null,
-      sequenceType: (phase?.sequenceType ?? '').trim() || '—',
+      phaseName: phase?.phaseName || '—',
+      durationDays: phase?.durationDays ?? null,
+      sequenceType: phase?.sequenceType || '—',
     }));
   }, [estimation]);
 

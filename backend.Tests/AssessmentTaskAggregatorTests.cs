@@ -84,6 +84,19 @@ public class AssessmentTaskAggregatorTests
         AssertClose(2, result.GetValueOrDefault("Testing & QA"));
     }
 
+    [Fact]
+    public void GetDetailedTasks_GroupsEstimatesPerItem()
+    {
+        var tasks = AssessmentTaskAggregator.GetDetailedTasks(_sampleAssessment, _configuration);
+
+        Assert.Equal(5, tasks.Count);
+
+        var backendTask = Assert.Single(tasks, t => t.TaskName == "Backend API");
+        Assert.Equal("Development", backendTask.ActivityGroup);
+        Assert.Equal("Developer, Quality Engineer", backendTask.Actor);
+        AssertClose(12, backendTask.ManDays);
+    }
+
     private static void AssertClose(double expected, double actual, double tolerance = 1e-6)
     {
         Assert.InRange(actual, expected - tolerance, expected + tolerance);
