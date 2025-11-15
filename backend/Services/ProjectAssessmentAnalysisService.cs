@@ -128,6 +128,7 @@ public class ProjectAssessmentAnalysisService
         int requestedTemplateId,
         string projectName,
         IFormFile scopeDocument,
+        bool scopeHasAssessmentManhour,
         AssessmentAnalysisMode analysisMode,
         AssessmentLanguage outputLanguage,
         IReadOnlyList<ProjectAssessment>? referenceAssessments,
@@ -151,6 +152,7 @@ public class ProjectAssessmentAnalysisService
             Status = JobStatus.Pending,
             ScopeDocumentPath = storedPath,
             ScopeDocumentMimeType = mimeType,
+            ScopeDocumentHasManhour = scopeHasAssessmentManhour,
             OriginalTemplateJson = JsonSerializer.Serialize(template, _serializationOptions),
             ReferenceAssessmentsJson = referenceAssessments?.Count > 0
                 ? JsonSerializer.Serialize(referenceAssessments, _serializationOptions)
@@ -162,9 +164,18 @@ public class ProjectAssessmentAnalysisService
 
         await _jobStore.InsertAsync(job, cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Created job {JobId}. Starting synchronous pipeline.", job.Id);
+        if (job.ScopeDocumentHasManhour)
+        {
+            var manualHandled = await TryProcessManualAssessmentAsync(job, template ?? new ProjectTemplate(), cancellationToken)
+                .ConfigureAwait(false);
+            if (manualHandled)
+            {
+                return await _jobStore.GetAsync(job.Id, cancellationToken).ConfigureAwait(false) ?? job;
+            }
+        }
 
-        await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Created job {JobId}. Queueing pipeline for asynchronous execution.", job.Id);
+        QueuePipelineExecution(job.Id);
 
         return await _jobStore.GetAsync(job.Id, cancellationToken).ConfigureAwait(false) ?? job;
     }
@@ -224,6 +235,97 @@ public class ProjectAssessmentAnalysisService
             jobId,
             finalJob.Status,
             finalJob.Step);
+    }
+
+    private async Task<bool> TryProcessManualAssessmentAsync(
+        AssessmentJob job,
+        ProjectTemplate template,
+        CancellationToken cancellationToken)
+    {
+        if (job == null || !job.ScopeDocumentHasManhour)
+        {
+            return false;
+        }
+
+        _logger.LogInformation("Checking job {JobId} for pre-assessed man-hours before running the AI pipeline.", job.Id);
+
+        try
+        {
+            var prompt = BuildManualAssessmentPrompt(template, job.ProjectName);
+            var llmConfig = await ResolveLlmConfigurationAsync().ConfigureAwait(false);
+            string rawResponse;
+
+            if (string.Equals(llmConfig.Provider, "minimax", StringComparison.OrdinalIgnoreCase))
+            {
+                var documentText = await LoadDocumentForPromptAsync(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken)
+                    .ConfigureAwait(false);
+                var userPrompt = BuildMiniMaxUserPrompt(prompt, documentText);
+                rawResponse = await SendMiniMaxRequestAsync(userPrompt, llmConfig, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var documentPart = await CreateDocumentPartFromPath(job.ScopeDocumentPath, job.ScopeDocumentMimeType, cancellationToken)
+                    .ConfigureAwait(false);
+                var request = BuildManualAssessmentRequest(prompt, documentPart);
+                var response = await SendGeminiRequestAsync<GenerateContentResponse>($"v1beta/models/{llmConfig.Model}:generateContent", request, llmConfig.ApiKey, cancellationToken)
+                    .ConfigureAwait(false);
+                rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
+            }
+
+            _logger.LogInformation("LLM raw response for manual assessment check (Job {JobId}): {RawResponse}", job.Id, rawResponse);
+
+            var cleanResponse = CleanResponse(rawResponse);
+            var parsed = TryDeserializeManualAssessment(
+                cleanResponse,
+                template,
+                out var hasManhour,
+                out var serializedResult,
+                out var message);
+
+            job.DetectedScopeManhour = hasManhour;
+            job.ManhourDetectionNotes = string.IsNullOrWhiteSpace(message) ? null : message.Trim();
+
+            if (!parsed)
+            {
+                await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+
+            if (hasManhour && !string.IsNullOrWhiteSpace(serializedResult))
+            {
+                job.FinalAnalysisJson = serializedResult;
+                job.Status = JobStatus.Complete;
+                job.RawEstimationResponse = rawResponse;
+                job.LastError = null;
+                await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Job {JobId} completed by importing assessed man-hours from the scope document.", job.Id);
+                return true;
+            }
+
+            await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Job {JobId} did not include reusable man-hours. Proceeding with the standard pipeline.", job.Id);
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (LlmApiException llmEx)
+        {
+            _logger.LogWarning(llmEx, "Manual man-hour detection failed for job {JobId}", job.Id);
+            job.DetectedScopeManhour = false;
+            job.ManhourDetectionNotes = $"AI failed to interpret existing man-hour estimates: {llmEx.UserMessage}";
+            await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unexpected error while checking manual man-hours for job {JobId}", job.Id);
+            job.DetectedScopeManhour = false;
+            job.ManhourDetectionNotes = "AI could not detect existing man-hour estimates in the scope document.";
+            await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
     }
 
     public Task<AssessmentJob?> GetJobAsync(int jobId, CancellationToken cancellationToken)
@@ -287,8 +389,8 @@ public class ProjectAssessmentAnalysisService
                     job.Status = JobStatus.GenerationComplete;
                     job.SyncStepWithStatus();
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
-                    await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
-                    _logger.LogInformation("Repaired job {JobId} after generation failure and resumed estimation.", job.Id);
+                    _logger.LogInformation("Repaired job {JobId} after generation failure. Scheduling estimation.", job.Id);
+                    QueuePipelineExecution(job.Id);
                 }
                 else
                 {
@@ -333,6 +435,21 @@ public class ProjectAssessmentAnalysisService
     public Task<bool> DeleteJobAsync(int jobId, CancellationToken cancellationToken)
     {
         return _jobStore.DeleteAsync(jobId, cancellationToken);
+    }
+
+    private void QueuePipelineExecution(int jobId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ExecuteFullPipelineAsync(jobId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled exception while processing assessment job {JobId} in background.", jobId);
+            }
+        });
     }
 
     private static bool ShouldRunGeneration(AssessmentJob job)
@@ -1930,6 +2047,238 @@ public class ProjectAssessmentAnalysisService
         };
     }
 
+    private string BuildManualAssessmentPrompt(ProjectTemplate template, string projectName)
+    {
+        var columns = ResolveTemplateColumns(template);
+        var builder = new StringBuilder();
+
+        // 1. Set the Persona and Core Task
+        builder.AppendLine("You are a highly accurate data extraction bot. Your ONLY task is to analyze the attached document, find the table containing man-hour estimates, and convert it into a valid JSON object. You must ignore all other text.");
+        builder.AppendLine();
+
+        // 2. Define the Strict Rules for the Model
+        builder.AppendLine("Follow these rules EXACTLY:");
+        builder.AppendLine("- **Find the Table:** Locate the table with columns for 'Item', 'Description', and 'Estimate (HOURS)'.");
+        builder.AppendLine("- **Map Item ID:** Match the 'No' column from the PDF table to the `itemId` from the 'Template Reference' provided below. For example, row '2A.1' in the PDF maps to `itemId: \"2A.1\"`.");
+        builder.AppendLine("- **Extract Estimates:** The 'Estimate (HOURS)' section in the PDF has nested columns. You MUST use the lowest-level column headers (e.g., 'Requirement', 'SIT', 'UAT', 'Setup', 'BE', 'FE') as the keys in the `estimates` JSON object.");
+        builder.AppendLine("- **Handle Numbers:** All estimate values must be numbers. If a cell is empty or contains a non-numeric value, use `0`.");
+        builder.AppendLine("- **Strict JSON Output:** Respond ONLY with a single JSON object. Do not include any text, explanation, or markdown like ```json.");
+        builder.AppendLine();
+
+        // 3. Provide a Perfect, Concrete Example of the Expected Output
+        builder.AppendLine("This is the required JSON output structure and an example for ONE item:");
+        builder.Append("```json\n");
+        builder.Append(
+        """
+        {
+          "hasAssessedManhour": true,
+          "message": "Successfully extracted 38 items from the man-hour table.",
+          "items": [
+            {
+              "itemId": "2A.1",
+              "isNeeded": true,
+              "estimates": {
+                "Requirement": 6,
+                "Unit Test": 2,
+                "SIT": 2,
+                "UAT": 2,
+                "Setup": 0,
+                "POC": 0,
+                "Code review": 4.00,
+                "BE": 16,
+                "FE": 4,
+                "Xunit": 2
+              }
+            }
+          ]
+        }
+        """
+        );
+        builder.Append("\n```");
+        builder.AppendLine();
+        builder.AppendLine("- If the document does NOT contain such a table, respond with: `{\"hasAssessedManhour\": false, \"message\": \"The document does not contain a man-hour estimation table.\", \"items\": []}`");
+        builder.AppendLine();
+
+        // 4. Provide the Template Data for Mapping
+        builder.AppendLine("--- TEMPLATE REFERENCE (Use for mapping PDF 'No' to JSON 'itemId') ---");
+        foreach (var section in template?.Sections ?? new List<TemplateSection>())
+        {
+            builder.AppendLine($"Section: {section.SectionName}");
+            foreach (var item in section.Items ?? new List<TemplateItem>())
+            {
+                // Providing only the necessary mapping info reduces token count and confusion.
+                builder.AppendLine($"- {item.ItemId}: {item.ItemName}");
+            }
+            builder.AppendLine();
+        }
+        builder.AppendLine("--- END TEMPLATE REFERENCE ---");
+
+        return builder.ToString();
+    }
+
+    private GenerateContentPayload BuildManualAssessmentRequest(string prompt, GeminiPart documentPart)
+    {
+        return new GenerateContentPayload
+        {
+            Contents = new List<GeminiContent>
+            {
+                new()
+                {
+                    Parts = new List<GeminiPart>
+                    {
+                        new() { Text = prompt },
+                        documentPart
+                    }
+                }
+            },
+            GenerationConfig = new GeminiGenerationConfig
+            {
+                Temperature = 0.1,
+                TopP = 0.8,
+                MaxOutputTokens = 2048,
+                ResponseMimeType = "application/json"
+            }
+        };
+    }
+
+    private bool TryDeserializeManualAssessment(
+        string response,
+        ProjectTemplate template,
+        out bool hasManhour,
+        out string? serializedResult,
+        out string? message)
+    {
+        hasManhour = false;
+        serializedResult = null;
+        message = null;
+
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            message = "AI returned an empty response when checking for manual man-hours.";
+            return false;
+        }
+
+        try
+        {
+            var detection = JsonSerializer.Deserialize<ManualDetectionResult>(response, _deserializationOptions);
+            if (detection == null)
+            {
+                message = "AI response could not be parsed.";
+                return false;
+            }
+
+            var columns = ResolveTemplateColumns(template);
+            var templateItems = (template?.Sections ?? new List<TemplateSection>())
+                .SelectMany(section => section.Items ?? new List<TemplateItem>())
+                .Where(item => !string.IsNullOrWhiteSpace(item.ItemId))
+                .ToDictionary(item => item.ItemId!, item => item, StringComparer.OrdinalIgnoreCase);
+
+            if (templateItems.Count == 0)
+            {
+                message = "Template does not contain reference items for mapping manual assessments.";
+                return false;
+            }
+
+            var normalizedItems = new List<AnalyzedItem>();
+            foreach (var candidate in detection.Items ?? new List<ManualDetectionItem>())
+            {
+                if (candidate == null || string.IsNullOrWhiteSpace(candidate.ItemId))
+                {
+                    continue;
+                }
+
+                if (!templateItems.ContainsKey(candidate.ItemId))
+                {
+                    continue;
+                }
+
+                var normalizedEstimates = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+                var hasValue = false;
+                foreach (var column in columns)
+                {
+                    double? value = null;
+                    if (candidate.Estimates != null && candidate.Estimates.Count > 0)
+                    {
+                        if (candidate.Estimates.TryGetValue(column, out var directValue))
+                        {
+                            value = NormalizeEstimate(directValue);
+                        }
+                        else
+                        {
+                            var match = candidate.Estimates.FirstOrDefault(kvp =>
+                                string.Equals(kvp.Key, column, StringComparison.OrdinalIgnoreCase));
+                            if (!match.Equals(default(KeyValuePair<string, double?>)))
+                            {
+                                value = NormalizeEstimate(match.Value);
+                            }
+                        }
+                    }
+
+                    if (value.HasValue)
+                    {
+                        hasValue = true;
+                    }
+
+                    normalizedEstimates[column] = value;
+                }
+
+                if (!hasValue)
+                {
+                    continue;
+                }
+
+                normalizedItems.Add(new AnalyzedItem
+                {
+                    ItemId = candidate.ItemId,
+                    IsNeeded = candidate.IsNeeded ?? true,
+                    Estimates = normalizedEstimates
+                });
+            }
+
+            var indicatesManual = detection.HasAssessedManhour ?? (normalizedItems.Count > 0);
+            hasManhour = normalizedItems.Count > 0 && indicatesManual;
+
+            if (hasManhour)
+            {
+                var analysis = new AnalysisResult { Items = normalizedItems };
+                serializedResult = JsonSerializer.Serialize(analysis, _serializationOptions);
+                message = string.IsNullOrWhiteSpace(detection.Message)
+                    ? "Detected assessed man-hours in the scope document."
+                    : detection.Message!.Trim();
+                return true;
+            }
+
+            serializedResult = null;
+            message = string.IsNullOrWhiteSpace(detection.Message)
+                ? "No assessed man-hours were found in the scope document."
+                : detection.Message!.Trim();
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse manual man-hour response: {Raw}", response);
+            message = "AI response could not be parsed while checking for assessed man-hours.";
+            serializedResult = null;
+            hasManhour = false;
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<string> ResolveTemplateColumns(ProjectTemplate template)
+    {
+        var columns = template?.EstimationColumns?
+            .Where(column => !string.IsNullOrWhiteSpace(column))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (columns == null || columns.Count == 0)
+        {
+            columns = new List<string> { "EffortHours" };
+        }
+
+        return columns;
+    }
+
 
     private PromptEstimationPolicy BuildPromptPolicy()
     {
@@ -2216,6 +2565,15 @@ public class ProjectAssessmentAnalysisService
 
     private sealed class GeminiGenerationConfig
     {
+        [JsonPropertyName("temperature")]
+        public double? Temperature { get; set; }
+
+        [JsonPropertyName("top_p")]
+        public double? TopP { get; set; }
+
+        [JsonPropertyName("max_output_tokens")]
+        public int? MaxOutputTokens { get; set; }
+
         [JsonPropertyName("response_mime_type")]
         public string? ResponseMimeType { get; set; }
     }
@@ -2330,6 +2688,20 @@ public class ProjectAssessmentAnalysisService
         public string Category { get; set; } = string.Empty;
         public bool IsNeeded { get; set; }
         public Dictionary<string, double?> Estimates { get; set; } = new();
+    }
+
+    private sealed class ManualDetectionResult
+    {
+        public bool? HasAssessedManhour { get; set; }
+        public string? Message { get; set; }
+        public List<ManualDetectionItem> Items { get; set; } = new();
+    }
+
+    private sealed class ManualDetectionItem
+    {
+        public string ItemId { get; set; } = string.Empty;
+        public bool? IsNeeded { get; set; }
+        public Dictionary<string, double?>? Estimates { get; set; }
     }
 
     private sealed class AnalysisResult
