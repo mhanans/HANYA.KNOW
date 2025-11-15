@@ -39,52 +39,36 @@ public static class AssessmentTaskAggregator
     public static Dictionary<string, double> AggregateEstimationColumnEffort(ProjectAssessment assessment)
     {
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        if (assessment?.Sections == null)
-        {
-            Console.WriteLine("[ERROR] AggregateEstimationColumnEffort: Assessment or Sections collection is null.");
-            return result;
-        }
+        if (assessment?.Sections == null) return result;
 
         double totalHoursTracked = 0;
 
         foreach (var section in assessment.Sections)
         {
-            if (section?.Items == null)
-            {
-                continue;
-            }
+            if (section?.Items == null) continue;
 
             foreach (var item in section.Items)
             {
-                if (item == null || !item.IsNeeded || item.Estimates == null)
-                {
-                    continue;
-                }
+                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
 
                 foreach (var estimate in item.Estimates)
                 {
                     var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName))
-                    {
-                        continue;
-                    }
+                    if (string.IsNullOrWhiteSpace(columnName)) continue;
 
-                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    if (TryExtractHours(estimate.Value, out double hours) && hours > 0)
                     {
-                        continue;
+                        totalHoursTracked += hours;
+                        var manDays = hours / 8.0;
+                        result[columnName] = result.TryGetValue(columnName, out var existing)
+                            ? existing + manDays
+                            : manDays;
                     }
-
-                    totalHoursTracked += hours;
-                    var manDays = hours / 8.0;
-                    result[columnName] = result.TryGetValue(columnName, out var existing)
-                        ? existing + manDays
-                        : manDays;
                 }
             }
         }
 
-        Console.WriteLine(
-            $"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}. Columns: {string.Join(", ", result.Keys)}");
+        Console.WriteLine($"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours: {totalHoursTracked}. Total Man-Days: {result.Values.Sum()}.");
         return result;
     }
 
@@ -261,32 +245,17 @@ public static class AssessmentTaskAggregator
             case double d when double.IsFinite(d):
                 hours = d;
                 return hours > 0;
-            case double? nd when nd.HasValue && double.IsFinite(nd.Value):
-                hours = nd.Value;
-                return hours > 0;
             case float f when float.IsFinite(f):
                 hours = f;
-                return hours > 0;
-            case float? nf when nf.HasValue && float.IsFinite(nf.Value):
-                hours = nf.Value;
                 return hours > 0;
             case decimal dec:
                 hours = (double)dec;
                 return hours > 0;
-            case decimal? ndec when ndec.HasValue:
-                hours = (double)ndec.Value;
-                return hours > 0;
             case long l:
                 hours = l;
                 return hours > 0;
-            case long? nl when nl.HasValue:
-                hours = nl.Value;
-                return hours > 0;
             case int i:
                 hours = i;
-                return hours > 0;
-            case int? ni when ni.HasValue:
-                hours = ni.Value;
                 return hours > 0;
             case JsonElement element:
                 return TryExtractHoursFromJson(element, out hours);
@@ -467,5 +436,72 @@ public static class AssessmentTaskAggregator
 
             _hasLoggedColumnDiagnostics = true;
         }
+    }
+}
+
+public static class GanttTaskAggregator
+{
+    public class GanttTask
+    {
+        public string ActivityGroup { get; set; } = string.Empty;
+        public string Detail { get; set; } = string.Empty;
+        public string Actor { get; set; } = string.Empty;
+        public double ManDays { get; set; }
+    }
+
+    public static List<GanttTask> GetGanttTasks(ProjectAssessment assessment, PresalesConfiguration configuration)
+    {
+        var tasks = new List<GanttTask>();
+        if (assessment?.Sections == null)
+        {
+            return tasks;
+        }
+        var columnRoleLookup = (configuration?.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping?.EstimationColumn) &&
+                !string.IsNullOrWhiteSpace(mapping?.RoleName))
+            .ToLookup(
+                mapping => mapping!.EstimationColumn!.Trim(),
+                mapping => mapping!.RoleName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in assessment.Sections ?? Enumerable.Empty<AssessmentSection>())
+        {
+            foreach (var item in section?.Items ?? Enumerable.Empty<AssessmentItem>())
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
+
+                var activityGroup = AssessmentTaskAggregator.ResolveActivityName(
+                    section?.SectionName ?? string.Empty,
+                    item.ItemName ?? string.Empty,
+                    string.Empty,
+                    configuration);
+
+                foreach (var estimate in item.Estimates)
+                {
+                    if (!AssessmentTaskAggregator.TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    var detailName = estimate.Key?.Trim() ?? string.Empty;
+                    var roles = columnRoleLookup[detailName]
+                        .Where(role => !string.IsNullOrWhiteSpace(role))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(role => role, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    tasks.Add(new GanttTask
+                    {
+                        ActivityGroup = string.IsNullOrWhiteSpace(activityGroup) ? "Uncategorized" : activityGroup,
+                        Detail = string.IsNullOrWhiteSpace(detailName) ? item.ItemName ?? "Task" : detailName,
+                        Actor = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned",
+                        ManDays = hours / 8.0
+                    });
+                }
+            }
+        }
+
+        return tasks;
     }
 }
