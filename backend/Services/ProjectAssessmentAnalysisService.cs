@@ -128,6 +128,7 @@ public class ProjectAssessmentAnalysisService
         int requestedTemplateId,
         string projectName,
         IFormFile scopeDocument,
+        bool scopeHasAssessmentManhour,
         AssessmentAnalysisMode analysisMode,
         AssessmentLanguage outputLanguage,
         IReadOnlyList<ProjectAssessment>? referenceAssessments,
@@ -151,7 +152,7 @@ public class ProjectAssessmentAnalysisService
             Status = JobStatus.Pending,
             ScopeDocumentPath = storedPath,
             ScopeDocumentMimeType = mimeType,
-            ScopeDocumentHasManhour = request.ScopeHasAssessmentManhour,
+            ScopeDocumentHasManhour = scopeHasAssessmentManhour,
             OriginalTemplateJson = JsonSerializer.Serialize(template, _serializationOptions),
             ReferenceAssessmentsJson = referenceAssessments?.Count > 0
                 ? JsonSerializer.Serialize(referenceAssessments, _serializationOptions)
@@ -2514,6 +2515,15 @@ public class ProjectAssessmentAnalysisService
 
     private sealed class GeminiGenerationConfig
     {
+        [JsonPropertyName("temperature")]
+        public double? Temperature { get; set; }
+
+        [JsonPropertyName("top_p")]
+        public double? TopP { get; set; }
+
+        [JsonPropertyName("max_output_tokens")]
+        public int? MaxOutputTokens { get; set; }
+
         [JsonPropertyName("response_mime_type")]
         public string? ResponseMimeType { get; set; }
     }

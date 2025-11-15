@@ -113,6 +113,7 @@ public class AssessmentController : ControllerBase
                 request.TemplateId,
                 request.ProjectName ?? string.Empty,
                 request.File!,
+                request.ScopeHasAssessmentManhour,
                 analysisMode,
                 outputLanguage,
                 referenceAssessments,
