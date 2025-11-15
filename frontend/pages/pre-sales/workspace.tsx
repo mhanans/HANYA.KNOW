@@ -449,6 +449,7 @@ export default function AssessmentWorkspace() {
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
+  const lastJobStepRef = useRef<number | null>(null);
   const outstandingJobCheckRef = useRef(false);
   const manualDetectionNotices = useRef<Set<number>>(new Set());
 
@@ -508,24 +509,24 @@ export default function AssessmentWorkspace() {
       }
       setOutputLanguage(resolveOutputLanguage(job.outputLanguage));
 
-      const currentStepNumber = jobStatusStepNumber[job.status];
+      const statusStep = job.status ? jobStatusStepNumber[job.status] : undefined;
+      const numericStep =
+        typeof job.step === 'number' && Number.isFinite(job.step) ? Math.max(1, Math.round(job.step)) : null;
+      const derivedStep = Math.max(statusStep ?? 0, numericStep ?? 0);
+      const currentStepNumber = derivedStep > 0 ? Math.min(derivedStep, highestJobStep) : 1;
+      const reachedEstimationComplete = currentStepNumber >= jobStatusStepNumber.EstimationComplete;
+      const reachedFinalStep = currentStepNumber >= highestJobStep;
       const steps: string[] = [];
 
-      if (currentStepNumber) {
-        steps.push(`Current step: ${currentStepNumber} of ${highestJobStep}`);
-      } else {
-        steps.push('Preparing analysis…');
-      }
-
+      steps.push(`Current step: ${currentStepNumber} of ${highestJobStep}`);
       steps.push('Uploading scope document…');
 
-      let progressValue = currentStepNumber
-        ? Math.round((currentStepNumber / highestJobStep) * 100)
-        : 10;
+      let progressValue = Math.round((currentStepNumber / highestJobStep) * 100) || 10;
 
       switch (job.status) {
         case 'Pending':
           steps.push('Waiting for background processor to start…');
+          progressValue = Math.max(progressValue, 15);
           break;
         case 'GenerationInProgress':
           steps.push('Generating assessment breakdown…');
@@ -556,6 +557,8 @@ export default function AssessmentWorkspace() {
           steps.push('Estimation step failed.');
           break;
         default:
+          steps.push('Preparing analysis…');
+          progressValue = Math.max(progressValue, 10);
           break;
       }
 
@@ -565,21 +568,34 @@ export default function AssessmentWorkspace() {
           steps.push(`Error: ${failureMessage}`);
         }
 
-        const resumeFromStep = currentStepNumber ?? Math.max(1, highestJobStep - 1);
+        const resumeFromStep = currentStepNumber || Math.max(1, highestJobStep - 1);
         steps.push(`Resolve the issue and resume from step ${resumeFromStep}.`);
 
-        const completedBeforeFailure = Math.max(1, (currentStepNumber ?? 1) - 1);
+        const completedBeforeFailure = Math.max(1, currentStepNumber - 1);
         progressValue = Math.round((completedBeforeFailure / highestJobStep) * 100);
+      } else {
+        if (reachedEstimationComplete && job.status !== 'EstimationComplete' && job.status !== 'Complete') {
+          steps.push('Effort estimation completed.');
+        }
+        if (reachedFinalStep && job.status !== 'Complete') {
+          steps.push('Analysis complete.');
+          progressValue = 100;
+        }
       }
 
       setAnalysisLog(steps);
       setProgress(progressValue);
-      setIsAnalyzing(!isTerminalJobStatus(job.status));
+
+      const failureStatus = isFailureJobStatus(job.status);
+      const jobIsTerminal = failureStatus || job.status === 'Complete' || reachedFinalStep;
+      setIsAnalyzing(!jobIsTerminal);
 
       const previousStatus = lastJobStatusRef.current;
+      const previousStep = lastJobStepRef.current;
       const statusChanged = previousStatus !== job.status;
+      const stepChanged = previousStep !== currentStepNumber;
 
-      if (job.status === 'Complete' && statusChanged) {
+      if (!failureStatus && jobIsTerminal && (statusChanged || stepChanged)) {
         if (job.scopeDocumentHasManhour && job.detectedScopeManhour) {
           showSuccess(
             'Assessed man-hours imported',
@@ -588,7 +604,7 @@ export default function AssessmentWorkspace() {
         } else {
           showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
         }
-      } else if (isFailureJobStatus(job.status) && statusChanged) {
+      } else if (failureStatus && statusChanged) {
         const message = job.lastError || 'The AI analysis did not return valid data. Try again later.';
         showError(message, 'Analysis failed');
       }
@@ -610,7 +626,8 @@ export default function AssessmentWorkspace() {
       }
 
       lastJobStatusRef.current = job.status;
-      return { previousStatus, statusChanged };
+      lastJobStepRef.current = currentStepNumber;
+      return { previousStatus, statusChanged, stepChanged, reachedFinalStep, jobIsTerminal };
     },
     [manualDetectionNotices, resolveOutputLanguage, setAnalysisMode, showError, showSuccess]
   );
@@ -669,10 +686,13 @@ export default function AssessmentWorkspace() {
         const res = await apiFetch(`/api/assessment/jobs/${jobId}`);
         if (!res.ok) throw new Error(await res.text());
         const job: AssessmentJob = await res.json();
-        const { statusChanged } = applyJobStatus(job);
+        const { statusChanged, stepChanged, reachedFinalStep } = applyJobStatus(job);
 
-        if (job.status === 'Complete') {
-          if (statusChanged) {
+        const shouldLoadResults =
+          (job.status === 'Complete' || reachedFinalStep) && (statusChanged || stepChanged);
+
+        if (job.status === 'Complete' || reachedFinalStep) {
+          if (shouldLoadResults) {
             await loadAssessmentFromJob(jobId);
           }
           stopJobPolling();
@@ -681,7 +701,7 @@ export default function AssessmentWorkspace() {
         } else {
           jobPollTimer.current = setTimeout(() => {
             void refreshJobStatus(jobId);
-          }, statusChanged ? 500 : 2500);
+          }, statusChanged || stepChanged ? 500 : 2500);
         }
       } catch (err) {
         stopJobPolling();
@@ -704,10 +724,15 @@ export default function AssessmentWorkspace() {
         const res = await apiFetch(`/api/assessment/jobs/${jobId}/resume`, { method: 'POST' });
         if (!res.ok) throw new Error(await res.text());
         const resumedJob: AssessmentJob = await res.json();
-        const { statusChanged } = applyJobStatus(resumedJob);
+        const { statusChanged, stepChanged, reachedFinalStep } = applyJobStatus(resumedJob);
 
-        if (resumedJob.status === 'Complete') {
-          await loadAssessmentFromJob(jobId);
+        const shouldLoadResults =
+          (resumedJob.status === 'Complete' || reachedFinalStep) && (statusChanged || stepChanged);
+
+        if (resumedJob.status === 'Complete' || reachedFinalStep) {
+          if (shouldLoadResults) {
+            await loadAssessmentFromJob(jobId);
+          }
           stopJobPolling();
         } else if (isFailureJobStatus(resumedJob.status)) {
           stopJobPolling();
@@ -715,7 +740,7 @@ export default function AssessmentWorkspace() {
           setAssessment(null);
           jobPollTimer.current = setTimeout(() => {
             void refreshJobStatus(jobId);
-          }, statusChanged ? 500 : 2000);
+          }, statusChanged || stepChanged ? 500 : 2000);
         }
         return true;
       } catch (err) {
@@ -809,11 +834,11 @@ export default function AssessmentWorkspace() {
         const res = await apiFetch(`/api/assessment/jobs/${jobId}`);
         if (!res.ok) throw new Error(await res.text());
         const job: AssessmentJob = await res.json();
-        applyJobStatus(job);
+        const { reachedFinalStep } = applyJobStatus(job);
         setSelectedTemplate(job.templateId);
         setProjectTitle(job.projectName);
         void refreshSimilarAssessments();
-        if (job.status === 'Complete') {
+        if (job.status === 'Complete' || reachedFinalStep) {
           await loadAssessmentFromJob(jobId);
         } else if (isFailureJobStatus(job.status)) {
           await promptJobRecovery(job);
@@ -938,6 +963,7 @@ export default function AssessmentWorkspace() {
     async (id: number) => {
       stopJobPolling();
       lastJobStatusRef.current = null;
+      lastJobStepRef.current = null;
       setActiveJob(null);
       setIsAnalyzing(false);
       setProgress(0);
@@ -1163,6 +1189,7 @@ export default function AssessmentWorkspace() {
     manualDetectionNotices.current.clear();
     stopJobPolling();
     lastJobStatusRef.current = null;
+    lastJobStepRef.current = null;
     setAssessment(null);
     setIsAnalyzing(true);
     setAnalysisLog(['Uploading scope document…', 'Waiting for background processor to start…']);
@@ -1188,13 +1215,11 @@ export default function AssessmentWorkspace() {
       if (trimmedTitle !== projectTitle) {
         setProjectTitle(trimmedTitle);
       }
-      applyJobStatus(job);
+      const { reachedFinalStep, jobIsTerminal } = applyJobStatus(job);
       setSelectedTemplate(job.templateId);
-      if (isTerminalJobStatus(job.status)) {
-        if (job.status === 'Complete') {
-          await loadAssessmentFromJob(job.id);
-        }
-      } else {
+      if (job.status === 'Complete' || reachedFinalStep) {
+        await loadAssessmentFromJob(job.id);
+      } else if (!jobIsTerminal) {
         jobPollTimer.current = setTimeout(() => {
           void refreshJobStatus(job.id);
         }, 2000);
