@@ -35,6 +35,9 @@ public class AssessmentJobStore
                                     step,
                                     scope_document_path,
                                     scope_document_mime_type,
+                                    scope_document_has_manhour,
+                                    detected_scope_manhour,
+                                    manhour_detection_notes,
                                     original_template_json,
                                     reference_assessments_json,
                                     reference_documents_json,
@@ -54,6 +57,9 @@ public class AssessmentJobStore
                                     @step,
                                     @scopeDocumentPath,
                                     @scopeDocumentMimeType,
+                                    @scopeDocumentHasManhour,
+                                    @detectedScopeManhour,
+                                    @manhourDetectionNotes,
                                     @originalTemplateJson,
                                     @referenceAssessmentsJson,
                                     @referenceDocumentsJson,
@@ -77,6 +83,11 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
         cmd.Parameters.AddWithValue("scopeDocumentMimeType", job.ScopeDocumentMimeType ?? string.Empty);
+        cmd.Parameters.AddWithValue("scopeDocumentHasManhour", job.ScopeDocumentHasManhour);
+        cmd.Parameters.Add("detectedScopeManhour", NpgsqlDbType.Boolean).Value =
+            (object?)job.DetectedScopeManhour ?? DBNull.Value;
+        cmd.Parameters.Add("manhourDetectionNotes", NpgsqlDbType.Text).Value =
+            (object?)job.ManhourDetectionNotes ?? DBNull.Value;
         cmd.Parameters.Add("originalTemplateJson", NpgsqlDbType.Text).Value = job.OriginalTemplateJson ?? string.Empty;
         cmd.Parameters.Add("referenceAssessmentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceAssessmentsJson ?? DBNull.Value;
         cmd.Parameters.Add("referenceDocumentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceDocumentsJson ?? DBNull.Value;
@@ -112,6 +123,9 @@ public class AssessmentJobStore
                                      aj.step,
                                      aj.scope_document_path,
                                      aj.scope_document_mime_type,
+                                     aj.scope_document_has_manhour,
+                                     aj.detected_scope_manhour,
+                                     aj.manhour_detection_notes,
                                      aj.original_template_json,
                                      aj.reference_assessments_json,
                                      aj.reference_documents_json,
@@ -154,6 +168,9 @@ public class AssessmentJobStore
                                   step=@step,
                                   scope_document_path=@scopeDocumentPath,
                                   scope_document_mime_type=@scopeDocumentMimeType,
+                                  scope_document_has_manhour=@scopeDocumentHasManhour,
+                                  detected_scope_manhour=@detectedScopeManhour,
+                                  manhour_detection_notes=@manhourDetectionNotes,
                                   original_template_json=@originalTemplateJson,
                                   reference_assessments_json=@referenceAssessmentsJson,
                                   reference_documents_json=@referenceDocumentsJson,
@@ -177,6 +194,11 @@ public class AssessmentJobStore
         cmd.Parameters.AddWithValue("step", job.Step);
         cmd.Parameters.AddWithValue("scopeDocumentPath", job.ScopeDocumentPath ?? string.Empty);
         cmd.Parameters.AddWithValue("scopeDocumentMimeType", job.ScopeDocumentMimeType ?? string.Empty);
+        cmd.Parameters.AddWithValue("scopeDocumentHasManhour", job.ScopeDocumentHasManhour);
+        cmd.Parameters.Add("detectedScopeManhour", NpgsqlDbType.Boolean).Value =
+            (object?)job.DetectedScopeManhour ?? DBNull.Value;
+        cmd.Parameters.Add("manhourDetectionNotes", NpgsqlDbType.Text).Value =
+            (object?)job.ManhourDetectionNotes ?? DBNull.Value;
         cmd.Parameters.Add("originalTemplateJson", NpgsqlDbType.Text).Value = job.OriginalTemplateJson ?? string.Empty;
         cmd.Parameters.Add("referenceAssessmentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceAssessmentsJson ?? DBNull.Value;
         cmd.Parameters.Add("referenceDocumentsJson", NpgsqlDbType.Text).Value = (object?)job.ReferenceDocumentsJson ?? DBNull.Value;
@@ -270,17 +292,20 @@ public class AssessmentJobStore
             Step = reader.IsDBNull(6) ? 1 : Math.Max(1, reader.GetInt32(6)),
             ScopeDocumentPath = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
             ScopeDocumentMimeType = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
-            OriginalTemplateJson = reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
-            ReferenceAssessmentsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
-            ReferenceDocumentsJson = reader.IsDBNull(11) ? null : reader.GetString(11),
-            RawGenerationResponse = reader.IsDBNull(12) ? null : reader.GetString(12),
-            GeneratedItemsJson = reader.IsDBNull(13) ? null : reader.GetString(13),
-            RawEstimationResponse = reader.IsDBNull(14) ? null : reader.GetString(14),
-            FinalAnalysisJson = reader.IsDBNull(15) ? null : reader.GetString(15),
-            LastError = reader.IsDBNull(16) ? null : reader.GetString(16),
-            CreatedAt = reader.IsDBNull(17) ? DateTime.UtcNow : reader.GetDateTime(17),
-            LastModifiedAt = reader.IsDBNull(18) ? DateTime.UtcNow : reader.GetDateTime(18),
-            TemplateName = reader.FieldCount > 19 && !reader.IsDBNull(19) ? reader.GetString(19) : string.Empty
+            ScopeDocumentHasManhour = !reader.IsDBNull(9) && reader.GetBoolean(9),
+            DetectedScopeManhour = reader.IsDBNull(10) ? null : reader.GetBoolean(10),
+            ManhourDetectionNotes = reader.IsDBNull(11) ? null : reader.GetString(11),
+            OriginalTemplateJson = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+            ReferenceAssessmentsJson = reader.IsDBNull(13) ? null : reader.GetString(13),
+            ReferenceDocumentsJson = reader.IsDBNull(14) ? null : reader.GetString(14),
+            RawGenerationResponse = reader.IsDBNull(15) ? null : reader.GetString(15),
+            GeneratedItemsJson = reader.IsDBNull(16) ? null : reader.GetString(16),
+            RawEstimationResponse = reader.IsDBNull(17) ? null : reader.GetString(17),
+            FinalAnalysisJson = reader.IsDBNull(18) ? null : reader.GetString(18),
+            LastError = reader.IsDBNull(19) ? null : reader.GetString(19),
+            CreatedAt = reader.IsDBNull(20) ? DateTime.UtcNow : reader.GetDateTime(20),
+            LastModifiedAt = reader.IsDBNull(21) ? DateTime.UtcNow : reader.GetDateTime(21),
+            TemplateName = reader.FieldCount > 22 && !reader.IsDBNull(22) ? reader.GetString(22) : string.Empty
         };
     }
 
