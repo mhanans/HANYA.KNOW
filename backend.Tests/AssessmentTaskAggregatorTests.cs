@@ -85,16 +85,21 @@ public class AssessmentTaskAggregatorTests
     }
 
     [Fact]
-    public void GetDetailedTasks_GroupsEstimatesPerItem()
+    public void GetGanttTasks_CreatesTaskPerEstimationColumn()
     {
-        var tasks = AssessmentTaskAggregator.GetDetailedTasks(_sampleAssessment, _configuration);
+        var tasks = GanttTaskAggregator.GetGanttTasks(_sampleAssessment, _configuration);
 
-        Assert.Equal(5, tasks.Count);
+        Assert.Equal(6, tasks.Count);
 
-        var backendTask = Assert.Single(tasks, t => t.TaskName == "Backend API");
-        Assert.Equal("Development", backendTask.ActivityGroup);
-        Assert.Equal("Developer, Quality Engineer", backendTask.Actor);
-        AssertClose(12, backendTask.ManDays);
+        var backendDev = Assert.Single(tasks, t => t.Detail == "BE Development");
+        Assert.Equal("Engineering", backendDev.ActivityGroup);
+        Assert.Equal("Developer", backendDev.Actor);
+        AssertClose(10, backendDev.ManDays);
+
+        var sitTask = Assert.Single(tasks, t => t.Detail == "SIT (Manual by QA)");
+        Assert.Equal("Engineering", sitTask.ActivityGroup);
+        Assert.Equal("Quality Engineer", sitTask.Actor);
+        AssertClose(2, sitTask.ManDays);
     }
 
     private static void AssertClose(double expected, double actual, double tolerance = 1e-6)

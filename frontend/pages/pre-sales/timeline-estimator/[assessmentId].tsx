@@ -28,11 +28,6 @@ interface TimelinePhaseEstimate {
   sequenceType: string;
 }
 
-interface PresalesActivity {
-  activityName: string;
-  displayOrder: number;
-}
-
 interface TimelineRoleEstimate {
   role: string;
   estimatedHeadcount: number;
@@ -79,7 +74,6 @@ export default function TimelineEstimatorDetailPage() {
   }, [assessmentId]);
 
   const [data, setData] = useState<TimelineEstimationDetails | null>(null);
-  const [activities, setActivities] = useState<PresalesActivity[]>([]);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,50 +101,11 @@ export default function TimelineEstimatorDetailPage() {
     }
   }, [resolvedId]);
 
-  const loadActivities = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/presales/config');
-      if (!res.ok) {
-        console.warn(`Failed to load presales activities (${res.status})`);
-        setActivities([]);
-        return;
-      }
-
-      const data = await res.json();
-      const list: PresalesActivity[] = Array.isArray(data?.activities)
-        ? data.activities
-            .map((activity: any) => ({
-              activityName: typeof activity?.activityName === 'string' ? activity.activityName.trim() : '',
-              displayOrder: Number.isFinite(activity?.displayOrder)
-                ? Number(activity.displayOrder)
-                : parseInt(activity?.displayOrder ?? '0', 10) || 0,
-            }))
-            .filter(activity => activity.activityName.length > 0)
-        : [];
-
-      list.sort((a, b) => {
-        if (a.displayOrder !== b.displayOrder) {
-          return a.displayOrder - b.displayOrder;
-        }
-        return a.activityName.localeCompare(b.activityName);
-      });
-
-      setActivities(list);
-    } catch (err) {
-      console.warn('Failed to load presales activities', err);
-      setActivities([]);
-    }
-  }, []);
-
   useEffect(() => {
     if (resolvedId) {
       loadEstimation();
     }
   }, [resolvedId, loadEstimation]);
-
-  useEffect(() => {
-    loadActivities();
-  }, [loadActivities]);
 
   const handleRegenerate = useCallback(async () => {
     if (!resolvedId) return;
@@ -177,21 +132,6 @@ export default function TimelineEstimatorDetailPage() {
     }
   }, [resolvedId, loadEstimation]);
 
-  const configuredPhases = useMemo(() => {
-    if (!estimation || !Array.isArray(estimation.phases)) {
-      return [];
-    }
-
-    return [...estimation.phases]
-      .sort((a, b) => (a.phaseName || '').localeCompare(b.phaseName || ''))
-      .map(phase => ({
-        phaseName: phase?.phaseName || '—',
-        durationDays: phase?.durationDays ?? null,
-        sequenceType: phase?.sequenceType || '—',
-      }));
-  }, [estimation]);
-
-  const sumPhaseDuration = configuredPhases.reduce((sum, phase) => sum + (phase.durationDays ?? 0), 0);
 
   if (!resolvedId) {
     return (
@@ -237,7 +177,8 @@ export default function TimelineEstimatorDetailPage() {
             Timeline Estimator
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            AI-generated scale, phase durations, and resource headcount guidance for downstream timeline generation.
+            AI-generated project scale, duration anchor, and resource headcount guidance derived from historical reference tables.
+            This step sits inside the Presales Workspace flow (Presales Workspace → Timeline Estimator → Timeline Generation → Estimated Cost Generation) and primes the detailed timeline generation stage.
           </Typography>
         </Box>
         <Stack direction="row" alignItems="center" spacing={1}>
@@ -279,44 +220,11 @@ export default function TimelineEstimatorDetailPage() {
           Sequencing notes: {estimation.sequencingNotes || '—'}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-          Sum of phase durations: {sumPhaseDuration} days. Total duration target: {estimation.totalDurationDays} days.
+          Total duration can differ from raw role durations because the estimator assumes setup, overlapping execution, and closing buffers before timeline generation runs.
         </Typography>
       </Paper>
 
       {rawInput && <RawInputSummary rawInput={rawInput} />}
-
-      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Phase Duration Guidance
-        </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Phase</TableCell>
-                <TableCell align="right">Duration (days)</TableCell>
-                <TableCell align="right">Sequencing</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {configuredPhases.map(phase => (
-                <TableRow key={phase.phaseName}>
-                  <TableCell>{phase.phaseName}</TableCell>
-                  <TableCell align="right">{phase.durationDays ?? '—'}</TableCell>
-                  <TableCell align="right">{phase.sequenceType}</TableCell>
-                </TableRow>
-              ))}
-              {configuredPhases.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} align="center">
-                    No phase guidance available.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
 
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
         <Typography variant="h6" gutterBottom>
