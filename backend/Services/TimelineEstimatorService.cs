@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -484,58 +483,59 @@ public class TimelineEstimatorService
         _ = assessment;
 
         var activityLines = activityManDays
-            .OrderBy(kvp => kvp.Key)
-            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days");
+            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp => $"  - \"{kvp.Key}\": {kvp.Value:F1} man-days")
+            .ToList();
 
         var roleDurationLines = durationsPerRole
             .OrderByDescending(kvp => kvp.Value)
-            .Select(kvp => $"  - {kvp.Key}: Requires a minimum of {kvp.Value} working days.");
-        
-        var expectedPhases = string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"));
+            .Select(kvp => $"  - {kvp.Key}: Requires a minimum of {kvp.Value} working days.")
+            .ToList();
+
         var anchorRole = durationsPerRole
             .OrderByDescending(kvp => kvp.Value)
             .FirstOrDefault();
         var anchorRoleName = string.IsNullOrWhiteSpace(anchorRole.Key)
             ? "primary role"
             : anchorRole.Key;
+        var exampleDuration = durationAnchor + 12;
 
-        var builder = new StringBuilder();
-        builder.AppendLine("You are an expert Project Scheduler AI. Your task is to create a realistic project plan.");
-        builder.AppendLine();
-        builder.AppendLine("**Project Data:**");
-        builder.AppendLine($"1.  **Team Configuration:** A '{teamTypeName}' configuration is used.");
-        builder.AppendLine("2.  **Phase Effort Breakdown:** The total work required for each phase.");
+        return $@"
+You are a pragmatic and logical Project Scheduler AI. Your goal is to create a realistic timeline based on hard data constraints.
 
-        foreach (var line in activityLines)
-        {
-            builder.AppendLine(line);
-        }
+**Critical Data & Constraints (You MUST adhere to these):**
 
-        builder.AppendLine("3.  **Resource Bottleneck Analysis:** The minimum duration required by each role. The project cannot be shorter than the longest duration listed here.");
+1.  **Team Configuration:** The project will use a '{teamTypeName}' with pre-defined headcounts. This configuration is fixed.
+2.  **Resource Bottleneck Analysis (The Critical Path Anchor):**
+    This is the MINIMUM time each role needs to complete their work. The project CANNOT be shorter than the longest duration listed. This is your primary constraint.
+{string.Join("\n", roleDurationLines)}
+    **==> The absolute minimum project duration is {durationAnchor} days.**
 
-        foreach (var line in roleDurationLines)
-        {
-            builder.AppendLine(line);
-        }
+3.  **Phase Effort Breakdown:** The work required for each phase.
+{string.Join("\n", activityLines)}
 
-        builder.AppendLine();
-        builder.AppendLine("**Instructions:**");
-        builder.AppendLine($"1.  **Critical Path Anchor:** The project's critical path is determined by the longest bottleneck. The final `totalDurationDays` MUST be >= **{durationAnchor} days**.");
-        builder.AppendLine($"2.  **Sequence All Phases:** You MUST provide a duration and sequence for **every one of these phases:** {expectedPhases}. Do not omit any from your final JSON output.");
-        builder.AppendLine("3.  **Construct Timeline:** Based on your sequence (using 'Serial', 'Subsequent', 'Parallel'), determine the final `totalDurationDays`. It will likely be longer than the anchor due to dependencies.");
-        builder.AppendLine("4.  **Assign Phase Durations:** Assign a `durationDays` to each phase that is logical within your total timeline and reflects its relative effort.");
-        builder.AppendLine("5.  **Output:** Provide a minified JSON response. Do not include the 'roles' array.");
-        builder.AppendLine();
-        builder.AppendLine("**JSON Output Example:**");
-        builder.AppendLine("{");
-        builder.AppendLine($"  \"projectScale\": \"{teamTypeName}\",");
-        builder.AppendLine($"  \"totalDurationDays\": {durationAnchor + 15},");
-        builder.AppendLine($"  \"sequencingNotes\": \"The timeline is anchored by the {anchorRoleName}'s {durationAnchor}-day work bottleneck. After sequencing all phases with overlaps, the total duration is {durationAnchor + 15} days.\",");
-        builder.AppendLine("  \"phases\": [ { \"phaseName\": \"Analysis & Design\", \"durationDays\": 20, \"sequenceType\": \"Serial\" } ]");
-        builder.AppendLine("}");
-        builder.Append("Return ONLY the JSON object.");
+**Your Task (Follow these instructions precisely):**
 
-        return builder.ToString();
+1.  **Determine Total Duration:** Start with the minimum duration of **{durationAnchor} days**. Then, sequence all the phases logically. Add any extra time needed for serial dependencies that extend beyond the bottleneck. The result is your `totalDurationDays`.
+2.  **Assign Phase Durations:** Distribute the total duration across ALL of the following phases: {string.Join(", ", activityManDays.Keys.Select(k => $"'{k}'"))}. You MUST provide a `durationDays` for every phase. Do not omit any. The sum of these durations will be longer than `totalDurationDays` because of parallel work.
+3.  **Define Sequencing:** For each phase, set `sequenceType` to 'Serial', 'Subsequent', or 'Parallel'. Your sequencing must be logical (e.g., 'Analysis & Design' before 'Development').
+4.  **Explain Your Logic:** In `sequencingNotes`, clearly state how you arrived at the `totalDurationDays` starting from the {durationAnchor}-day anchor.
+
+**Final Output (Strict JSON format, no extra text):**
+
+Provide a minified JSON response. DO NOT include the 'roles' array.
+
+**Example:**
+{{
+  ""projectScale"": ""{teamTypeName}"",
+  ""totalDurationDays"": {exampleDuration},
+  ""sequencingNotes"": ""The timeline is driven by the {anchorRoleName}'s {durationAnchor}-day work bottleneck. After sequencing all phases with necessary dependencies and overlaps, the final critical path duration is calculated to be {exampleDuration} days."",
+  ""phases"": [
+    {{ ""phaseName"": ""Analysis & Design"", ""durationDays"": 15, ""sequenceType"": ""Serial"" }},
+    {{ ""phaseName"": ""Development"", ""durationDays"": 45, ""sequenceType"": ""Subsequent"" }}
+  ]
+}}
+";
     }
 
     private static AiTimelineEstimationResult ParseAiEstimation(string response)
