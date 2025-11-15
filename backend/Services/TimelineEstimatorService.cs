@@ -52,25 +52,14 @@ public class TimelineEstimatorService
         }
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
-        if (estimationColumnEffort.Count == 0)
+        var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
+        var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
+        if (roleManDays.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline estimate.");
         }
 
-        var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
-        var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
         var references = await _referenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
-
-        // --- ADD THIS TEMPORARY LOG ---
-        _logger.LogWarning("--- AGGREGATION VERIFICATION ---");
-        _logger.LogWarning($"Total Man-Days Calculated: {roleManDays.Values.Sum()}");
-        foreach(var entry in roleManDays)
-        {
-            _logger.LogWarning($"Role: {entry.Key}, ManDays: {entry.Value}");
-        }
-        _logger.LogWarning("---------------------------------");
-        // --- END OF LOG ---
 
         var totalManDays = roleManDays.Values.Sum();
         var teamType = config.TeamTypes
@@ -147,10 +136,9 @@ public class TimelineEstimatorService
         }
 
         estimation.RawInputData = rawInputData;
-        if (string.IsNullOrWhiteSpace(estimation.ProjectScale))
-        {
-            estimation.ProjectScale = rawInputData.SelectedTeamType?.Name ?? teamType.Name;
-        }
+        estimation.ProjectScale = string.IsNullOrWhiteSpace(estimation.ProjectScale)
+            ? rawInputData.SelectedTeamType?.Name ?? teamType.Name
+            : estimation.ProjectScale;
 
         if (estimation.Roles == null || !estimation.Roles.Any())
         {
@@ -208,7 +196,7 @@ public class TimelineEstimatorService
         var totalDuration = Math.Max(1, result.TotalDurationDays);
         return new TimelineEstimationRecord
         {
-            ProjectScale = string.IsNullOrWhiteSpace(result.ProjectScale) ? "Unknown" : result.ProjectScale.Trim(),
+            ProjectScale = string.Empty,
             TotalDurationDays = totalDuration,
             Phases = new List<TimelinePhaseEstimate>(),
             Roles = new List<TimelineRoleEstimate>(),
@@ -390,32 +378,27 @@ public class TimelineEstimatorService
 
         if (orderedDurations.Count == 0)
         {
-            orderedDurations.Add(new KeyValuePair<string, int>("Core Team", Math.Max(1, durationAnchor)));
+            orderedDurations.Add(new KeyValuePair<string, int>(teamTypeName ?? "Core Team", Math.Max(1, durationAnchor)));
         }
 
         var bottleneckRole = orderedDurations.First();
-        var supplemental = orderedDurations
-            .Skip(1)
-            .Select(kvp => $"{kvp.Key}: {kvp.Value} days")
-            .DefaultIfEmpty("None")
-            .ToList();
-
-        var supplementalText = string.Join(", ", supplemental);
-
-        var baselineDuration = Math.Max(Math.Max(durationAnchor, bottleneckRole.Value), 1);
+        var bufferedDuration = durationAnchor + Math.Max(1, (int)Math.Round(durationAnchor * 0.2));
 
         return $@"
-You are a project manager AI. Based on a resource bottleneck, determine a final project duration.
-- The primary bottleneck is the **{bottleneckRole.Key} requiring {durationAnchor} days**.
-- Other roles have shorter bottlenecks: {supplementalText}.
-- A standard project has serial dependencies before and after the main work.
-- Considering these factors, calculate a final `totalDurationDays` that is realistic. It must be >= {durationAnchor} days.
+You are a project manager AI. Your task is to provide a single, realistic total project duration.
 
-**Output ONLY a minified JSON object with this structure:**
+**Constraints:**
+- The project is for a '{teamTypeName}'.
+- The critical path bottleneck is the **{bottleneckRole.Key}, requiring a minimum of {durationAnchor} days**.
+- A real-world project requires extra time for setup, handovers, and dependencies.
+
+**Task:**
+Based on the {durationAnchor}-day bottleneck, calculate a final `totalDurationDays` that includes a realistic buffer (e.g., 15-25%) for project overhead.
+
+**Output ONLY a minified JSON object with this exact structure:**
 {{
-  ""projectScale"": ""{teamTypeName}"",
-  ""totalDurationDays"": {baselineDuration + 10},
-  ""sequencingNotes"": ""The timeline is driven by the {bottleneckRole.Key}'s {durationAnchor}-day work bottleneck. After adding time for initial setup and final closing, the total estimated duration is {baselineDuration + 10} days.""
+  ""totalDurationDays"": {bufferedDuration},
+  ""sequencingNotes"": ""The timeline is driven by the {bottleneckRole.Key}'s {durationAnchor}-day work bottleneck. A total duration of {bufferedDuration} days is estimated to include buffers for project overhead and phase dependencies.""
 }}
 ";
     }
@@ -464,29 +447,10 @@ You are a project manager AI. Based on a resource bottleneck, determine a final 
 
     private sealed class AiTimelineEstimationResult
     {
-        [JsonPropertyName("projectScale")]
-        public string ProjectScale { get; set; } = string.Empty;
-
         [JsonPropertyName("totalDurationDays")]
         public int TotalDurationDays { get; set; }
 
         [JsonPropertyName("sequencingNotes")]
         public string SequencingNotes { get; set; } = string.Empty;
-
-        [JsonPropertyName("phases")]
-        public List<AiPhaseEstimate> Phases { get; set; } = new();
     }
-
-    private sealed class AiPhaseEstimate
-    {
-        [JsonPropertyName("phaseName")]
-        public string PhaseName { get; set; } = string.Empty;
-
-        [JsonPropertyName("durationDays")]
-        public int DurationDays { get; set; }
-
-        [JsonPropertyName("sequenceType")]
-        public string SequenceType { get; set; } = "Serial";
-    }
-
 }
