@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using backend.Models;
@@ -48,44 +49,42 @@ public static class AssessmentTaskAggregator
 
         foreach (var section in assessment.Sections)
         {
-            if (section?.Items == null) continue;
+            if (section?.Items == null)
+            {
+                continue;
+            }
 
             foreach (var item in section.Items)
             {
-                if (item == null || !item.IsNeeded || item.Estimates == null) continue;
+                if (item == null || !item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
 
                 foreach (var estimate in item.Estimates)
                 {
                     var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName)) continue;
-
-                    double hours = 0;
-                    if (estimate.Value is double val)
+                    if (string.IsNullOrWhiteSpace(columnName))
                     {
-                        hours = val;
-                    }
-                    else if (estimate.Value is JsonElement element && element.TryGetDouble(out double elementVal))
-                    {
-                        hours = elementVal;
-                    }
-                    else if (estimate.Value is long longVal)
-                    {
-                        hours = longVal;
+                        continue;
                     }
 
-                    if (hours > 0)
+                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
                     {
-                        totalHoursTracked += hours;
-                        var manDays = hours / 8.0;
-                        result[columnName] = result.TryGetValue(columnName, out var existing)
-                            ? existing + manDays
-                            : manDays;
+                        continue;
                     }
+
+                    totalHoursTracked += hours;
+                    var manDays = hours / 8.0;
+                    result[columnName] = result.TryGetValue(columnName, out var existing)
+                        ? existing + manDays
+                        : manDays;
                 }
             }
         }
 
-        Console.WriteLine($"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}.");
+        Console.WriteLine(
+            $"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}. Columns: {string.Join(", ", result.Keys)}");
         return result;
     }
 
@@ -125,7 +124,7 @@ public static class AssessmentTaskAggregator
                 double totalHours = 0;
                 foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
                 {
-                    if (estimate.Value is not double hours || hours <= 0)
+                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
                     {
                         continue;
                     }
@@ -192,7 +191,11 @@ public static class AssessmentTaskAggregator
                 if (item == null || !item.IsNeeded || item.Estimates == null) continue;
                 foreach (var estimate in item.Estimates)
                 {
-                    if (estimate.Value is not double hours || hours <= 0) continue;
+                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
                     var manDays = hours / 8.0;
                     var columnName = estimate.Key?.Trim() ?? string.Empty;
                     var activityName = ResolveActivityName(sectionName, item.ItemName, columnName, configuration);
@@ -204,9 +207,10 @@ public static class AssessmentTaskAggregator
         return result;
     }
 
-    private static string ResolveActivityName(string sectionName, string itemName, string columnName, PresalesConfiguration configuration)
+    public static string ResolveActivityName(string sectionName, string itemName, string columnName, PresalesConfiguration configuration)
     {
-        var mapping = configuration.ItemActivities.FirstOrDefault(m =>
+        var mappings = configuration?.ItemActivities ?? new List<ItemActivityMapping>();
+        var mapping = mappings.FirstOrDefault(m =>
             string.Equals(m.SectionName, sectionName, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(m.ItemName, itemName, StringComparison.OrdinalIgnoreCase));
         if (mapping != null && !string.IsNullOrWhiteSpace(mapping.ActivityName))
@@ -230,6 +234,134 @@ public static class AssessmentTaskAggregator
         }
 
         return "Uncategorized";
+    }
+
+    private static readonly string[] JsonHoursPropertyCandidates =
+    {
+        "hours",
+        "hrs",
+        "manhours",
+        "manhour",
+        "manHours",
+        "value",
+        "amount",
+        "totalHours"
+    };
+
+    internal static bool TryExtractHours(object? rawValue, out double hours)
+    {
+        hours = 0;
+        if (rawValue == null)
+        {
+            return false;
+        }
+
+        switch (rawValue)
+        {
+            case double d when double.IsFinite(d):
+                hours = d;
+                return hours > 0;
+            case double? nd when nd.HasValue && double.IsFinite(nd.Value):
+                hours = nd.Value;
+                return hours > 0;
+            case float f when float.IsFinite(f):
+                hours = f;
+                return hours > 0;
+            case float? nf when nf.HasValue && float.IsFinite(nf.Value):
+                hours = nf.Value;
+                return hours > 0;
+            case decimal dec:
+                hours = (double)dec;
+                return hours > 0;
+            case decimal? ndec when ndec.HasValue:
+                hours = (double)ndec.Value;
+                return hours > 0;
+            case long l:
+                hours = l;
+                return hours > 0;
+            case long? nl when nl.HasValue:
+                hours = nl.Value;
+                return hours > 0;
+            case int i:
+                hours = i;
+                return hours > 0;
+            case int? ni when ni.HasValue:
+                hours = ni.Value;
+                return hours > 0;
+            case JsonElement element:
+                return TryExtractHoursFromJson(element, out hours);
+            case JsonDocument document:
+                return TryExtractHoursFromJson(document.RootElement, out hours);
+            case string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed):
+                hours = parsed;
+                return hours > 0;
+            default:
+                try
+                {
+                    if (rawValue is IConvertible convertible)
+                    {
+                        hours = convertible.ToDouble(CultureInfo.InvariantCulture);
+                        return hours > 0 && double.IsFinite(hours);
+                    }
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                return false;
+        }
+    }
+
+    private static bool TryExtractHoursFromJson(JsonElement element, out double hours)
+    {
+        hours = 0;
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Number:
+                return element.TryGetDouble(out hours) && double.IsFinite(hours) && hours > 0;
+            case JsonValueKind.String:
+                var text = element.GetString();
+                return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out hours) && hours > 0;
+            case JsonValueKind.Object:
+                foreach (var candidate in JsonHoursPropertyCandidates)
+                {
+                    if (element.TryGetProperty(candidate, out var property) &&
+                        TryExtractHoursFromJson(property, out hours))
+                    {
+                        return true;
+                    }
+                }
+
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (TryExtractHoursFromJson(property.Value, out hours))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            case JsonValueKind.Array:
+                double total = 0;
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (TryExtractHoursFromJson(item, out var value))
+                    {
+                        total += value;
+                    }
+                }
+
+                if (total > 0)
+                {
+                    hours = total;
+                    return true;
+                }
+
+                return false;
+            default:
+                return false;
+        }
     }
 
     public static Dictionary<string, double> CalculateRoleManDays(
