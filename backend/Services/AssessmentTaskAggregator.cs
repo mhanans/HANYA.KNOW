@@ -503,6 +503,86 @@ public static class AssessmentTaskAggregator
         return result;
     }
 
+    public static Dictionary<string, (double ManDays, string Actor)> GetEffortByDetail(
+        ProjectAssessment assessment,
+        PresalesConfiguration config)
+    {
+        var itemEffort = new Dictionary<string, ItemEffortAccumulator>(StringComparer.OrdinalIgnoreCase);
+        if (assessment?.Sections == null)
+        {
+            return new Dictionary<string, (double, string)>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var columnRoleLookup = (config?.EstimationColumnRoles ?? Enumerable.Empty<EstimationColumnRoleMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping?.EstimationColumn) &&
+                !string.IsNullOrWhiteSpace(mapping?.RoleName))
+            .ToLookup(
+                mapping => mapping!.EstimationColumn!.Trim(),
+                mapping => mapping!.RoleName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in assessment.Sections)
+        {
+            if (section?.Items == null)
+            {
+                continue;
+            }
+
+            foreach (var item in section.Items)
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
+
+                var detailName = item.ItemName?.Trim();
+                if (string.IsNullOrWhiteSpace(detailName))
+                {
+                    continue;
+                }
+
+                foreach (var estimate in item.Estimates)
+                {
+                    if (!TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (!itemEffort.TryGetValue(detailName, out var accumulator))
+                    {
+                        accumulator = new ItemEffortAccumulator();
+                        itemEffort[detailName] = accumulator;
+                    }
+
+                    accumulator.TotalHours += hours;
+                    var columnName = estimate.Key?.Trim() ?? string.Empty;
+                    foreach (var role in columnRoleLookup[columnName])
+                    {
+                        if (!string.IsNullOrWhiteSpace(role))
+                        {
+                            accumulator.Roles.Add(role);
+                        }
+                    }
+                }
+            }
+        }
+
+        return itemEffort.ToDictionary(
+            kvp => kvp.Key,
+            kvp =>
+            {
+                var orderedRoles = kvp.Value.Roles
+                    .OrderBy(role => role, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var actor = orderedRoles.Count > 0
+                    ? string.Join(", ", orderedRoles)
+                    : "Unassigned";
+                return (kvp.Value.TotalHours / 8.0, actor);
+            },
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     private static void LogColumnDiagnostics(
         IReadOnlyCollection<string> uniqueColumns,
         IReadOnlyCollection<string> unmappedColumns)
