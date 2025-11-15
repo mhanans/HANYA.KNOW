@@ -174,9 +174,8 @@ public class ProjectAssessmentAnalysisService
             }
         }
 
-        _logger.LogInformation("Created job {JobId}. Starting synchronous pipeline.", job.Id);
-
-        await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Created job {JobId}. Queueing pipeline for asynchronous execution.", job.Id);
+        QueuePipelineExecution(job.Id);
 
         return await _jobStore.GetAsync(job.Id, cancellationToken).ConfigureAwait(false) ?? job;
     }
@@ -272,6 +271,8 @@ public class ProjectAssessmentAnalysisService
                     .ConfigureAwait(false);
                 rawResponse = ExtractTextResponse(response)?.Trim() ?? string.Empty;
             }
+
+            _logger.LogInformation("LLM raw response for manual assessment check (Job {JobId}): {RawResponse}", job.Id, rawResponse);
 
             var cleanResponse = CleanResponse(rawResponse);
             var parsed = TryDeserializeManualAssessment(
@@ -388,8 +389,8 @@ public class ProjectAssessmentAnalysisService
                     job.Status = JobStatus.GenerationComplete;
                     job.SyncStepWithStatus();
                     await _jobStore.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
-                    await ExecuteFullPipelineAsync(job.Id, cancellationToken).ConfigureAwait(false);
-                    _logger.LogInformation("Repaired job {JobId} after generation failure and resumed estimation.", job.Id);
+                    _logger.LogInformation("Repaired job {JobId} after generation failure. Scheduling estimation.", job.Id);
+                    QueuePipelineExecution(job.Id);
                 }
                 else
                 {
@@ -434,6 +435,21 @@ public class ProjectAssessmentAnalysisService
     public Task<bool> DeleteJobAsync(int jobId, CancellationToken cancellationToken)
     {
         return _jobStore.DeleteAsync(jobId, cancellationToken);
+    }
+
+    private void QueuePipelineExecution(int jobId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ExecuteFullPipelineAsync(jobId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled exception while processing assessment job {JobId} in background.", jobId);
+            }
+        });
     }
 
     private static bool ShouldRunGeneration(AssessmentJob job)
@@ -2035,33 +2051,67 @@ public class ProjectAssessmentAnalysisService
     {
         var columns = ResolveTemplateColumns(template);
         var builder = new StringBuilder();
-        builder.AppendLine("You are a presales analyst verifying whether the provided scope document already contains assessed man-hour values for the known delivery template.");
-        if (!string.IsNullOrWhiteSpace(projectName))
-        {
-            builder.AppendLine($"Project Name: {projectName.Trim()}");
-        }
-        builder.AppendLine();
-        builder.AppendLine("Instructions:");
-        builder.AppendLine("- Scan the attached PDF for any tables or text that list effort, man-hour, or man-day values per feature/scope item.");
-        builder.AppendLine("- Map each finding to the matching template itemId from the reference list.");
-        builder.AppendLine("- Convert man-days to hours using 1 man-day = 8 hours. Keep the values numeric only.");
-        builder.AppendLine($"- Provide values for the following estimation columns: {string.Join(", ", columns)}. Use null when a column is not mentioned.");
-        builder.AppendLine("- Only include items that contain at least one numeric effort value.");
-        builder.AppendLine("- Respond ONLY with JSON using this schema:");
-        builder.AppendLine("{\"hasAssessedManhour\": boolean, \"message\": \"string\", \"items\": [{\"itemId\": \"template item id\", \"isNeeded\": true|false, \"estimates\": {\"Column\": number|null}}]}");
-        builder.AppendLine("- If the PDF does not contain assessed man-hours, set hasAssessedManhour to false, return an empty items array, and explain the reason in message.");
-        builder.AppendLine();
-        builder.AppendLine("Template reference (itemId • itemName — detail):");
 
+        // 1. Set the Persona and Core Task
+        builder.AppendLine("You are a highly accurate data extraction bot. Your ONLY task is to analyze the attached document, find the table containing man-hour estimates, and convert it into a valid JSON object. You must ignore all other text.");
+        builder.AppendLine();
+
+        // 2. Define the Strict Rules for the Model
+        builder.AppendLine("Follow these rules EXACTLY:");
+        builder.AppendLine("- **Find the Table:** Locate the table with columns for 'Item', 'Description', and 'Estimate (HOURS)'.");
+        builder.AppendLine("- **Map Item ID:** Match the 'No' column from the PDF table to the `itemId` from the 'Template Reference' provided below. For example, row '2A.1' in the PDF maps to `itemId: \"2A.1\"`.");
+        builder.AppendLine("- **Extract Estimates:** The 'Estimate (HOURS)' section in the PDF has nested columns. You MUST use the lowest-level column headers (e.g., 'Requirement', 'SIT', 'UAT', 'Setup', 'BE', 'FE') as the keys in the `estimates` JSON object.");
+        builder.AppendLine("- **Handle Numbers:** All estimate values must be numbers. If a cell is empty or contains a non-numeric value, use `0`.");
+        builder.AppendLine("- **Strict JSON Output:** Respond ONLY with a single JSON object. Do not include any text, explanation, or markdown like ```json.");
+        builder.AppendLine();
+
+        // 3. Provide a Perfect, Concrete Example of the Expected Output
+        builder.AppendLine("This is the required JSON output structure and an example for ONE item:");
+        builder.Append("```json\n");
+        builder.Append(
+        """
+        {
+          "hasAssessedManhour": true,
+          "message": "Successfully extracted 38 items from the man-hour table.",
+          "items": [
+            {
+              "itemId": "2A.1",
+              "isNeeded": true,
+              "estimates": {
+                "Requirement": 6,
+                "Unit Test": 2,
+                "SIT": 2,
+                "UAT": 2,
+                "Setup": 0,
+                "POC": 0,
+                "Code review": 4.00,
+                "BE": 16,
+                "FE": 4,
+                "Xunit": 2
+              }
+            }
+          ]
+        }
+        """
+        );
+        builder.Append("\n```");
+        builder.AppendLine();
+        builder.AppendLine("- If the document does NOT contain such a table, respond with: `{\"hasAssessedManhour\": false, \"message\": \"The document does not contain a man-hour estimation table.\", \"items\": []}`");
+        builder.AppendLine();
+
+        // 4. Provide the Template Data for Mapping
+        builder.AppendLine("--- TEMPLATE REFERENCE (Use for mapping PDF 'No' to JSON 'itemId') ---");
         foreach (var section in template?.Sections ?? new List<TemplateSection>())
         {
             builder.AppendLine($"Section: {section.SectionName}");
             foreach (var item in section.Items ?? new List<TemplateItem>())
             {
-                builder.AppendLine($"- {item.ItemId} • {item.ItemName} — {item.ItemDetail}");
+                // Providing only the necessary mapping info reduces token count and confusion.
+                builder.AppendLine($"- {item.ItemId}: {item.ItemName}");
             }
             builder.AppendLine();
         }
+        builder.AppendLine("--- END TEMPLATE REFERENCE ---");
 
         return builder.ToString();
     }
