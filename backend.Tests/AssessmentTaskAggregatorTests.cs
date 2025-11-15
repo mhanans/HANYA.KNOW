@@ -84,6 +84,24 @@ public class AssessmentTaskAggregatorTests
         AssertClose(2, result.GetValueOrDefault("Testing & QA"));
     }
 
+    [Fact]
+    public void GetGanttTasks_GroupsEffortPerAssessmentItem()
+    {
+        var tasks = AssessmentTaskAggregator.GetGanttTasks(_sampleAssessment, _configuration);
+
+        Assert.Equal(6, tasks.Count);
+
+        var backendDev = Assert.Single(tasks, t => t.Detail == "BE Development");
+        Assert.Equal("Application Development", backendDev.ActivityGroup);
+        Assert.Equal("Developer", backendDev.Actor);
+        AssertClose(10, backendDev.ManDays);
+
+        var sitTask = Assert.Single(tasks, t => t.Detail == "SIT (Manual by QA)");
+        Assert.Equal("Testing & QA", sitTask.ActivityGroup);
+        Assert.Equal("Quality Engineer", sitTask.Actor);
+        AssertClose(2, sitTask.ManDays);
+    }
+
     private static void AssertClose(double expected, double actual, double tolerance = 1e-6)
     {
         Assert.InRange(actual, expected - tolerance, expected + tolerance);
