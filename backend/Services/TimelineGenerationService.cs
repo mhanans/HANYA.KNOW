@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,31 +49,8 @@ public class TimelineGenerationService
         }
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var effortByDetail = AssessmentTaskAggregator.GetEffortByDetail(assessment, config);
-        var timelineStructure = (config.ItemActivities ?? new List<ItemActivityMapping>())
-            .OrderBy(activity => activity.DisplayOrder)
-            .ThenBy(activity => activity.ActivityName)
-            .ThenBy(activity => activity.ItemName)
-            .ToList();
-
-        var detailedTasks = timelineStructure
-            .Where(activity => !string.IsNullOrWhiteSpace(activity?.ItemName) && !string.IsNullOrWhiteSpace(activity.ActivityName))
-            .Select(activity =>
-            {
-                effortByDetail.TryGetValue(activity.ItemName!.Trim(), out var effort);
-                var actor = string.IsNullOrWhiteSpace(effort.Actor) ? "Unassigned" : effort.Actor;
-                return new AssessmentTaskAggregator.GanttTask
-                {
-                    ActivityGroup = activity.ActivityName!.Trim(),
-                    Detail = activity.ItemName!.Trim(),
-                    Actor = actor,
-                    ManDays = effort.ManDays
-                };
-            })
-            .Where(task => task.ManDays > 0)
-            .ToList();
-
-        if (detailedTasks.Count == 0)
+        var ganttTasks = AssessmentTaskAggregator.GetGanttTasks(assessment, config);
+        if (ganttTasks.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline.");
         }
@@ -89,11 +65,17 @@ public class TimelineGenerationService
                 "Run the Timeline Estimator step first to produce scale, phase duration, and headcount guidance.");
         }
 
-        var prompt = ConstructDailySchedulerAiPrompt(estimatorRecord.TotalDurationDays, detailedTasks);
+        if (estimatorRecord.Phases == null || !estimatorRecord.Phases.Any())
+        {
+            throw new InvalidOperationException(
+                "The timeline estimator did not produce any phase guidance. Please regenerate the estimation first.");
+        }
+
+        var prompt = ConstructDailySchedulerAiPrompt(estimatorRecord, ganttTasks);
         _logger.LogInformation(
             "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
             assessmentId,
-            detailedTasks.Count);
+            ganttTasks.Count);
 
         string rawResponse = string.Empty;
         AiTimelineResult aiTimeline;
@@ -461,68 +443,66 @@ public class TimelineGenerationService
     }
 
     private string ConstructDailySchedulerAiPrompt(
-        int totalDurationDays,
-        List<AssessmentTaskAggregator.GanttTask> tasks)
+        TimelineEstimationRecord estimation,
+        List<AssessmentTaskAggregator.GanttTask> ganttTasks)
     {
-        if (totalDurationDays <= 0)
+        if (estimation == null)
         {
-            throw new ArgumentOutOfRangeException(nameof(totalDurationDays));
+            throw new ArgumentNullException(nameof(estimation));
         }
 
-        if (tasks == null || tasks.Count == 0)
+        if (estimation.TotalDurationDays <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(estimation.TotalDurationDays));
+        }
+
+        if (ganttTasks == null || ganttTasks.Count == 0)
         {
             throw new InvalidOperationException("Granular tasks are required to build the AI prompt.");
         }
 
         static string Encode(string? value) => JsonEncodedText.Encode(value ?? string.Empty).ToString();
 
-        var taskLines = tasks.Select(t =>
-        {
-            var manDays = t.ManDays.ToString("F2", CultureInfo.InvariantCulture);
-            return $"  - {{ \"activityGroup\": \"{Encode(t.ActivityGroup)}\", \"taskName\": \"{Encode(t.Detail)}\", \"actor\": \"{Encode(t.Actor)}\", \"manDays\": {manDays} }}";
-        });
+        var taskLines = ganttTasks.Select(t =>
+            $"  - {{ \"activityGroup\": \"{Encode(t.ActivityGroup)}\", \"taskName\": \"{Encode(t.Detail)}\", \"actor\": \"{Encode(t.Actor)}\", \"manDays\": {t.ManDays.ToString("F2", CultureInfo.InvariantCulture)} }}");
 
-        var builder = new StringBuilder();
-        builder.AppendLine("You are a precise Gantt Chart generation AI. Your only job is to schedule the provided list of tasks into a timeline.");
-        builder.AppendLine();
-        builder.AppendLine("**MANDATORY CONSTRAINTS:**");
-        builder.AppendLine($"1.  **Total Duration:** The final schedule's `totalDurationDays` MUST be exactly **{totalDurationDays} days**.");
-        builder.AppendLine("2.  **Task List:** You MUST schedule **every single task** from the list below. Do not add, remove, or change any tasks.");
-        builder.AppendLine("3.  **Output Format:** You MUST respond ONLY with a single, minified JSON object matching the final structure. No extra text or explanations.");
-        builder.AppendLine();
-        builder.AppendLine("**TASK LIST TO SCHEDULE:**");
-        builder.AppendLine("[");
-        builder.AppendLine(string.Join(",\n", taskLines));
-        builder.AppendLine("]");
-        builder.AppendLine();
-        builder.AppendLine("**SCHEDULING RULES:**");
-        builder.AppendLine("-   **Structure:** Group the tasks under the correct `activityName` based on their `activityGroup`.");
-        builder.AppendLine("-   **Data Integrity:** Copy the `taskName`, `actor`, and `manDays` for each task exactly as they appear in the input list.");
-        builder.AppendLine("-   **Durations:** `durationDays` must be an integer >= 1.");
-        builder.AppendLine($"-   **Logic:** A task's `durationDays` must be >= its `manDays`. For `manDays` < 1, `durationDays` must be 1. Schedule tasks logically: \"Project Preparation\" tasks must start near Day 1. \"Project Closing\" tasks must end near Day {totalDurationDays}.");
-        builder.AppendLine("-   **Resource Allocation:**");
-        builder.AppendLine("    -   Only include roles in `resourceAllocation` that are assigned to tasks.");
-        builder.AppendLine($"    -   The `dailyEffort` array MUST have a length of exactly {totalDurationDays}.");
-        builder.AppendLine("    -   Calculate `dailyEffort` precisely. The values should be multiples of 0.5 or 1.0 (e.g., 0.5 for a half-day, 1.0 for a full day). Avoid strange decimals. If a 3 man-day task is done over 2 days, the effort is 1.5 per day.");
-        builder.AppendLine("    -   **SPECIAL RULE:** 'Architect' and 'Project Manager' roles (if used) MUST have a minimum `dailyEffort` of 0.5 on every day of the project.");
-        builder.AppendLine();
-        builder.AppendLine("**FINAL JSON OUTPUT STRUCTURE:**");
-        builder.AppendLine("{");
-        builder.AppendLine($"  \"totalDurationDays\": {totalDurationDays},");
-        builder.AppendLine("  \"activities\": [");
-        builder.AppendLine("    {");
-        builder.AppendLine("      \"activityName\": \"Project Preparation\",");
-        builder.AppendLine("      \"details\": [");
-        builder.AppendLine("        { \"taskName\": \"System Setup\", \"actor\": \"Architect\", \"manDays\": 2.0, \"startDay\": 1, \"durationDays\": 2 }");
-        builder.AppendLine("      ]");
-        builder.AppendLine("    }");
-        builder.AppendLine("  ],");
-        builder.AppendLine("  \"resourceAllocation\": [");
-        builder.AppendLine("    { \"role\": \"Architect\", \"totalManDays\": 25.5, \"dailyEffort\": [0.5, 0.5, 1.0, ...] }");
-        builder.AppendLine("  ]");
-        builder.AppendLine("}");
+        var phaseGuidanceLines = (estimation.Phases ?? new List<TimelinePhaseEstimate>())
+            .Select(p => $"  - {p.PhaseName}: Target Duration = {Math.Max(1, p.DurationDays)} days, Sequencing = {p.SequenceType}")
+            .ToList();
 
-        return builder.ToString();
+        return $@"
+You are an expert Project Manager AI that creates detailed, day-by-day Gantt charts. Your task is to schedule a specific list of tasks into a daily timeline, strictly adhering to the provided high-level project plan.
+
+**High-Level Plan & Constraints (MANDATORY):**
+- **Total Project Duration:** You MUST create a schedule that fits exactly within **{estimation.TotalDurationDays} days**.
+- **Phase Durations & Sequencing:** This is your blueprint. You MUST follow this plan for the overall structure.
+{string.Join("\n", phaseGuidanceLines)}
+
+**Detailed Task List (You MUST schedule every task below within its correct activityGroup):**
+[
+{string.Join(",\n", taskLines)}
+]
+
+**Scheduling Rules (Follow Exactly):**
+1.  **Map Tasks to Activities:** For each task in the input list, create one corresponding entry in the `details` array of the matching `activityName` group in your output. Copy the `taskName` (from `detail`), `actor`, and `manDays` values exactly.
+2.  **Respect Phase Boundaries:** The `startDay` and `durationDays` for all tasks within an `activityGroup` (e.g., ""Project Preparation"") must be scheduled to respect the `Target Duration` and `Sequencing` from the High-Level Plan. For example, if 'Project Preparation' is 'Serial' with a duration of 5 days, all its tasks must start and end between day 1 and 5.
+3.  **Logical Scheduling:**
+    - `durationDays` must be an integer >= 1.
+    - `durationDays` must be >= `manDays`. For `manDays` < 1, `durationDays` must be 1.
+    - Use reasonable parallelism (1-3 people per task). A 1-man-day task should have a duration of 1 day. A 4-man-day task could be 4 days (1 person) or 2 days (2 people). Avoid strange decimals for daily effort.
+4.  **Resource Allocation:**
+    - Only include roles in `resourceAllocation` that are assigned to tasks.
+    - The `dailyEffort` array MUST have a length of exactly {estimation.TotalDurationDays}.
+    - Calculate `dailyEffort` precisely. Values should be multiples of 0.5 or 1.0.
+    - **SPECIAL RULE:** 'Architect' and 'Project Manager' roles (if used) MUST have a minimum `dailyEffort` of 0.5 on every day of the project.
+
+**Final JSON Output (Strictly this format, no extra commentary):**
+{{
+  ""totalDurationDays"": {estimation.TotalDurationDays},
+  ""activities"": [{{""activityName"":""Project Preparation"",""details"": [{{""taskName"":""System Setup"",""actor"":""Architect"",""manDays"":2.0,""startDay"":1,""durationDays"":2}}]}}],
+  ""resourceAllocation"": [{{""role"":""Architect"",""totalManDays"":25.5,""dailyEffort"": [0.5,0.5,1.0,...]}}]
+}}
+";
     }
 
     private sealed class AiTimelineResult
