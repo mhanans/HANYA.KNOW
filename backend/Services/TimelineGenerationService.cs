@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +15,6 @@ public class TimelineGenerationService
     private readonly PresalesConfigurationStore _configurationStore;
     private readonly TimelineStore _timelineStore;
     private readonly TimelineEstimationStore _estimationStore;
-    private readonly TimelineEstimationReferenceStore _timelineReferenceStore;
     private readonly LlmClient _llmClient;
     private readonly ILogger<TimelineGenerationService> _logger;
 
@@ -26,7 +23,6 @@ public class TimelineGenerationService
         PresalesConfigurationStore configurationStore,
         TimelineStore timelineStore,
         TimelineEstimationStore estimationStore,
-        TimelineEstimationReferenceStore timelineReferenceStore,
         LlmClient llmClient,
         ILogger<TimelineGenerationService> logger)
     {
@@ -34,7 +30,6 @@ public class TimelineGenerationService
         _configurationStore = configurationStore;
         _timelineStore = timelineStore;
         _estimationStore = estimationStore;
-        _timelineReferenceStore = timelineReferenceStore;
         _llmClient = llmClient;
         _logger = logger;
     }
@@ -54,8 +49,73 @@ public class TimelineGenerationService
 
         var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
         var estimationColumnEffort = AssessmentTaskAggregator.AggregateEstimationColumnEffort(assessment);
-        var aggregatedTasks = AssessmentTaskAggregator.AggregateItemEffort(assessment);
-        if (estimationColumnEffort.Count == 0)
+
+        var detailedTasks = new List<DetailedTaskDescriptor>();
+        var columnRoleLookup = (config.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
+            .Where(mapping =>
+                !string.IsNullOrWhiteSpace(mapping.EstimationColumn) &&
+                !string.IsNullOrWhiteSpace(mapping.RoleName))
+            .ToLookup(
+                mapping => mapping.EstimationColumn!.Trim(),
+                mapping => mapping.RoleName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
+        {
+            if (section == null)
+            {
+                continue;
+            }
+
+            foreach (var item in section.Items ?? new List<AssessmentItem>())
+            {
+                if (item == null || !item.IsNeeded || item.Estimates == null)
+                {
+                    continue;
+                }
+
+                foreach (var estimate in item.Estimates)
+                {
+                    var columnName = estimate.Key?.Trim();
+                    if (string.IsNullOrWhiteSpace(columnName))
+                    {
+                        continue;
+                    }
+
+                    if (!AssessmentTaskAggregator.TryExtractHours(estimate.Value, out var hours) || hours <= 0)
+                    {
+                        continue;
+                    }
+
+                    var manDays = hours / 8.0;
+                    if (manDays <= 0)
+                    {
+                        continue;
+                    }
+
+                    var activityGroup = AssessmentTaskAggregator.ResolveActivityName(
+                        section.SectionName ?? string.Empty,
+                        item.ItemName,
+                        columnName,
+                        config);
+
+                    var roles = columnRoleLookup[columnName]
+                        .Where(role => !string.IsNullOrWhiteSpace(role))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    var actor = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
+
+                    detailedTasks.Add(new DetailedTaskDescriptor(
+                        activityGroup,
+                        item.ItemName?.Trim() ?? string.Empty,
+                        columnName,
+                        actor,
+                        manDays));
+                }
+            }
+        }
+
+        if (estimationColumnEffort.Count == 0 || detailedTasks.Count == 0)
         {
             throw new InvalidOperationException("Assessment does not contain any estimation data to generate a timeline.");
         }
@@ -70,12 +130,11 @@ public class TimelineGenerationService
                 "Run the Timeline Estimator step first to produce scale, phase duration, and headcount guidance.");
         }
 
-        var referenceData = await _timelineReferenceStore.ListAsync(cancellationToken).ConfigureAwait(false);
-        var prompt = ConstructDailySchedulerAiPrompt(assessment, estimationColumnEffort, config, referenceData, estimatorRecord);
+        var prompt = ConstructGanttChartAiPrompt(estimatorRecord, detailedTasks);
         _logger.LogInformation(
             "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
             assessmentId,
-            aggregatedTasks.Count);
+            detailedTasks.Count);
 
         string rawResponse = string.Empty;
         AiTimelineResult aiTimeline;
@@ -442,332 +501,53 @@ public class TimelineGenerationService
         return result;
     }
 
-    private string ConstructDailySchedulerAiPrompt(
-        ProjectAssessment assessment,
-        Dictionary<string, double> estimationColumnManDays,
-        PresalesConfiguration config,
-        IReadOnlyList<TimelineEstimationReference> references,
-        TimelineEstimationRecord estimation)
+    private string ConstructGanttChartAiPrompt(
+        TimelineEstimationRecord estimation,
+        IReadOnlyList<DetailedTaskDescriptor> detailedTasks)
     {
-        static string BuildMappingKey(string? sectionName, string? itemName)
+        if (estimation == null)
         {
-            return $"{sectionName?.Trim() ?? string.Empty}\0{itemName?.Trim() ?? string.Empty}";
+            throw new ArgumentNullException(nameof(estimation));
         }
 
-        var sectionItemActivityLookup = config.ItemActivities
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(
-                mapping => BuildMappingKey(mapping.SectionName, mapping.ItemName),
-                mapping => mapping.ActivityName.Trim(),
-                StringComparer.OrdinalIgnoreCase);
-
-        var itemActivityLookup = config.ItemActivities
-            .Where(mapping =>
-                string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                !string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(mapping => mapping.ItemName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
-
-        var sectionActivityLookup = config.ItemActivities
-            .Where(mapping =>
-                !string.IsNullOrWhiteSpace(mapping.SectionName) &&
-                string.IsNullOrWhiteSpace(mapping.ItemName) &&
-                !string.IsNullOrWhiteSpace(mapping.ActivityName))
-            .ToDictionary(mapping => mapping.SectionName.Trim(), mapping => mapping.ActivityName.Trim(), StringComparer.OrdinalIgnoreCase);
-
-        var activityOrderLookup = config.Activities
-            .Where(activity => !string.IsNullOrWhiteSpace(activity.ActivityName))
-            .Select(activity => new
-            {
-                Name = activity.ActivityName.Trim(),
-                Order = activity.DisplayOrder
-            })
-            .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.Min(entry => entry.Order), StringComparer.OrdinalIgnoreCase);
-
-        var columnRolesLookup = (config.EstimationColumnRoles ?? new List<EstimationColumnRoleMapping>())
-            .Select(mapping => new
-            {
-                Column = mapping.EstimationColumn?.Trim(),
-                Role = mapping.RoleName?.Trim()
-            })
-            .Where(mapping => !string.IsNullOrWhiteSpace(mapping.Column))
-            .GroupBy(mapping => mapping.Column!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                group => group.Key,
-                group => group
-                    .Select(entry => entry.Role)
-                    .Where(name => !string.IsNullOrWhiteSpace(name))
-                    .Select(name => name!)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-                    .ToList(),
-                StringComparer.OrdinalIgnoreCase);
-
-        var columnActivities = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var section in assessment.Sections ?? new List<AssessmentSection>())
+        if (detailedTasks == null || detailedTasks.Count == 0)
         {
-            var sectionName = section.SectionName?.Trim();
-            foreach (var item in section.Items ?? new List<AssessmentItem>())
+            throw new InvalidOperationException("Detailed tasks are required to build the AI prompt.");
+        }
+
+        static string Escape(string? value)
+        {
+            if (string.IsNullOrEmpty(value))
             {
-                if (!item.IsNeeded)
-                {
-                    continue;
-                }
-
-                var itemName = item.ItemName?.Trim();
-                if (string.IsNullOrWhiteSpace(itemName))
-                {
-                    continue;
-                }
-
-                var activity = string.Empty;
-                if (!string.IsNullOrWhiteSpace(sectionName) &&
-                    !string.IsNullOrWhiteSpace(itemName) &&
-                    sectionItemActivityLookup.TryGetValue(BuildMappingKey(sectionName, itemName), out var combinedActivity))
-                {
-                    activity = combinedActivity;
-                }
-                else if (!string.IsNullOrWhiteSpace(itemName) && itemActivityLookup.TryGetValue(itemName, out var mappedActivity))
-                {
-                    activity = mappedActivity;
-                }
-                else if (!string.IsNullOrWhiteSpace(sectionName) && sectionActivityLookup.TryGetValue(sectionName, out var sectionActivity))
-                {
-                    activity = sectionActivity;
-                }
-                else
-                {
-                    activity = "Unmapped";
-                }
-
-                foreach (var estimate in item.Estimates ?? new Dictionary<string, double?>())
-                {
-                    if (estimate.Value is not double hours || hours <= 0)
-                    {
-                        continue;
-                    }
-
-                    var columnName = estimate.Key?.Trim();
-                    if (string.IsNullOrWhiteSpace(columnName))
-                    {
-                        continue;
-                    }
-
-                    if (!columnActivities.TryGetValue(columnName, out var set))
-                    {
-                        set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        columnActivities[columnName] = set;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(activity))
-                    {
-                        set.Add(activity);
-                    }
-                }
+                return string.Empty;
             }
+
+            return value
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("\"", "\\\"", StringComparison.Ordinal);
         }
 
-        var columnMetadata = estimationColumnManDays
-            .OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kvp =>
-            {
-                var columnName = kvp.Key;
-                var manDays = kvp.Value;
-                var roles = columnRolesLookup.TryGetValue(columnName, out var mappedRoles)
-                    ? mappedRoles
-                    : new List<string>();
-                var activities = columnActivities.TryGetValue(columnName, out var set) && set.Count > 0
-                    ? set
-                        .OrderBy(value => value, Comparer<string>.Create((a, b) =>
-                        {
-                            var aOrder = activityOrderLookup.TryGetValue(a, out var aValue) ? aValue : int.MaxValue;
-                            var bOrder = activityOrderLookup.TryGetValue(b, out var bValue) ? bValue : int.MaxValue;
-                            var orderComparison = aOrder.CompareTo(bOrder);
-                            if (orderComparison != 0)
-                            {
-                                return orderComparison;
-                            }
+        var taskLines = detailedTasks.Select(task =>
+            $"  - {{ \"activityGroup\": \"{Escape(task.ActivityGroup)}\", \"taskName\": \"{Escape(task.TaskName)}\", \"detail\": \"{Escape(task.Detail)}\", \"actor\": \"{Escape(task.Actor)}\", \"manDays\": {task.ManDays:F2} }}");
 
-                            return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
-                        }))
-                        .ToList()
-                    : new List<string> { "Unmapped" };
+        var phases = (estimation.Phases ?? new List<TimelinePhaseEstimate>()).ToList();
+        var phaseGuidanceLines = phases.Count > 0
+            ? string.Join("\n", phases.Select(p =>
+                $"  - {p.PhaseName}: Target Duration = {p.DurationDays} days, Sequencing = {p.SequenceType}"))
+            : "  - No specific phase guidance provided.";
 
-                var actorString = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
-                var activitySummary = activities.Count > 0 ? string.Join(", ", activities) : "Unmapped";
+        var tasksBlock = string.Join(",\n", taskLines);
 
-                return new
-                {
-                    Column = columnName,
-                    ManDays = manDays,
-                    Roles = roles,
-                    ActorString = actorString,
-                    Activities = new HashSet<string>(activities, StringComparer.OrdinalIgnoreCase),
-                    ActivitySummary = activitySummary
-                };
-            })
-            .ToList();
-
-        var taskDetailsForPrompt = columnMetadata.Select(meta => string.Format(
-            CultureInfo.InvariantCulture,
-            "  - Estimation Column: \"{0}\" => {1:F2} man-days | Roles: \"{2}\" | Activities: \"{3}\"",
-            meta.Column,
-            meta.ManDays,
-            meta.ActorString,
-            meta.ActivitySummary));
-
-        var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
-        var phaseSummaries = activityManDays
-            .OrderBy(kvp => activityOrderLookup.TryGetValue(kvp.Key, out var order) ? order : int.MaxValue)
-            .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kvp =>
-            {
-                var activityName = kvp.Key;
-                var totalManHours = kvp.Value * 8d;
-                var roles = columnMetadata
-                    .Where(meta => meta.Activities.Contains(activityName))
-                    .SelectMany(meta => meta.Roles)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                var roleSummary = roles.Count > 0 ? string.Join(", ", roles) : "Unassigned";
-                var resourceCount = Math.Max(roles.Count, 1);
-                return new
-                {
-                    ActivityGroup = activityName,
-                    TotalManHours = totalManHours,
-                    ResourceCount = resourceCount,
-                    RoleSummary = roleSummary
-                };
-            })
-            .ToList();
-
-        var phaseSummaryText = phaseSummaries.Count > 0
-            ? string.Join("\n", phaseSummaries.Select(summary =>
-                $"    - Activity: \"{summary.ActivityGroup}\", TotalManHours: {summary.TotalManHours.ToString("F0", CultureInfo.InvariantCulture)}, Resources: {summary.ResourceCount} ({summary.RoleSummary})"))
-            : "    - (No grouped task information available.)";
-
-        IEnumerable<TimelineEstimationReference> referenceItems = references ?? Array.Empty<TimelineEstimationReference>();
-        var referenceTableEntries = referenceItems
-            .OrderBy(r => r.ProjectScale, StringComparer.OrdinalIgnoreCase)
-            .Select(r =>
-            {
-                var phaseSummary = string.Join(", ", r.PhaseDurations
-                    .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(kv => $"{kv.Key}: {kv.Value}d"));
-                var resourceSummary = string.Join(", ", r.ResourceAllocation
-                    .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(kv => $"{kv.Key}: {kv.Value.ToString("F1", CultureInfo.InvariantCulture)}"));
-                return $"    - Scale {r.ProjectScale}: {phaseSummary} | Total: {r.TotalDurationDays}d | Resources: {resourceSummary}";
-            })
-            .ToList();
-
-        var referenceTableText = referenceTableEntries.Count > 0
-            ? string.Join("\n", referenceTableEntries)
-            : "    - (No reference data configured. Apply conservative sequencing and buffering when estimating durations.)";
-
-        var estimatorPhaseLines = (estimation.Phases ?? new List<TimelinePhaseEstimate>())
-            .OrderBy(p => p.PhaseName, StringComparer.OrdinalIgnoreCase)
-            .Select(p =>
-                $"    - {p.PhaseName}: {p.DurationDays} days ({p.SequenceType})")
-            .DefaultIfEmpty("    - (No phase guidance available.)");
-
-        var estimatorRoleLines = (estimation.Roles ?? new List<TimelineRoleEstimate>())
-            .OrderBy(r => r.Role, StringComparer.OrdinalIgnoreCase)
-            .Select(r =>
-                $"    - {r.Role}: {r.EstimatedHeadcount.ToString("F1", CultureInfo.InvariantCulture)} headcount (Total Man-Days: {r.TotalManDays.ToString("F1", CultureInfo.InvariantCulture)})")
-            .DefaultIfEmpty("    - (No role guidance available.)");
-
-        var estimatorSummaryLines = new List<string>
-        {
-            "        **TIMELINE ESTIMATOR SUMMARY:**",
-            $"        - Project Scale: {estimation.ProjectScale}",
-            $"        - Total Duration Target: {estimation.TotalDurationDays} days",
-            $"        - Sequencing Guidance: {estimation.SequencingNotes ?? string.Empty}".TrimEnd()
-        };
-
-        estimatorSummaryLines.AddRange(estimatorPhaseLines);
-        estimatorSummaryLines.Add(string.Empty);
-        estimatorSummaryLines.Add("        **RESOURCE HEADCOUNT GUIDANCE:**");
-        estimatorSummaryLines.AddRange(estimatorRoleLines);
-
-        var estimatorSummaryText = string.Join(Environment.NewLine, estimatorSummaryLines);
-
-        var allRoles = (config.Roles ?? new List<PresalesRole>())
-            .Select(role => role.RoleName?.Trim())
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(name => $"\"{name}\"")
-            .ToList();
-
-        var promptBuilder = new StringBuilder();
-
-        promptBuilder.AppendLine("You are an expert Project Management AI. Your task is to generate a detailed, day-based project schedule in a specific JSON format based on a list of tasks.");
-        promptBuilder.AppendLine();
-        promptBuilder.AppendLine("**CRITICAL INSTRUCTIONS:**");
-        promptBuilder.AppendLine("1.  **START WITH THE TIMELINE ESTIMATOR SUMMARY:** Respect the project scale, total duration target, sequencing notes, and phase durations estimated by the Timeline Estimator. The final schedule's total duration must stay aligned with the estimator's target. If you adjust a phase duration, justify it by referencing the estimator's sequencing guidance.");
-        promptBuilder.AppendLine("2.  **REFERENCE HISTORICAL DATA:** Use the 'Reference Table for Duration Estimation' below to validate or refine each phase duration. When the estimator's phase duration differs from the summed activity durations, prefer the estimator guidance and explain overlaps via task start dates.");
-        promptBuilder.AppendLine("3.  **UNIT IS DAYS:** The entire schedule is based on a sequence of working days (Day 1, Day 2, ...).");
-        promptBuilder.AppendLine("4.  **SCHEDULING RULES:**");
-        promptBuilder.AppendLine("    - Honour the estimator's sequencing: phases marked 'Serial' must not overlap; 'Subsequent' phases may have limited overlap when justified; 'Parallel' phases should overlap to reflect concurrent work.");
-        promptBuilder.AppendLine("    - Tasks ('Task') within the same phase may overlap when it shortens the schedule, but the overall phase length should remain aligned with the estimator's guidance and reference durations.");
-        promptBuilder.AppendLine("    - If a task requires more man-days than its duration, assume multiple team members with the same role can work in parallel. Choose a duration that reflects the headcount you assign (e.g., 6 man-days with 3 available Devs can be finished in 2 days).");
-        promptBuilder.AppendLine("5.  **DURATION LOGIC:** Within each phase, set each task's `durationDays` so that the phase's total span respects the estimator duration. When necessary, use the reference table to pick realistic durations. Use `max(1, CEILING(ManDays / headcountAssignedForThatTask))` to size individual tasks, and stretch or overlap tasks as needed to fit the phase duration.");
-        promptBuilder.AppendLine("6.  **RESOURCE ALLOCATION (HEADCOUNT PER DAY):**");
-        promptBuilder.AppendLine("    - The `dailyEffort` array for each role must contain one number per project day (`totalDurationDays`).");
-        promptBuilder.AppendLine("    - Each entry represents the number of people for that role on that day (values like 0, 0.5, 1, 2, ... are valid).");
-        promptBuilder.AppendLine("    - When multiple actors share a task, divide the task's daily man-days evenly among them.");
-        promptBuilder.AppendLine("    - Aim to mirror the estimator's headcount guidance. **SPECIAL RULE:** 'PM' and 'Architect' roles must appear with at least 0.5 effort from Day 1 until the project ends.");
-        promptBuilder.AppendLine("7.  **JSON OUTPUT:** You MUST return ONLY a single, minified JSON object with NO commentary or explanations. The structure must be EXACTLY as follows.");
-        promptBuilder.AppendLine();
-
-        promptBuilder.AppendLine("**TIMELINE ESTIMATOR DATA:**");
-        promptBuilder.AppendLine(estimatorSummaryText);
-        promptBuilder.AppendLine();
-
-        promptBuilder.AppendLine("**Reference Table for Duration Estimation:**");
-        promptBuilder.AppendLine(referenceTableText);
-        promptBuilder.AppendLine();
-
-        promptBuilder.AppendLine("**PHASE SUMMARIES (match to the reference table):**");
-        promptBuilder.AppendLine(phaseSummaryText);
-        promptBuilder.AppendLine();
-
-        promptBuilder.AppendLine("**TASK LIST:**");
-        foreach (var taskDetail in taskDetailsForPrompt)
-        {
-            promptBuilder.AppendLine(taskDetail);
-        }
-        promptBuilder.AppendLine();
-
-        promptBuilder.AppendLine("**ROLE LIST:**");
-        promptBuilder.AppendLine($"[{string.Join(", ", allRoles)}]");
-        promptBuilder.AppendLine();
-
-        promptBuilder.AppendLine("**JSON OUTPUT STRUCTURE:**");
-        promptBuilder.AppendLine("{");
-        promptBuilder.AppendLine("  \"totalDurationDays\": <number>,");
-        promptBuilder.AppendLine("  \"activities\": [");
-        promptBuilder.AppendLine("    {");
-        promptBuilder.AppendLine("      \"activityName\": \"Project Preparation\",");
-        promptBuilder.AppendLine("      \"details\": [");
-        promptBuilder.AppendLine("        { \"taskName\": \"System Setup\", \"actor\": \"Architect\", \"manDays\": 0.6, \"startDay\": 1, \"durationDays\": 1 }");
-        promptBuilder.AppendLine("      ]");
-        promptBuilder.AppendLine("    }");
-        promptBuilder.AppendLine("  ],");
-        promptBuilder.AppendLine("  \"resourceAllocation\": [");
-        promptBuilder.AppendLine("    { \"role\": \"Architect\", \"totalManDays\": 16.5, \"dailyEffort\": [1, 0, 1, 0, 1, ...] },");
-        promptBuilder.AppendLine("    { \"role\": \"PM\", \"totalManDays\": 14.5, \"dailyEffort\": [1, 0, 1, 0, 1, ...] },");
-        promptBuilder.AppendLine("    { \"role\": \"Dev\", \"totalManDays\": 26.5, \"dailyEffort\": [0, 0, 0, 0, 2, 2, 1, 0, ...] }");
-        promptBuilder.AppendLine("  ]");
-        promptBuilder.AppendLine("}");
-
-        return promptBuilder.ToString();
+        return $@"\nYou are an expert Project Manager AI that creates detailed Gantt charts. Your task is to schedule a specific list of tasks into a daily timeline, respecting high-level guidance.\n\n**High-Level Guidance (Constraints):**\n- **Total Duration Target:** The entire project should be close to **{estimation.TotalDurationDays} days**.\n- **Phase Durations & Sequencing:** Follow this plan. 'Serial' phases must not overlap. 'Subsequent' and 'Parallel' phases can overlap.\n{phaseGuidanceLines}\n\n**Detailed Task List (You MUST schedule every task below):**\n[\n{tasksBlock}\n]\n\n**Scheduling Rules (Follow Exactly):**\n1.  **Use Real Task Names:** Your output `taskName` MUST be the `taskName` from the input list (e.g., \"System Setup\", \"Login Flow Development\"). Your `detail` field should be the specific work type (e.g., \"Architect Setup\", \"FE Development\").\n2.  **Integer Durations:** `durationDays` must be a whole number (>= 1).\n3.  **Man-day Logic:**\n    - A task's `durationDays` MUST be >= its `manDays`.\n    - If `manDays` is 0.5, `durationDays` MUST be 1 (representing a half-day of work).\n    - If `manDays` is 3 and you assign `durationDays` of 1, it implies 3 people are working on it.\n    - If `manDays` is 3 and you assign `durationDays` of 3, it implies 1 person is working on it.\n4.  **Fit to Phase:** Arrange the `startDay` and `durationDays` for each task so that the overall span of an `activityGroup` roughly matches the target duration from the high-level guidance. Use overlaps to achieve this.\n5.  **Resource Allocation:**\n    - For `resourceAllocation`, only include roles that are actually used (have `totalManDays` > 0).\n    - The `dailyEffort` array MUST have a length equal to `totalDurationDays`.\n    - Calculate daily effort precisely. Example: If a 3 man-day task is done over 2 days, the `dailyEffort` for that role is `[1.5, 1.5]` on those days.\n    - **SPECIAL RULE:** The 'Architect' and 'Project Manager' roles must have a minimum `dailyEffort` of 0.5 on every single day of the project, from day 1 to `totalDurationDays`.\n\n**Final JSON Output (Strictly this format, no extra text):**\n{{\n  \"\"totalDurationDays\"\": {estimation.TotalDurationDays},\n  \"\"activities\"\": [\n    {{\n      \"\"activityName\"\": \"\"Project Preparation\"\",\n      \"\"details\"\": [\n        {{ \"\"taskName\"\": \"\"System Setup\"\", \"\"detail\"\": \"\"Architect Setup\"\", \"\"actor\"\": \"\"Architect\"\", \"\"manDays\"\": 2.0, \"\"startDay\"\": 1, \"\"durationDays\"\": 2 }}\n      ]\n    }}\n  ],\n  \"\"resourceAllocation\"\": [\n    {{ \"\"role\"\": \"\"Architect\"\", \"\"totalManDays\"\": 25.5, \"\"dailyEffort\"\": [0.5, 0.5, 1.0, ...] }}\n  ]\n}}\n";
     }
+
+    private sealed record DetailedTaskDescriptor(
+        string ActivityGroup,
+        string TaskName,
+        string Detail,
+        string Actor,
+        double ManDays);
+
     private sealed class AiTimelineResult
     {
         public int TotalDurationDays { get; set; }
