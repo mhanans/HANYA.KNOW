@@ -40,11 +40,11 @@ public static class AssessmentTaskAggregator
         var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (assessment?.Sections == null)
         {
-            Console.WriteLine("[ERROR] AggregateEstimationColumnEffort: Assessment atau Sections collection null.");
+            Console.WriteLine("[ERROR] AggregateEstimationColumnEffort: Assessment or Sections collection is null.");
             return result;
         }
 
-        double totalHoursAggregated = 0;
+        double totalHoursTracked = 0;
 
         foreach (var section in assessment.Sections)
         {
@@ -68,19 +68,24 @@ public static class AssessmentTaskAggregator
                     {
                         hours = elementVal;
                     }
+                    else if (estimate.Value is long longVal)
+                    {
+                        hours = longVal;
+                    }
 
-                    if (hours <= 0) continue;
-
-                    totalHoursAggregated += hours;
-                    var manDays = hours / 8.0;
-                    result[columnName] = result.TryGetValue(columnName, out var existing)
-                        ? existing + manDays
-                        : manDays;
+                    if (hours > 0)
+                    {
+                        totalHoursTracked += hours;
+                        var manDays = hours / 8.0;
+                        result[columnName] = result.TryGetValue(columnName, out var existing)
+                            ? existing + manDays
+                            : manDays;
+                    }
                 }
             }
         }
 
-        Console.WriteLine($"[DEBUG] AggregateEstimationColumnEffort SELESAI. Total Jam: {totalHoursAggregated}. Total Man-Days: {result.Values.Sum()}. Jumlah Kolom: {result.Count}.");
+        Console.WriteLine($"[CRITICAL DEBUG] AggregateEstimationColumnEffort FINISHED. Total Hours Processed: {totalHoursTracked}. Total Man-Days Calculated: {result.Values.Sum()}.");
         return result;
     }
 
