@@ -24,6 +24,9 @@ public class AssessmentJob
     public int Step { get; set; } = 1;
     public string ScopeDocumentPath { get; set; } = string.Empty;
     public string ScopeDocumentMimeType { get; set; } = string.Empty;
+    public bool ScopeDocumentHasManhour { get; set; }
+    public bool? DetectedScopeManhour { get; set; }
+    public string? ManhourDetectionNotes { get; set; }
     public string OriginalTemplateJson { get; set; } = string.Empty;
     public string? ReferenceAssessmentsJson { get; set; }
     public string? ReferenceDocumentsJson { get; set; }

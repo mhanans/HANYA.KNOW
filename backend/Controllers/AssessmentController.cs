@@ -113,6 +113,7 @@ public class AssessmentController : ControllerBase
                 request.TemplateId,
                 request.ProjectName ?? string.Empty,
                 request.File!,
+                request.ScopeHasAssessmentManhour,
                 analysisMode,
                 outputLanguage,
                 referenceAssessments,
@@ -510,4 +511,5 @@ public class AssessmentAnalyzeRequest
     public List<string> ReferenceDocumentSources { get; set; } = new();
     public string? AnalysisMode { get; set; }
     public string? OutputLanguage { get; set; }
+    public bool ScopeHasAssessmentManhour { get; set; }
 }

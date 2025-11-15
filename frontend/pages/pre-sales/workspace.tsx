@@ -132,6 +132,9 @@ interface AssessmentJob {
   templateName: string;
   analysisMode?: 'Interpretive' | 'Strict';
   outputLanguage?: 'Indonesian' | 'English';
+  scopeDocumentHasManhour?: boolean;
+  detectedScopeManhour?: boolean | null;
+  manhourDetectionNotes?: string | null;
   status: AssessmentJobStatus;
   step?: number;
   lastError?: string | null;
@@ -442,10 +445,12 @@ export default function AssessmentWorkspace() {
   const [templateColumns, setTemplateColumns] = useState<string[]>([]);
   const [analysisMode, setAnalysisMode] = useState<AnalysisModeOption>('interpretive');
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguageOption>('indonesian');
+  const [scopeHasManualManhour, setScopeHasManualManhour] = useState<'no' | 'yes'>('no');
   const similarRequestId = useRef(0);
   const jobPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastJobStatusRef = useRef<AssessmentJobStatus | null>(null);
   const outstandingJobCheckRef = useRef(false);
+  const manualDetectionNotices = useRef<Set<number>>(new Set());
 
   const resolveOutputLanguage = useCallback((language?: string | null): OutputLanguageOption => {
     if (!language) {
@@ -575,16 +580,39 @@ export default function AssessmentWorkspace() {
       const statusChanged = previousStatus !== job.status;
 
       if (job.status === 'Complete' && statusChanged) {
-        showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
+        if (job.scopeDocumentHasManhour && job.detectedScopeManhour) {
+          showSuccess(
+            'Assessed man-hours imported',
+            job.manhourDetectionNotes || 'Existing man-hour estimates from the scope document are now available.'
+          );
+        } else {
+          showSuccess('Analysis complete', 'Review the AI-generated estimates before saving.');
+        }
       } else if (isFailureJobStatus(job.status) && statusChanged) {
         const message = job.lastError || 'The AI analysis did not return valid data. Try again later.';
         showError(message, 'Analysis failed');
       }
 
+      if (
+        job.id &&
+        job.scopeDocumentHasManhour &&
+        job.detectedScopeManhour === false &&
+        !manualDetectionNotices.current.has(job.id)
+      ) {
+        manualDetectionNotices.current.add(job.id);
+        void Swal.fire({
+          icon: 'info',
+          title: 'No assessed man-hours found',
+          text:
+            job.manhourDetectionNotes ||
+            'AI could not find assessed man-hour values in the uploaded scope document. Continuing with the standard estimation flow.',
+        });
+      }
+
       lastJobStatusRef.current = job.status;
       return { previousStatus, statusChanged };
     },
-    [resolveOutputLanguage, setAnalysisMode, showError, showSuccess]
+    [manualDetectionNotices, resolveOutputLanguage, setAnalysisMode, showError, showSuccess]
   );
 
   const refreshSimilarAssessments = useCallback(async () => {
@@ -1132,6 +1160,7 @@ export default function AssessmentWorkspace() {
       showError('Select a template and upload a scope document first.', 'Missing information');
       return;
     }
+    manualDetectionNotices.current.clear();
     stopJobPolling();
     lastJobStatusRef.current = null;
     setAssessment(null);
@@ -1143,6 +1172,7 @@ export default function AssessmentWorkspace() {
       formData.append('templateId', String(selectedTemplate));
       formData.append('projectName', projectTitle.trim());
       formData.append('file', file);
+      formData.append('scopeHasAssessmentManhour', scopeHasManualManhour === 'yes' ? 'true' : 'false');
       selectedReferenceIds.forEach(id => {
         formData.append('referenceAssessmentIds', String(id));
       });
@@ -1417,6 +1447,23 @@ export default function AssessmentWorkspace() {
                     </RadioGroup>
                     <FormHelperText>
                       AI-generated items, descriptions, and notes will use the selected language.
+                    </FormHelperText>
+                  </FormControl>
+
+                  <FormControl component="fieldset" sx={{ flex: 1 }}>
+                    <FormLabel component="legend">Existing man-hours</FormLabel>
+                    <RadioGroup
+                      row
+                      value={scopeHasManualManhour}
+                      onChange={event =>
+                        setScopeHasManualManhour(event.target.value === 'yes' ? 'yes' : 'no')
+                      }
+                    >
+                      <FormControlLabel value="no" control={<Radio />} label="Need AI estimation" />
+                      <FormControlLabel value="yes" control={<Radio />} label="Import from PDF" />
+                    </RadioGroup>
+                    <FormHelperText>
+                      Select “Import from PDF” if the scope document already includes assessed man-hours.
                     </FormHelperText>
                   </FormControl>
                 </Stack>
