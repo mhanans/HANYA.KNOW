@@ -226,6 +226,38 @@ export default function TimelineEstimatorDetailPage() {
 
       {rawInput && <RawInputSummary rawInput={rawInput} />}
 
+      {/* START: ADD THIS NEW SECTION */}
+      {estimation.phases && estimation.phases.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Phase Duration Guidance
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Phase</TableCell>
+                  <TableCell align="right">Duration (days)</TableCell>
+                  <TableCell>Sequencing</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {estimation.phases.map(phase => (
+                  <TableRow key={phase.phaseName}>
+                    <TableCell component="th" scope="row">
+                      {phase.phaseName}
+                    </TableCell>
+                    <TableCell align="right">{phase.durationDays}</TableCell>
+                    <TableCell>{phase.sequenceType}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+      {/* END: ADD THIS NEW SECTION */}
+
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
         <Typography variant="h6" gutterBottom>
           Resource Headcount Guidance

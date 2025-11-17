@@ -106,33 +106,14 @@ public class TimelineEstimatorService
             DurationAnchor = durationAnchor
         };
 
-        var prompt = BuildEstimatorPrompt(
-            rawInputData.DurationAnchor,
-            rawInputData.SelectedTeamType?.Name ?? teamType.Name,
-            rawInputData.DurationsPerRole,
-            rawInputData.ActivityManDays);
-        string rawResponse = string.Empty;
         TimelineEstimationRecord estimation;
-
         try
         {
-            rawResponse = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
-            var parsed = ParseAiEstimation(rawResponse);
-            estimation = MapFromAiResult(parsed);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "AI response for timeline estimation was not valid JSON. Falling back to heuristic estimation.");
-            estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "AI timeline estimation could not be parsed. Falling back to heuristic estimation.");
-            estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
+            estimation = BuildDeterministicEstimate(activityManDays, roleManDays, teamType, durationAnchor);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI timeline estimation failed. Falling back to heuristic estimation.");
+            _logger.LogWarning(ex, "Deterministic timeline estimation failed. Falling back to heuristic estimation.");
             estimation = BuildFallbackEstimate(activityManDays, roleManDays, references);
         }
 
@@ -249,6 +230,131 @@ public class TimelineEstimatorService
             Roles = roles,
             SequencingNotes = notes
         };
+    }
+
+    private TimelineEstimationRecord BuildDeterministicEstimate(
+        Dictionary<string, double> activityManDays,
+        Dictionary<string, double> roleManDays,
+        TeamType teamType,
+        int durationAnchor)
+    {
+        if (teamType == null)
+        {
+            throw new ArgumentNullException(nameof(teamType));
+        }
+
+        var normalizedActivities = new Dictionary<string, double>(activityManDays ?? new Dictionary<string, double>(), StringComparer.OrdinalIgnoreCase);
+        if (normalizedActivities.Count == 0)
+        {
+            throw new InvalidOperationException("Deterministic estimation requires phase activity data.");
+        }
+
+        roleManDays ??= new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        durationAnchor = Math.Max(1, durationAnchor);
+
+        var phaseSequence = new List<(string Name, string SequenceType)>
+        {
+            ("Project Preparation", "Serial"),
+            ("Analysis & Design", "Subsequent"),
+            ("Architecture & Setup", "Subsequent"),
+            ("Application Development", "Subsequent"),
+            ("Testing & QA", "Parallel"),
+            ("Testing & Bug Fixing", "Parallel"),
+            ("Deployment & Handover", "Subsequent")
+        };
+
+        var roleDefinitions = teamType.Roles ?? new List<TeamTypeRole>();
+        var validHeadcounts = roleDefinitions
+            .Where(r => r != null && double.IsFinite(r.Headcount) && r.Headcount > 0)
+            .Select(r => r.Headcount)
+            .ToList();
+        var fallbackHeadcount = roleManDays.Count > 0
+            ? Math.Max(1d, roleManDays.Values.Sum() / durationAnchor)
+            : 1d;
+        var averageHeadcount = validHeadcounts.Count > 0 ? validHeadcounts.Average() : fallbackHeadcount;
+        averageHeadcount = Math.Max(0.5, averageHeadcount);
+
+        var phaseEstimates = new List<TimelinePhaseEstimate>();
+
+        foreach (var (name, sequenceType) in phaseSequence)
+        {
+            if (!normalizedActivities.TryGetValue(name, out var manDays) || manDays <= 0)
+            {
+                continue;
+            }
+
+            var durationDays = CalculatePhaseDuration(manDays, averageHeadcount);
+            phaseEstimates.Add(new TimelinePhaseEstimate
+            {
+                PhaseName = name,
+                DurationDays = durationDays,
+                SequenceType = sequenceType
+            });
+
+            normalizedActivities.Remove(name);
+        }
+
+        foreach (var kvp in normalizedActivities.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (kvp.Value <= 0)
+            {
+                continue;
+            }
+
+            var durationDays = CalculatePhaseDuration(kvp.Value, averageHeadcount);
+            phaseEstimates.Add(new TimelinePhaseEstimate
+            {
+                PhaseName = kvp.Key,
+                DurationDays = durationDays,
+                SequenceType = "Subsequent"
+            });
+        }
+
+        if (phaseEstimates.Count == 0)
+        {
+            throw new InvalidOperationException("Deterministic estimation could not derive any phases.");
+        }
+
+        double totalDuration = 0;
+        double parallelBlockDuration = 0;
+        foreach (var phase in phaseEstimates)
+        {
+            phase.SequenceType = NormaliseSequenceType(phase.SequenceType);
+            if (string.Equals(phase.SequenceType, "Parallel", StringComparison.OrdinalIgnoreCase))
+            {
+                parallelBlockDuration = Math.Max(parallelBlockDuration, phase.DurationDays);
+            }
+            else
+            {
+                totalDuration += parallelBlockDuration;
+                parallelBlockDuration = 0;
+                totalDuration += phase.DurationDays;
+            }
+        }
+
+        totalDuration += parallelBlockDuration;
+        var finalDuration = Math.Max(durationAnchor, (int)Math.Ceiling(totalDuration));
+        finalDuration = Math.Max(1, finalDuration);
+
+        var roles = BuildFallbackRoles(roleManDays, finalDuration);
+        var notes = $"Phase ordering follows the presales_activities reference table, allowing Testing to run alongside Development where possible. The critical path is estimated at {finalDuration} days and is anchored by a {durationAnchor}-day resource bottleneck.";
+
+        return new TimelineEstimationRecord
+        {
+            ProjectScale = teamType.Name ?? string.Empty,
+            TotalDurationDays = finalDuration,
+            Phases = phaseEstimates,
+            Roles = roles,
+            SequencingNotes = notes
+        };
+
+        int CalculatePhaseDuration(double manDays, double headcount)
+        {
+            var normalizedEffort = Math.Max(1d, manDays);
+            var rawDuration = normalizedEffort / Math.Max(0.5, headcount);
+            var duration = (int)Math.Ceiling(rawDuration);
+            return Math.Max(3, duration);
+        }
     }
 
     private static List<TimelineRoleEstimate> BuildFallbackRoles(
