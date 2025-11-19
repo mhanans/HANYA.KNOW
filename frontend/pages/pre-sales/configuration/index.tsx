@@ -383,13 +383,13 @@ const transformPresalesResponse = (
   const teamTypes = teamTypesSource.map((teamType: Partial<TeamTypeForm> & { roles?: Partial<TeamTypeRoleForm>[] }) => {
     const roles = Array.isArray(teamType.roles)
       ? teamType.roles.map(role => ({
-          id: typeof role?.id === 'number' ? role.id : undefined,
-          teamTypeId: typeof role?.teamTypeId === 'number' ? role.teamTypeId : undefined,
-          roleName: typeof role?.roleName === 'string' ? role.roleName : '',
-          headcount:
-            typeof role?.headcount === 'number' && Number.isFinite(role.headcount) ? Number(role.headcount) : 0,
-          clientKey: createClientKey(),
-        }))
+        id: typeof role?.id === 'number' ? role.id : undefined,
+        teamTypeId: typeof role?.teamTypeId === 'number' ? role.teamTypeId : undefined,
+        roleName: typeof role?.roleName === 'string' ? role.roleName : '',
+        headcount:
+          typeof role?.headcount === 'number' && Number.isFinite(role.headcount) ? Number(role.headcount) : 0,
+        clientKey: createClientKey(),
+      }))
       : [];
 
     return {
@@ -485,10 +485,7 @@ const toNumber = (value: string, fallback = 0) => {
   if (hasComma) {
     normalized = sanitized.replace(/\./g, '').replace(/,/g, '.');
   } else {
-    const thousandSeparated = /^\d{1,3}(\.\d{3})+$/.test(sanitized);
-    if (thousandSeparated) {
-      normalized = sanitized.replace(/\./g, '');
-    }
+    normalized = sanitized.replace(/\./g, '');
   }
   const parsed = parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -1004,6 +1001,19 @@ export default function PresalesConfigurationPage() {
       }
       roles[index] = updated;
 
+      let estimationColumnRoles = prev.estimationColumnRoles;
+      let teamTypes = prev.teamTypes;
+
+      if (key === 'roleName' && previous.roleName && previous.roleName !== value) {
+        estimationColumnRoles = estimationColumnRoles.map(m =>
+          m.roleName === previous.roleName ? { ...m, roleName: value } : m
+        );
+        teamTypes = teamTypes.map(t => ({
+          ...t,
+          roles: (t.roles || []).map(r => (r.roleName === previous.roleName ? { ...r, roleName: value } : r)),
+        }));
+      }
+
       if (key === 'roleName' || key === 'expectedLevel') {
         const oldKeys = enumerateCostKeysForRole(previous);
         const newLabel = buildRoleLabelFromRole(updated);
@@ -1039,7 +1049,7 @@ export default function PresalesConfigurationPage() {
         });
       }
 
-      return { ...prev, roles };
+      return { ...prev, roles, estimationColumnRoles, teamTypes };
     });
   }, []);
 

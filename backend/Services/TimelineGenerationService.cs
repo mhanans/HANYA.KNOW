@@ -466,7 +466,7 @@ public class TimelineGenerationService
 
     **1. MANDATORY CONSTRAINTS (NON-NEGOTIABLE):**
 
-    *   **Total Project Duration:** The schedule must fit exactly within **{estimation.TotalDurationDays} days**.
+    *   **Total Project Duration:** The schedule must fit exactly within **{estimation.TotalDurationDays} days**. This is a HARD LIMIT. If necessary, increase parallelism to meet this deadline.
     *   **Resource Availability (Headcount):** The total man-days for any role on any single day CANNOT exceed the available headcount.
         {resourceConstraints}
     *   **Discrete Manpower Rule:** The daily effort for any single person must be **EXACTLY 0.5 (half-day) or 1.0 (full-day)**. No other values like 0.75, 0.29, or 0.58 are permitted. This is the most important rule.
