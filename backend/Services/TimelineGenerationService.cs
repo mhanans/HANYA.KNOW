@@ -439,15 +439,16 @@ public class TimelineGenerationService
             .Select(p => $"  - {p.PhaseName}: Target Duration = {Math.Max(1, p.DurationDays)} days, Sequencing = {p.SequenceType}")
             .ToList();
 
-        var exampleJson = @"
+        var exampleJson = """
     {
-      \"totalDurationDays\": 17,
-      \"activities\": [
-        { \"activityName\": \"Project Preparation\", \"details\": [ { \"taskName\": \"System Setup\", \"actor\": \"Architect\", \"manDays\": 0.6, \"startDay\": 1, \"durationDays\": 1 } ] },
-        { \"activityName\": \"Application Development\", \"details\": [ { \"taskName\": \"Application Development\", \"actor\": \"Dev, Dev Lead\", \"manDays\": 10.65, \"startDay\": 5, \"durationDays\": 3 } ] }
+      "totalDurationDays": 17,
+      "activities": [
+        { "activityName": "Project Preparation", "details": [ { "taskName": "System Setup", "actor": "Architect", "manDays": 0.6, "startDay": 1, "durationDays": 1 } ] },
+        { "activityName": "Application Development", "details": [ { "taskName": "Application Development", "actor": "Dev, Dev Lead", "manDays": 10.65, "startDay": 5, "durationDays": 3 } ] }
       ],
-      \"resourceAllocation\": [ { \"role\": \"Architect\", \"totalManDays\": 12.0, \"dailyEffort\": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0, 0] } ]
-    }";
+      "resourceAllocation": [ { "role": "Architect", "totalManDays": 12.0, "dailyEffort": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0, 0] } ]
+    }
+    """;
 
         var resourceConstraints = @"- Architect: 1 person (Max 1.0 man-days per day)
     - Analyst: 1 person (Max 1.0 man-days per day)
