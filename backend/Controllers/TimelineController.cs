@@ -116,6 +116,19 @@ public class TimelineController : ControllerBase
         return Ok(record);
     }
 
+    [HttpPut("{assessmentId}")]
+    [UiAuthorize("pre-sales-project-timelines")]
+    public async Task<IActionResult> UpdateTimeline(int assessmentId, [FromBody] TimelineRecord timeline)
+    {
+        if (assessmentId <= 0 || timeline == null) return BadRequest("Invalid Data");
+        if (assessmentId != timeline.AssessmentId) return BadRequest("Assessment ID mismatch.");
+        
+        // Optionally Validate?
+        // Just save.
+        await _timelineStore.SaveAsync(timeline, HttpContext.RequestAborted).ConfigureAwait(false);
+        return Ok();
+    }
+
     [HttpGet("{assessmentId}/export")]
     [UiAuthorize("pre-sales-project-timelines")]
     public async Task<IActionResult> ExportTimeline(int assessmentId)

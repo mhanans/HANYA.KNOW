@@ -48,6 +48,13 @@ export default function ProjectTimelineDetailPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [dragging, setDragging] = useState<{
+    actIdx: number;
+    detIdx: number;
+    startX: number;
+    origStart: number;
+  } | null>(null);
 
   const resolvedId = useMemo(() => {
     if (Array.isArray(assessmentId)) return parseInt(assessmentId[0] ?? '', 10);
@@ -110,18 +117,98 @@ export default function ProjectTimelineDetailPage() {
     }
   }, [resolvedId]);
 
+  const handleSave = useCallback(async () => {
+    if (!resolvedId || !timeline) return;
+    try {
+      setLoading(true);
+      const res = await apiFetch(`/api/timelines/${resolvedId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(timeline)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setDirty(false);
+      // Recalc metrics/resource allocation logic if simple drag didn't update it?
+      // Assuming resource allocation doesn't change by SHIFTING (it assumes role presence per day).
+      // Actually, shifting tasks changes daily resource overlap.
+      // We are NOT recalculating resource allocation in frontend. It will be stale until reload or backend recalc?
+      // User said "without altering calculation of durations".
+      // But resource allocation chart (at bottom) depends on WHEN tasks happen.
+      // Ideally, we should re-fetch after save?
+      await loadTimeline();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+      setLoading(false);
+    }
+  }, [resolvedId, timeline, loadTimeline]);
+
+  const handleDragStart = (e: React.MouseEvent, actIdx: number, detIdx: number, detail: TimelineDetail) => {
+    e.preventDefault();
+    setDragging({
+      actIdx,
+      detIdx,
+      startX: e.clientX,
+      origStart: detail.startDay
+    });
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging || !timeline) return;
+
+      const deltaPx = e.clientX - dragging.startX;
+      const deltaDays = Math.round(deltaPx / DAY_WIDTH);
+      const newStart = Math.max(1, dragging.origStart + deltaDays);
+
+      if (newStart !== dragging.origStart) {
+        setTimeline(prev => {
+          if (!prev) return null;
+          const newActs = [...prev.activities];
+          const act = { ...newActs[dragging.actIdx] };
+          const dets = [...act.details];
+
+          if (dets[dragging.detIdx].startDay === newStart) return prev; // No change
+
+          dets[dragging.detIdx] = { ...dets[dragging.detIdx], startDay: newStart };
+          act.details = dets;
+          newActs[dragging.actIdx] = act;
+
+          // Expand total duration if needed
+          const endDay = newStart + dets[dragging.detIdx].durationDays;
+          const newTotal = Math.max(prev.totalDurationDays, endDay);
+
+          return { ...prev, activities: newActs, totalDurationDays: newTotal };
+        });
+        setDirty(true);
+      }
+    };
+
+    const onUp = () => {
+      if (dragging) setDragging(null);
+    };
+
+    if (dragging) {
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [dragging, timeline]);
+
   const metrics = useMemo(() => {
     if (!timeline) return null;
     const days = Array.from({ length: timeline.totalDurationDays }, (_, i) => i + 1);
     const weeks: { index: number; span: number }[] = [];
-    for (let dayIndex = 0; dayIndex < days.length; ) {
+    for (let dayIndex = 0; dayIndex < days.length;) {
       const span = Math.min(5, days.length - dayIndex);
       weeks.push({ index: weeks.length + 1, span });
       dayIndex += span;
     }
 
     const months: { index: number; span: number }[] = [];
-    for (let weekIndex = 0; weekIndex < weeks.length; ) {
+    for (let weekIndex = 0; weekIndex < weeks.length;) {
       const monthWeeks = Math.min(5, weeks.length - weekIndex);
       const span = weeks.slice(weekIndex, weekIndex + monthWeeks).reduce((acc, week) => acc + week.span, 0);
       months.push({ index: months.length + 1, span });
@@ -210,6 +297,11 @@ export default function ProjectTimelineDetailPage() {
           <Button variant="contained" onClick={handleRegenerate} disabled={regenerating}>
             {regenerating ? 'Regenerating…' : 'Regenerate Timeline'}
           </Button>
+          {dirty && (
+            <Button variant="contained" color="warning" onClick={handleSave}>
+              Save Changes
+            </Button>
+          )}
         </Stack>
       </Stack>
       {exportError && <Alert severity="error">{exportError}</Alert>}
@@ -255,11 +347,11 @@ export default function ProjectTimelineDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {timeline.activities.map(activity => (
+            {timeline.activities.map((activity, actIdx) => (
               <Fragment key={activity.activityName}>
-                {activity.details.map((detail, index) => (
-                  <tr key={`${detail.taskName}-${index}`}>
-                    {index === 0 && (
+                {activity.details.map((detail, detIdx) => (
+                  <tr key={`${detail.taskName}-${detIdx}`}>
+                    {detIdx === 0 && (
                       <td
                         rowSpan={activity.details.length}
                         className={clsx(styles.dataCell, styles.activityGroup)}
@@ -278,8 +370,21 @@ export default function ProjectTimelineDetailPage() {
                       {summary?.formatNumber(detail.manDays ?? 0)}
                     </td>
                     {metrics.days.map(day => {
-                      const isActive = day >= detail.startDay && day < detail.startDay + detail.durationDays;
-                      return <td key={day} className={clsx(styles.timelineCell, isActive && styles.ganttBar)} />;
+                      const isStart = day === detail.startDay;
+                      return (
+                        <td key={day} className={styles.timelineCell}>
+                          {isStart && (
+                            <div
+                              className={styles.ganttBar}
+                              style={{
+                                width: (detail.durationDays * DAY_WIDTH) - 2
+                              }}
+                              onMouseDown={(e) => handleDragStart(e, actIdx, detIdx, detail)}
+                              title={`${detail.taskName} (${detail.durationDays} days)`}
+                            />
+                          )}
+                        </td>
+                      );
                     })}
                   </tr>
                 ))}

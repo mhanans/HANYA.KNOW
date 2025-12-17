@@ -178,7 +178,7 @@ public class ProjectAssessmentStore
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", id);
-        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Integer) { Value = (object?)userId ?? DBNull.Value });
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {

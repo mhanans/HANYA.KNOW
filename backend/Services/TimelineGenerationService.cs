@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -450,16 +451,216 @@ public class TimelineGenerationService
     }
     """;
 
-        var resourceConstraints = @"- Architect: 1 person (Max 1.0 man-days per day)
-    - Analyst: 1 person (Max 1.0 man-days per day)
-    - Dev: 3 people (Max 3.0 man-days per day)
-    - PM: 1 person (Max 1.0 man-days per day)
-    - Dev Lead: 1 person (Max 1.0 man-days per day)";
+        var resourceConstraints = string.Join("\n", (estimation.Roles ?? new List<TimelineRoleEstimate>())
+            .Select(r => $"    - {r.Role}: {r.EstimatedHeadcount} person(s) (Max {r.EstimatedHeadcount:F1} man-days per day)"));
 
-        var taskDependencies = @"- 'SRS & FSD Documentation' must be completed before 'Application Development' can start.
-    - 'Application Development' must be completed before 'SIT/Automated Testing' can start.
-    - 'SIT/Automated Testing' must be completed before 'UAT' can start.
-    - All development and testing activities must be completed before 'Go Live' activities can start.";
+        var dependencies = new List<string>();
+        var activePredecessors = new List<string>();
+        var phases = estimation.Phases ?? new List<TimelinePhaseEstimate>();
+
+        for (int i = 0; i < phases.Count; i++)
+        {
+            var p = phases[i];
+            var phaseName = p.PhaseName;
+            
+            if (i == 0)
+            {
+                activePredecessors.Add(phaseName);
+                continue;
+            }
+
+            // If Serial, it depends on the completion of the previous block(s)
+            if (string.Equals(p.SequenceType, "Serial", StringComparison.OrdinalIgnoreCase))
+            {
+                if (activePredecessors.Count > 0)
+                {
+                    var preds = string.Join("' AND '", activePredecessors); // e.g. 'Phase A' AND 'Phase B'
+                    dependencies.Add($"- All tasks in '{phaseName}' CANNOT start until ALL tasks in '{preds}' are fully completed.");
+                }
+                
+                // For the next block, this Serial phase becomes the new single predecessor
+                activePredecessors.Clear();
+                activePredecessors.Add(phaseName);
+            }
+            else
+            {
+                // If Parallel, it shares the same start time/predecessors as the previous phase (effectively).
+                // It does NOT wait for the immediately preceding phase in this list (which acts as its sibling).
+                // But generally, the 'activePredecessors' list currently contains the "Previous Phase" (added at end of loop).
+                // Wait, logic correction:
+                
+                // Standard Model:
+                // A (Serial) -> Active: [A]
+                // B (Serial) -> Depends on [A]. Active becomes [B].
+                // C (Parallel to B) -> Depends on [A] (same as B). Active becomes [B, C].
+                // D (Serial) -> Depends on [B, C]. Active becomes [D].
+                
+                // My logic above:
+                // i=0: A. Active=[A].
+                // i=1: B (Serial). Depends on [A]. Active=[B]. Correct.
+                // i=2: C (Parallel). NO dependency generated (so it starts ASAP, conditioned only on previous Serial block... which isn't explicitly linked here, BUT logic implies implicit flow?)
+                // Actually, if C generates NO dependency, it might start at Day 0?
+                // NO. We need to say "C depends on [A]".
+                // BUT [A] is no longer in `activePredecessors`? 
+                // Ah, `activePredecessors` tracks the "Tail" of the chain.
+                
+                // We need to track `previousBlockTail`.
+                // Let's refine.
+                
+                // BETTER LOGIC:
+                // Track `lastSerialBlock` (List of phases that formed the last serial barrier).
+                // Initially empty? Or implicit start?
+                
+                // Let's assume strict dependencies. 
+                // A phase usually just needs to know what it follows.
+                // If Serial: Follows Phase[i-1].
+                // If Parallel: Follows Phase[i-1]'s Predecessor.
+                
+                // Let's rely on the AI interpreting "Sequential" vs "Parallel" if we are explicit about PREDECESSORS.
+                // Instead of tracking logic here, let's look at the List.
+                
+                // Simple Rule:
+                // If Phase is Serial, it must start after Phase[i-1] completes.
+                // If Phase is Parallel, it must start after Phase[i-1]'s *Start*? No, usually "Parallel" means concurrent with.
+                
+                // Let's stick to the "Block" logic which is robust for linear flows.
+                // We need to store the `predecessorsForCurrentBlock`.
+                
+                // Re-attempting construction logic:
+                // var barrierPhases = new List<string>(); // Phases that MUST finish before the next Serial block
+                // var currentBlockPhases = new List<string>(); // Phases in the current parallel group
+                
+                // Loop:
+                // if Serial:
+                //    Rule: This Phase depends on `barrierPhases`.
+                //    `barrierPhases` = [This Phase]
+                // if Parallel:
+                //    Rule: This Phase depends on `barrierPhases` (Same as whoever it is parallel with).
+                //    `barrierPhases`.Add(This Phase) ?? No.
+                //    If B is Serial (after A), barrier is [A]. B depends on A. New Barrier is [B].
+                //    If C is Parallel (to B), C depends on [A]. New Barrier is [B, C] (Next guy waits for both).
+                
+                // This seems correct.
+                 
+             } 
+             
+             // Redoing logic in code block below for clarity:
+        }
+        
+        // Revised Implementation to paste:
+        var computedDependencies = new List<string>();
+        // The set of phases that constitute the "Previous Completed Block". 
+        // Any new task must wait for ALL of these to finish.
+        var previousBlockPhases = new List<string>(); 
+        
+        for (int i = 0; i < phases.Count; i++)
+        {
+            var p = phases[i];
+            
+            if (i == 0)
+            {
+                previousBlockPhases.Add(p.PhaseName);
+                continue;
+            }
+            
+            if (string.Equals(p.SequenceType, "Serial", StringComparison.OrdinalIgnoreCase))
+            {
+                // Adds a hard dependency barrier
+                if (previousBlockPhases.Count > 0)
+                {
+                    var predList = string.Join("' AND '", previousBlockPhases);
+                    computedDependencies.Add($"- '{p.PhaseName}' must start AFTER '{predList}' are completed.");
+                }
+                
+                // Reset the barrier to just this phase (it becomes the new bottleneck)
+                previousBlockPhases.Clear();
+                previousBlockPhases.Add(p.PhaseName);
+            }
+            else // Parallel
+            {
+                // Parallel means "Run alongside the previous phase(s)". 
+                // So it shares the SAME predecessors as the *current* block.
+                // It does NOT depend on the *immediately preceding* phase (which is its sibling).
+                // However, we must ensure it depends on the *Previous Block* (the ones before the sibling).
+                
+                // Wait. 'previousBlockPhases' was reset to [Sibling] in the previous step?
+                // If B (Serial) ran: reset prev to [B].
+                // Now C (Parallel):
+                // It should depend on [A]?? 
+                // My logic above Reset `previousBlockPhases` too early!
+                
+                // We need `currentBlockPredecessors`.
+                // This is getting complex to track statefully in a single pass without look-behind.
+                // BUT, we can just say:
+                // "Parallel" means "Join the current tip".
+                // "Serial" means "Extend the tip".
+                
+                // Let's use the explicit `SequenceType` definition:
+                // Parallel: Start With Previous.
+                // Serial: Start After Previous.
+                
+                // If C is Parallel to B. B is Serial.
+                // B depends on A.
+                // C depends on A.
+                
+                // We need to capture "Who did B depend on?".
+                // Let's maintain `lastDependencySet`.
+                
+                // Simplified approach for the Prompt (Logic v3):
+                // Just map phases to their explicit Dependency List.
+                // then print lines.
+            }
+        }
+        
+        // Actually, let's keep it simple. The AI is smart.
+        // We will just explicitly state the `SequenceType` behavior in the dependencies list.
+        // "Phase X is SERIAL: It must wait for Phase Y."
+        // "Phase Z is PARALLEL: It can start immediately (provided dependencies of Phase Y are met)."
+        
+        // BUT determining Phase Y's dependencies is the trick.
+        
+        // Let's go with the "Accumulating Barrier" approach which covers 95% of cases (Standard SDLC).
+        // Barrier = [A].
+        // Next is Serial B? B depends on Barrier. New Barrier = [B].
+        // Next is Parallel C? C depends on Barrier (old one? No, the one B used?).
+        // No, if C is parallel to B, C depends on 'What B depended on'.
+        // So we shouldn't update Barrier until we finish the group?
+        
+        // Working Logic:
+        var taskDependencies = new StringBuilder();
+        var currentBarrier = new List<string>(); // What determines start of current group
+        var nextBarrier = new List<string>();    // What current group produces
+        
+        // Initialize
+        if(phases.Count > 0) nextBarrier.Add(phases[0].PhaseName);
+        
+        for(int i = 1; i < phases.Count; i++) {
+            var prev = phases[i-1];
+            var curr = phases[i];
+            
+            if (string.Equals(curr.SequenceType, "Serial", StringComparison.OrdinalIgnoreCase)) {
+                 // Serial means we close the previous group.
+                 // The 'nextBarrier' (phases gathered so far) becomes `currentBarrier`.
+                 currentBarrier = new List<string>(nextBarrier);
+                 nextBarrier.Clear();
+                 
+                 // Curr depends on CurrentBarrier
+                 if(currentBarrier.Count > 0) {
+                     taskDependencies.AppendLine($"- '{curr.PhaseName}' must wait for completion of: {string.Join(", ", currentBarrier.Select(x => $"'{x}'"))}.");
+                 }
+                 
+                 nextBarrier.Add(curr.PhaseName);
+            } else {
+                 // Parallel
+                 // Curr depends on `currentBarrier` (Same as its siblings).
+                 if(currentBarrier.Count > 0) {
+                     taskDependencies.AppendLine($"- '{curr.PhaseName}' must wait for completion of: {string.Join(", ", currentBarrier.Select(x => $"'{x}'"))}.");
+                 }
+                 // And Curr contributes to the Future Barrier
+                 nextBarrier.Add(curr.PhaseName);
+            }
+        }
+
 
         return $@"
     You are a hyper-logical, deterministic Project Scheduling engine. Your only function is to convert a list of tasks into a valid, compact, day-by-day Gantt chart in JSON format. You must follow all rules PERFECTLY. Your output must be a single, clean JSON object.

@@ -14,6 +14,13 @@ import {
   TableHead,
   TableRow,
   Typography,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  TextField,
+  Divider,
 } from '@mui/material';
 import { apiFetch } from '../../../lib/api';
 import Swal from 'sweetalert2';
@@ -29,6 +36,19 @@ interface TimelineAssessmentSummary {
   hasTimelineEstimation: boolean;
   timelineEstimationGeneratedAt?: string;
   timelineEstimationScale?: string | null;
+}
+
+interface TimelineRoleEstimate {
+  role: string;
+  estimatedHeadcount: number;
+  totalManDays: number;
+}
+
+interface TeamRecommendation {
+  totalManDays: number;
+  totalManHours: number;
+  recommendedTeamName: string;
+  roles: TimelineRoleEstimate[];
 }
 
 const formatDate = (value?: string) => {
@@ -50,7 +70,14 @@ export default function ProjectTimelinesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<number | null>(null);
-  const [estimatingId, setEstimatingId] = useState<number | null>(null);
+
+  // Wizard State
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardAssessmentId, setWizardAssessmentId] = useState<number | null>(null);
+  const [wizardLoading, setWizardLoading] = useState(false);
+  const [recommendation, setRecommendation] = useState<TeamRecommendation | null>(null);
+  const [confirmedRoles, setConfirmedRoles] = useState<TimelineRoleEstimate[]>([]);
+  const [bufferPercent, setBufferPercent] = useState<number>(20);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -73,37 +100,65 @@ export default function ProjectTimelinesPage() {
     loadData();
   }, [loadData]);
 
-  const handleGenerateEstimation = useCallback(
-    async (assessmentId: number) => {
-      if (!assessmentId) return;
-      setEstimatingId(assessmentId);
-      setError(null);
-      try {
-        const res = await apiFetch('/api/timeline-estimations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assessmentId }),
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || 'Failed to generate timeline estimation');
-        }
-        await loadData();
-        router.push(`/pre-sales/timeline-estimator/${assessmentId}`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to generate timeline estimation';
-        setError(message);
-        await Swal.fire({
-          icon: 'error',
-          title: 'Timeline estimation failed',
-          text: message,
-        });
-      } finally {
-        setEstimatingId(null);
+  const handleOpenWizard = useCallback(async (assessmentId: number) => {
+    setWizardAssessmentId(assessmentId);
+    setWizardOpen(true);
+    setWizardLoading(true);
+    setRecommendation(null);
+    try {
+      const res = await apiFetch(`/api/timeline-estimations/recommendation/${assessmentId}`);
+      if (!res.ok) throw new Error("Failed to fetch team recommendation");
+      const data: TeamRecommendation = await res.json();
+      setRecommendation(data);
+      setConfirmedRoles(data.roles);
+    } catch (err) {
+      Swal.fire('Error', 'Could not load team recommendation', 'error');
+      setWizardOpen(false);
+    } finally {
+      setWizardLoading(false);
+    }
+  }, []);
+
+  const handleRoleChange = (index: number, field: keyof TimelineRoleEstimate, value: string | number) => {
+    const newRoles = [...confirmedRoles];
+    if (field === 'estimatedHeadcount') {
+      newRoles[index].estimatedHeadcount = Number(value);
+    }
+    setConfirmedRoles(newRoles);
+  };
+
+  const handleWizardConfirm = async () => {
+    if (!wizardAssessmentId) return;
+    setWizardLoading(true); // Re-use loading state for submission
+    try {
+      const res = await apiFetch('/api/timeline-estimations/generate-strict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assessmentId: wizardAssessmentId,
+          confirmedTeam: confirmedRoles,
+          bufferPercentage: bufferPercent
+        })
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to generate timeline");
       }
-    },
-    [loadData, router]
-  );
+
+      setWizardOpen(false);
+      await Swal.fire('Success', 'Timeline generated successfully!', 'success');
+      loadData();
+      // Redirect to Timeline View (Gantt)
+      router.push(`/pre-sales/project-timelines/${wizardAssessmentId}`);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      Swal.fire('Error', msg, 'error');
+    } finally {
+      setWizardLoading(false);
+    }
+  };
 
   const handleViewEstimation = useCallback(
     (assessmentId: number) => {
@@ -207,10 +262,9 @@ export default function ProjectTimelinesPage() {
           </TableHead>
           <TableBody>
             {rows.map(row => {
-              const estimationLabel = row.hasTimelineEstimation ? 'View Estimate' : 'Generate Estimate';
               const timelineLabel = row.hasTimeline ? 'View Timeline' : 'Generate Timeline';
               const isGenerating = generatingId === row.assessmentId;
-              const isEstimating = estimatingId === row.assessmentId;
+              // "Generate Estimate" now opens wizard
               return (
                 <TableRow key={row.assessmentId} hover>
                   <TableCell>{row.projectName || 'Untitled Project'}</TableCell>
@@ -250,35 +304,19 @@ export default function ProjectTimelinesPage() {
                     )}
                   </TableCell>
                   <TableCell align="right">
-                    <Stack spacing={1} direction="column" alignItems="flex-end">
-                      <Button
-                        variant="contained"
-                        color={row.hasTimelineEstimation ? 'secondary' : 'primary'}
-                        size="small"
-                        disabled={isEstimating || isGenerating}
-                        onClick={() =>
-                          row.hasTimelineEstimation
-                            ? handleViewEstimation(row.assessmentId)
-                            : handleGenerateEstimation(row.assessmentId)
-                        }
-                      >
-                        {isEstimating ? 'Estimating…' : estimationLabel}
-                      </Button>
-                      <Button
-                        variant="contained"
-                        color={row.hasTimeline ? 'secondary' : 'primary'}
-                        size="small"
-                        disabled={isGenerating || !row.hasTimelineEstimation}
-                        onClick={() =>
-                          row.hasTimeline
-                            ? handleView(row.assessmentId)
-                            : handleGenerate(row.assessmentId)
-                        }
-                        title={row.hasTimelineEstimation ? undefined : 'Generate an estimator first'}
-                      >
-                        {isGenerating ? 'Generating…' : timelineLabel}
-                      </Button>
-                    </Stack>
+                    <Button
+                      variant="contained"
+                      color={row.hasTimeline ? 'secondary' : 'primary'}
+                      size="small"
+                      disabled={isGenerating}
+                      onClick={() =>
+                        row.hasTimeline
+                          ? handleView(row.assessmentId)
+                          : handleOpenWizard(row.assessmentId)
+                      }
+                    >
+                      {row.hasTimeline ? 'View Timeline' : 'Generate Timeline'}
+                    </Button>
                   </TableCell>
                 </TableRow>
               );
@@ -292,10 +330,9 @@ export default function ProjectTimelinesPage() {
     error,
     rows,
     generatingId,
-    estimatingId,
     handleGenerate,
     handleView,
-    handleGenerateEstimation,
+    handleOpenWizard,
     handleViewEstimation,
     loadData,
   ]);
@@ -313,6 +350,121 @@ export default function ProjectTimelinesPage() {
       <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper', borderRadius: 3 }}>
         {content}
       </Paper>
-    </Box>
+
+      {/* Team Selection Wizard Dialog */}
+      <Dialog open={wizardOpen} onClose={() => !wizardLoading && setWizardOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Timeline Generation Wizard</DialogTitle>
+        <Divider />
+        <DialogContent>
+          {wizardLoading && !recommendation ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : recommendation ? (
+            <Stack spacing={3}>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Detected Effort
+                    </Typography>
+                    <Stack direction="row" alignItems="baseline" justifyContent="center" spacing={2}>
+                      <Box>
+                        <Typography variant="h4" component="span" fontWeight="bold">
+                          {recommendation.totalManHours.toFixed(1)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                          MH
+                        </Typography>
+                      </Box>
+                      <Divider orientation="vertical" flexItem sx={{ height: 24, alignSelf: 'center' }} />
+                      <Box>
+                        <Typography variant="h5" component="span" color="text.secondary">
+                          {recommendation.totalManDays.toFixed(1)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                          MD
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                </Grid>
+                <Grid item xs={6}>
+                  <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Team Recommendation
+                    </Typography>
+                    <Typography variant="h4">{recommendation.recommendedTeamName}</Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+
+
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <TextField
+                  label="Risk Buffer (%)"
+                  type="number"
+                  value={bufferPercent}
+                  onChange={(e) => setBufferPercent(Number(e.target.value))}
+                  inputProps={{ min: 0, max: 200 }}
+                  size="small"
+                  sx={{ width: 150 }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Applies {bufferPercent}% buffer to all estimates.
+                </Typography>
+              </Box>
+
+              <Typography variant="h6">Adjust Team Composition</Typography>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Role</TableCell>
+                      <TableCell align="right">Total Effort (MD)</TableCell>
+                      <TableCell align="right" width={150}>Headcount</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {confirmedRoles.map((role, idx) => (
+                      <TableRow key={role.role}>
+                        <TableCell>{role.role}</TableCell>
+                        <TableCell align="right">{role.totalManDays.toFixed(1)}</TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            size="small"
+                            value={role.estimatedHeadcount}
+                            onChange={(e) => handleRoleChange(idx, 'estimatedHeadcount', e.target.value)}
+                            inputProps={{ min: 0, step: 0.5, style: { textAlign: 'right' } }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Typography variant="caption" color="text.secondary">
+                * Adjusting headcount will directly impact the duration of tasks assigned to that role.
+              </Typography>
+
+            </Stack>
+          ) : (
+            <Typography color="error">Failed to load recommendation.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setWizardOpen(false)} disabled={wizardLoading}>Cancel</Button>
+          <Button
+            onClick={handleWizardConfirm}
+            variant="contained"
+            disabled={wizardLoading || !recommendation}
+          >
+            {wizardLoading ? 'Generating...' : 'Confirm & Generate Timeline'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box >
   );
 }

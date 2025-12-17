@@ -38,6 +38,7 @@ public class ProjectAssessmentAnalysisService
 
     private readonly ILogger<ProjectAssessmentAnalysisService> _logger;
     private readonly AssessmentJobStore _jobStore;
+    private readonly ProjectAssessmentStore _projectAssessmentStore;
     private readonly EffectiveEstimationPolicy _estimationPolicy;
     private readonly HttpClient _httpClient;
     private readonly SettingsStore _settingsStore;
@@ -48,20 +49,29 @@ public class ProjectAssessmentAnalysisService
     private readonly JsonSerializerOptions _deserializationOptions;
     private readonly JsonSerializerOptions _serializationOptions;
     private readonly string _storageRoot;
+    private readonly int? _defaultReferenceAssessmentId;
 
     public ProjectAssessmentAnalysisService(
         IConfiguration configuration,
         ILogger<ProjectAssessmentAnalysisService> logger,
         AssessmentJobStore jobStore,
+        ProjectAssessmentStore projectAssessmentStore,
         EffectiveEstimationPolicy estimationPolicy,
         SettingsStore settingsStore,
         IOptions<LlmOptions> llmOptions)
     {
         _logger = logger;
         _jobStore = jobStore;
+        _projectAssessmentStore = projectAssessmentStore;
         _estimationPolicy = estimationPolicy;
         _settingsStore = settingsStore;
         _defaultLlmOptions = llmOptions.Value;
+        
+        var defaultRefId = configuration["PresalesWorkflow:DefaultReferenceAssessmentId"];
+        if (int.TryParse(defaultRefId, out var parsedRefId))
+        {
+            _defaultReferenceAssessmentId = parsedRefId;
+        }
 
         var configuredProvider = configuration["Gemini:Provider"]
                                ?? configuration["GoogleAI:Provider"]
@@ -596,6 +606,22 @@ public class ProjectAssessmentAnalysisService
             var generatedItems = DeserializeGeneratedItems(job.GeneratedItemsJson);
             var augmentedTemplate = BuildAugmentedTemplate(template, generatedItems);
             var references = DeserializeReferences(job.ReferenceAssessmentsJson, _deserializationOptions);
+            
+            if ((references == null || references.Count == 0) && _defaultReferenceAssessmentId.HasValue)
+            {
+                // Fallback to configured default reference
+                 var defaultRef = await _projectAssessmentStore.GetAsync(_defaultReferenceAssessmentId.Value, null).ConfigureAwait(false);
+                 if (defaultRef != null)
+                 {
+                     if (references == null) references = new List<ProjectAssessment>();
+                     // We need a writable list, DeserializeReferences likely returns List<ProjectAssessment> or IReadOnlyList
+                     var mutableReferences = references.ToList(); 
+                     mutableReferences.Add(defaultRef);
+                     references = mutableReferences;
+                     _logger.LogInformation("Using default assessment ID {Id} as reference for Job {JobId}", _defaultReferenceAssessmentId, jobId);
+                 }
+            }
+
             var referenceDocuments = DeserializeReferenceDocuments(job.ReferenceDocumentsJson, _deserializationOptions);
             var prompt = BuildEffortEstimationPrompt(augmentedTemplate, job.ProjectName, references, referenceDocuments, job.AnalysisMode, job.OutputLanguage);
 

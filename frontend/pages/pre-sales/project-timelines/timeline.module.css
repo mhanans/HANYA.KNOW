@@ -72,11 +72,26 @@
 .timelineCell {
   width: 35px;
   height: 40px;
+  padding: 0;
+  position: relative;
   background-color: var(--mui-palette-background-default);
+  overflow: visible;
 }
 
 .ganttBar {
-  background-color: rgba(34, 211, 238, 0.4) !important;
+  position: absolute;
+  top: 6px;
+  height: 28px;
+  left: 0;
+  z-index: 10;
+  background-color: rgba(34, 211, 238, 0.85) !important;
+  border-radius: 4px;
+  cursor: grab;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.ganttBar:active {
+  cursor: grabbing;
 }
 
 .roleYellow {

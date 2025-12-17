@@ -16,13 +16,19 @@ public class TimelineEstimationsController : ControllerBase
 {
     private readonly TimelineEstimationStore _estimationStore;
     private readonly TimelineEstimatorService _estimatorService;
+    private readonly TimelineGenerationService _generationService;
+    private readonly TimelineStore _timelineStore;
 
     public TimelineEstimationsController(
         TimelineEstimationStore estimationStore,
-        TimelineEstimatorService estimatorService)
+        TimelineEstimatorService estimatorService,
+        TimelineGenerationService generationService,
+        TimelineStore timelineStore)
     {
         _estimationStore = estimationStore;
         _estimatorService = estimatorService;
+        _generationService = generationService;
+        _timelineStore = timelineStore;
     }
 
     [HttpPost]
@@ -54,24 +60,72 @@ public class TimelineEstimationsController : ControllerBase
         }
     }
 
-    [HttpGet("{assessmentId}")]
+    // ... GetEstimation ...
+
+    [HttpGet("recommendation/{assessmentId}")]
     [UiAuthorize("pre-sales-project-timelines")]
-    public async Task<ActionResult<TimelineEstimationDetails>> GetEstimation(int assessmentId)
+    public async Task<ActionResult<TimelineEstimatorService.TeamRecommendation>> GetTeamRecommendation(int assessmentId)
     {
         if (assessmentId <= 0)
         {
             return BadRequest("AssessmentId is required.");
         }
 
-        var record = await _estimationStore
-            .GetAsync(assessmentId, HttpContext.RequestAborted)
-            .ConfigureAwait(false);
-        if (record == null)
+        try
+        {
+            var recommendation = await _estimatorService
+                .RecommendTeamAsync(assessmentId, HttpContext.RequestAborted)
+                .ConfigureAwait(false);
+            return Ok(recommendation);
+        }
+        catch (KeyNotFoundException)
         {
             return NotFound();
         }
+    }
 
-        return Ok(BuildResponse(record));
+    [HttpPost("generate-strict")]
+    [UiAuthorize("pre-sales-project-timelines")]
+    public async Task<ActionResult<TimelineRecord>> GenerateStrictEstimation(GenerateStrictRequest request)
+    {
+        if (request == null || request.AssessmentId <= 0)
+        {
+            return BadRequest("AssessmentId is required.");
+        }
+
+        try
+        {
+            // 1. Generate Strict Estimation (The Plan)
+            var strictEst = await _estimatorService
+                .GenerateStrictAsync(request.AssessmentId, request.ConfirmedTeam, HttpContext.RequestAborted)
+                .ConfigureAwait(false);
+
+            // 2. Generate Deterministic Timeline (The Chart)
+            // This bypasses the AI Generation Service to ensure strict adherence to the Template's item structure.
+            var timeline = await _estimatorService
+                .GenerateTimelineFromStrictAsync(request.AssessmentId, strictEst, request.BufferPercentage, HttpContext.RequestAborted)
+                .ConfigureAwait(false);
+            
+            // 3. Persist
+            await _timelineStore.SaveAsync(timeline, HttpContext.RequestAborted).ConfigureAwait(false);
+
+            return Ok(timeline);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    public class GenerateStrictRequest
+    {
+        public int AssessmentId { get; set; }
+        public List<TimelineRoleEstimate> ConfirmedTeam { get; set; } = new();
+        public int BufferPercentage { get; set; } = 20;
     }
 
     private static TimelineEstimationDetails BuildResponse(TimelineEstimationRecord record)

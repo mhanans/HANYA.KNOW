@@ -666,4 +666,420 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
         [JsonPropertyName("sequenceType")]
         public string SequenceType { get; set; } = string.Empty;
     }
+    public async Task<TeamRecommendation> RecommendTeamAsync(
+        int assessmentId,
+        CancellationToken cancellationToken)
+    {
+        var assessment = await _assessments.GetAsync(assessmentId, null).ConfigureAwait(false);
+        if (assessment == null)
+        {
+            throw new KeyNotFoundException($"Assessment {assessmentId} was not found.");
+        }
+
+        var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
+        var totalManDays = roleManDays.Values.Sum();
+        var totalManHours = totalManDays * 8; // Convention: 1 MD = 8 MH
+
+        // User requested to treat Config Thresholds (MinManDays/MaxManDays) as Man-Hours
+        var teamType = config.TeamTypes
+            .OrderBy(t => t.MinManDays)
+            .FirstOrDefault(t => totalManHours >= t.MinManDays && (t.MaxManDays <= 0 || totalManHours <= t.MaxManDays))
+            ?? config.TeamTypes.FirstOrDefault(t => t.Name.Contains("Medium", StringComparison.OrdinalIgnoreCase))
+            ?? config.TeamTypes.FirstOrDefault();
+
+        var recommendedRoles = new List<TimelineRoleEstimate>();
+        if (teamType != null)
+        {
+            foreach (var roleDef in teamType.Roles ?? new List<TeamTypeRole>())
+            {
+                if (roleManDays.TryGetValue(roleDef.RoleName, out var days))
+                {
+                    recommendedRoles.Add(new TimelineRoleEstimate 
+                    { 
+                        Role = roleDef.RoleName, 
+                        EstimatedHeadcount = roleDef.Headcount,
+                        TotalManDays = days 
+                    });
+                }
+                else
+                {
+                     // Include even if 0 hours? User might want to see standard team structure.
+                     recommendedRoles.Add(new TimelineRoleEstimate 
+                    { 
+                        Role = roleDef.RoleName, 
+                        EstimatedHeadcount = roleDef.Headcount,
+                        TotalManDays = 0 
+                    });
+                }
+            }
+            
+            // Add roles that have effort but aren't in the standard team type
+            foreach (var kvp in roleManDays)
+            {
+                if (!recommendedRoles.Any(r => string.Equals(r.Role, kvp.Key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    recommendedRoles.Add(new TimelineRoleEstimate 
+                    { 
+                        Role = kvp.Key, 
+                        EstimatedHeadcount = 1, // Default to 1 if not defined in team
+                        TotalManDays = kvp.Value 
+                    });
+                }
+            }
+        }
+
+        return new TeamRecommendation
+        {
+            TotalManDays = totalManDays,
+            TotalManHours = totalManHours,
+            RecommendedTeamName = teamType?.Name ?? "Custom",
+            Roles = recommendedRoles
+        };
+    }
+
+    public async Task<TimelineEstimationRecord> GenerateStrictAsync(
+        int assessmentId,
+        List<TimelineRoleEstimate> confirmedTeam,
+        CancellationToken cancellationToken)
+    {
+        var assessment = await _assessments.GetAsync(assessmentId, null).ConfigureAwait(false);
+        if (assessment == null)
+        {
+            throw new KeyNotFoundException($"Assessment {assessmentId} was not found.");
+        }
+
+        var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        var activityManDays = AssessmentTaskAggregator.CalculateActivityManDays(assessment, config);
+        var roleManDays = AssessmentTaskAggregator.CalculateRoleManDays(assessment, config);
+        var totalManDays = roleManDays.Values.Sum();
+
+        // Construct a virtual TeamType from the confirmed inputs
+        var customTeamType = new TeamType
+        {
+            Name = "Custom Confirmed Team",
+            Roles = confirmedTeam.Select(r => new TeamTypeRole 
+            { 
+                RoleName = r.Role, 
+                Headcount = r.EstimatedHeadcount 
+            }).ToList()
+        };
+
+        // Calculate 'DurationsPerRole' for the Anchor
+        var durationsPerRole = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var role in confirmedTeam)
+        {
+            if (roleManDays.TryGetValue(role.Role, out var md) && role.EstimatedHeadcount > 0)
+            {
+                durationsPerRole[role.Role] = (int)Math.Ceiling(md / role.EstimatedHeadcount);
+            }
+        }
+
+        var durationAnchor = durationsPerRole.Values.Any()
+            ? durationsPerRole.Values.Max()
+            : Math.Max(1, (int)Math.Ceiling(totalManDays));
+
+        var template = await _templateStore.GetAsync(assessment.TemplateId).ConfigureAwait(false);
+        
+        // Use Deterministic Builder with Strict Template adherence
+        var estimation = BuildDeterministicEstimate(
+            activityManDays, 
+            roleManDays, 
+            customTeamType, 
+            durationAnchor, 
+            template?.TimelinePhases);
+
+        estimation.AssessmentId = assessmentId;
+        estimation.ProjectName = assessment.ProjectName;
+        estimation.TemplateName = assessment.TemplateName ?? string.Empty;
+        estimation.GeneratedAt = DateTime.UtcNow;
+        estimation.Roles = confirmedTeam; // Persist the confirmed team
+        
+        // Save
+        await _estimationStore.SaveAsync(estimation, cancellationToken).ConfigureAwait(false);
+        return estimation;
+    }
+
+    public async Task<TimelineRecord> GenerateTimelineFromStrictAsync(
+        int assessmentId,
+        TimelineEstimationRecord strictEstimation,
+        int bufferPercentage,
+        CancellationToken cancellationToken)
+    {
+        var assessment = await _assessments.GetAsync(assessmentId, null).ConfigureAwait(false);
+        if (assessment == null) throw new KeyNotFoundException($"Assessment {assessmentId} not found.");
+        
+        var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        var template = await _templateStore.GetAsync(assessment.TemplateId).ConfigureAwait(false);
+        if (template == null) throw new InvalidOperationException("Project Template not found.");
+
+        var ganttTasks = AssessmentTaskAggregator.GetGanttTasks(assessment, config);
+        
+        var timeline = new TimelineRecord
+        {
+            AssessmentId = assessmentId,
+            ProjectName = assessment.ProjectName,
+            TemplateName = assessment.TemplateName ?? string.Empty,
+            GeneratedAt = DateTime.UtcNow,
+            Activities = new List<TimelineActivity>(),
+            ResourceAllocation = new List<TimelineResourceAllocationEntry>()
+        };
+
+        var phases = template.TimelinePhases ?? new List<TimelinePhaseTemplate>();
+        var roleHeadcounts = strictEstimation.Roles?.ToDictionary(r => r.Role, r => r.EstimatedHeadcount, StringComparer.OrdinalIgnoreCase) 
+            ?? new Dictionary<string, double>();
+        
+        double bufferMultiplier = 1.0 + (bufferPercentage / 100.0);
+
+        // 1. Calculate Actual Duration for each Phase based on Workload
+        var phaseMetrics = new Dictionary<string, (int TemplateStart, int TemplateDuration, int ActualDuration, int ActualStart)>(StringComparer.OrdinalIgnoreCase);
+        var phaseActivities = new Dictionary<string, TimelineActivity>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var ph in phases)
+        {
+            var phaseTasks = ganttTasks.Where(t => string.Equals(t.ActivityGroup, ph.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+            var activity = new TimelineActivity { ActivityName = ph.Name, Details = new List<TimelineDetail>() };
+            int calculatedDuration = 0;
+
+            if (ph.Items != null && ph.Items.Any())
+            {
+                // STANDARD PHASE
+                int minItemStart = int.MaxValue;
+                int maxItemEnd = int.MinValue;
+
+                foreach (var tmplItem in ph.Items)
+                {
+                    var matchedTasks = phaseTasks.Where(t => tmplItem.Name.StartsWith(t.Detail, StringComparison.OrdinalIgnoreCase)).ToList();
+                    
+                    double totalRawManDays = matchedTasks.Sum(t => t.ManDays);
+                    double adjustedManDays = totalRawManDays * bufferMultiplier;
+
+                    // Determine Actor
+                    string primaryActor = "General";
+                    
+                    if (template.EffortRoleMapping != null && template.EffortRoleMapping.TryGetValue(tmplItem.Name, out var mappedRole))
+                    {
+                        primaryActor = mappedRole;
+                    }
+                    else if (matchedTasks.Any())
+                    {
+                        primaryActor = matchedTasks.Select(t => t.Actor)
+                            .GroupBy(x => x)
+                            .OrderByDescending(g => g.Count())
+                            .FirstOrDefault()?.Key ?? "General";
+                    }
+                    else
+                    {
+                         // Fallback parse
+                         var parts = tmplItem.Name.Split('-');
+                         if (parts.Length > 1) primaryActor = parts.Last().Replace("Setup", "").Trim();
+                    }
+
+                    // Normalize Actor ID against Strict Roles
+                    if (!roleHeadcounts.ContainsKey(primaryActor))
+                    {
+                        var bestMatch = roleHeadcounts.Keys.FirstOrDefault(k => primaryActor.Contains(k, StringComparison.OrdinalIgnoreCase));
+                        if (bestMatch != null) primaryActor = bestMatch;
+                    }
+
+                    if (roleHeadcounts.TryGetValue(primaryActor, out var hc) && hc > 0) { } else { hc = 1; }
+
+                    var duration = (adjustedManDays > 0) 
+                        ? (int)Math.Ceiling(adjustedManDays / hc)
+                        : tmplItem.Duration; 
+                    
+                    duration = Math.Max(1, duration);
+
+                    int relativeStart = tmplItem.StartDayOffset; 
+                    int relativeEnd = relativeStart + duration;
+
+                    if (relativeStart < minItemStart) minItemStart = relativeStart;
+                    if (relativeEnd > maxItemEnd) maxItemEnd = relativeEnd;
+
+                    activity.Details.Add(new TimelineDetail
+                    {
+                        TaskName = tmplItem.Name,
+                        Actor = primaryActor,
+                        ManDays = adjustedManDays > 0 ? adjustedManDays : (duration * 0.5),
+                        StartDay = relativeStart,
+                        DurationDays = duration
+                    });
+                }
+                
+                calculatedDuration = (maxItemEnd > 0) ? maxItemEnd : ph.Duration;
+            }
+            else
+            {
+                // DYNAMIC PHASE
+                var estPhase = strictEstimation.Phases?.FirstOrDefault(p => string.Equals(p.PhaseName, ph.Name, StringComparison.OrdinalIgnoreCase));
+                bool isParallel = string.Equals(estPhase?.SequenceType, "Parallel", StringComparison.OrdinalIgnoreCase);
+
+                var groupedTasks = phaseTasks.GroupBy(t => t.Detail).ToList();
+                int currentOffset = 0;
+                
+                foreach (var g in groupedTasks)
+                {
+                    double rawMd = g.Sum(x => x.ManDays);
+                    double adjMd = rawMd * bufferMultiplier;
+                    
+                    string actor = g.First().Actor;
+                    
+                    if (!roleHeadcounts.ContainsKey(actor))
+                    {
+                         var bestMatch = roleHeadcounts.Keys.FirstOrDefault(k => actor.Contains(k, StringComparison.OrdinalIgnoreCase));
+                         if (bestMatch != null) actor = bestMatch;
+                    }
+
+                    if (roleHeadcounts.TryGetValue(actor, out var hc) && hc > 0) { } else { hc = 1; }
+                    
+                    int dur = Math.Max(1, (int)Math.Ceiling(adjMd / hc));
+                    
+                    activity.Details.Add(new TimelineDetail
+                    {
+                        TaskName = g.Key,
+                        Actor = actor,
+                        ManDays = adjMd,
+                        StartDay = isParallel ? 0 : currentOffset,
+                        DurationDays = dur
+                    });
+
+                    if (!isParallel) currentOffset += dur;
+                    else calculatedDuration = Math.Max(calculatedDuration, dur);
+                }
+                // If parallel, calculatedDuration is max. If serial, it's sum.
+                // If parallel, currentOffset is not accumulated.
+                if (!isParallel) calculatedDuration = currentOffset;
+                
+                if (calculatedDuration == 0) calculatedDuration = ph.Duration; 
+            }
+
+            phaseMetrics[ph.Name] = (ph.StartDay, ph.Duration, calculatedDuration, 0);
+            phaseActivities[ph.Name] = activity;
+        }
+
+        // 2. Schedule Phases (Elastic CPM)
+        var sortedPhases = phases.OrderBy(p => p.StartDay).ToList();
+        int globalMaxDay = 0;
+
+        foreach (var p in sortedPhases)
+        {
+            int actualStart = 1; 
+            var predecessors = sortedPhases.Where(x => x.Name != p.Name && x.StartDay <= p.StartDay).ToList();
+
+            foreach (var pred in predecessors)
+            {
+                int predTemplateEnd = pred.StartDay + pred.Duration;
+                int gap = p.StartDay - predTemplateEnd;
+
+                if (gap >= 0)
+                {
+                    if (phaseMetrics.TryGetValue(pred.Name, out var m))
+                    {
+                        int constraint = (m.ActualStart + m.ActualDuration) + gap;
+                        if (constraint > actualStart) actualStart = constraint;
+                    }
+                }
+            }
+            
+            var currentM = phaseMetrics[p.Name];
+            phaseMetrics[p.Name] = (currentM.TemplateStart, currentM.TemplateDuration, currentM.ActualDuration, actualStart);
+            
+            if (phaseActivities.TryGetValue(p.Name, out var act))
+            {
+                foreach (var det in act.Details)
+                {
+                    det.StartDay = actualStart + det.StartDay;
+                }
+                timeline.Activities.Add(act);
+            }
+            
+            int actualEnd = actualStart + currentM.ActualDuration;
+            if (actualEnd > globalMaxDay) globalMaxDay = actualEnd;
+        }
+
+        timeline.TotalDurationDays = globalMaxDay;
+        
+        // 3. Resource Allocation
+        timeline.ResourceAllocation = CalculateResourceAllocation(timeline.Activities, timeline.TotalDurationDays, strictEstimation.Roles);
+
+        return timeline;
+    }
+
+    private List<TimelineResourceAllocationEntry> CalculateResourceAllocation(
+        List<TimelineActivity> activities, 
+        int totalDays,
+        List<TimelineRoleEstimate>? confirmedRoles)
+    {
+        var buffer = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+
+        if (confirmedRoles != null)
+        {
+            foreach (var r in confirmedRoles)
+            {
+                buffer[r.Role] = new double[totalDays + 5];
+            }
+        }
+
+        foreach (var act in activities)
+        {
+            foreach (var det in act.Details)
+            {
+                if (det.DurationDays <= 0) continue;
+                
+                var roleName = det.Actor; 
+                // Normalize to buffer key
+                if (!buffer.ContainsKey(roleName))
+                {
+                    var match = buffer.Keys.FirstOrDefault(k => roleName.Contains(k, StringComparison.OrdinalIgnoreCase));
+                    if (match != null) roleName = match;
+                    else buffer[roleName] = new double[totalDays + 5];
+                }
+
+                var dailyEffort = (det.ManDays / det.DurationDays); 
+                var arr = buffer[roleName];
+                for (int i = 0; i < det.DurationDays; i++)
+                {
+                    int day = det.StartDay + i - 1; 
+                    if (day >= 0 && day < arr.Length)
+                    {
+                        arr[day] += dailyEffort;
+                    }
+                }
+            }
+        }
+
+        var result = new List<TimelineResourceAllocationEntry>();
+        
+        foreach (var kvp in buffer)
+        {
+            var daily = kvp.Value.Take(totalDays).Select(v => Math.Round(v, 2)).ToList();
+            var total = daily.Sum();
+            
+            // Allow 0 sum if initialized (User requirement for PM/Arch visibility)
+            result.Add(new TimelineResourceAllocationEntry
+            {
+                Role = kvp.Key,
+                TotalManDays = Math.Round(total, 2),
+                DailyEffort = daily
+            });
+        }
+        
+        return result.OrderBy(r => r.Role).ToList();
+    }
+
+    private string? ParseActorFrom(string name)
+    {
+        // "System Setup - Architect Setup" -> Architect
+        var parts = name.Split('-');
+        if(parts.Length > 1) return parts.Last().Replace("Setup", "").Trim();
+        return null;
+    }
+
+    public class TeamRecommendation
+    {
+        public double TotalManDays { get; set; }
+        public double TotalManHours { get; set; }
+        public string RecommendedTeamName { get; set; } = string.Empty;
+        public List<TimelineRoleEstimate> Roles { get; set; } = new();
+    }
 }
