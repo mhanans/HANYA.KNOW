@@ -626,9 +626,23 @@ public class ProjectAssessmentAnalysisService
             }
             else
             {
-                job.FinalAnalysisJson = null;
-                job.Status = JobStatus.FailedEstimation;
-                job.LastError = rawResponse;
+                _logger.LogWarning("Assessment JSON format invalid. Attempting repair for Job {JobId}...", jobId);
+                var repairedJson = await RepairJsonAsync(rawResponse, cancellationToken).ConfigureAwait(false);
+                
+                if (!string.IsNullOrWhiteSpace(repairedJson) && TryDeserializeAnalysis(repairedJson, augmentedTemplate, references, out var repairedResult))
+                {
+                    _logger.LogInformation("Assessment JSON repaired successfully for Job {JobId}.", jobId);
+                    job.FinalAnalysisJson = repairedResult;
+                    job.Status = JobStatus.Complete;
+                    job.LastError = null;
+                }
+                else
+                {
+                    _logger.LogError("Failed to repair assessment JSON (or repair failed validation) for Job {JobId}.", jobId);
+                    job.FinalAnalysisJson = null;
+                    job.Status = JobStatus.FailedEstimation;
+                    job.LastError = rawResponse; 
+                }
             }
         }
         catch (OperationCanceledException)
@@ -711,12 +725,21 @@ public class ProjectAssessmentAnalysisService
         try
         {
             var clean = CleanResponse(response);
-            if (!clean.TrimStart().StartsWith("{", StringComparison.Ordinal))
+            AnalysisResult? analysis = null;
+
+            if (clean.TrimStart().StartsWith("[", StringComparison.Ordinal))
             {
-                return false;
+                 var items = JsonSerializer.Deserialize<List<AnalyzedItem>>(clean, _deserializationOptions);
+                 if (items != null)
+                 {
+                     analysis = new AnalysisResult { Items = items };
+                 }
+            }
+            else
+            {
+                analysis = JsonSerializer.Deserialize<AnalysisResult>(clean, _deserializationOptions);
             }
 
-            var analysis = JsonSerializer.Deserialize<AnalysisResult>(clean, _deserializationOptions);
             if (analysis?.Items == null || analysis.Items.Count == 0)
             {
                 return false;
@@ -826,15 +849,15 @@ public class ProjectAssessmentAnalysisService
         item.Diagnostics = diagnostics;
 
         var signals = ComplexityScorer.ExtractSignals(templateItem.ItemDetail);
-        diagnostics.Signals = new ItemDiagnosticsSignals
-        {
-            Fields = signals.fields,
-            Integrations = signals.integrations,
-            WorkflowSteps = signals.workflowSteps,
-            HasUpload = signals.hasUpload,
-            HasAuthRole = signals.hasAuthRole,
-            Crud = BuildCrudString(signals)
-        };
+        diagnostics.Signals = new List<string>
+    {
+        $"Fields: {signals.fields}",
+        $"Integrations: {signals.integrations}",
+        $"Workflow: {signals.workflowSteps}",
+        signals.hasUpload ? "Upload" : "",
+        signals.hasAuthRole ? "Auth" : "",
+        $"CRUD: {BuildCrudString(signals)}"
+    }.Where(s => !string.IsNullOrEmpty(s)).ToList();
 
         var rawComplexity = CalculateComplexityScore(signals);
         diagnostics.ComplexityScore = Math.Round(Math.Min(100, rawComplexity), 2, MidpointRounding.AwayFromZero);
@@ -865,15 +888,15 @@ public class ProjectAssessmentAnalysisService
         var rawHours = baseWithCrud + fieldAdd + integrationAdd + uploadAdd + authAdd + workflowAdd;
         var baseForRatio = Math.Max(baseWithCrud, 1e-6);
 
-        diagnostics.Multipliers = new ItemDiagnosticsMultipliers
-        {
-            Crud = Math.Round(crudMultiplier, 3, MidpointRounding.AwayFromZero),
-            Fields = Math.Round(fieldAdd == 0 ? 1 : 1 + fieldAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
-            Integrations = Math.Round(integrationAdd == 0 ? 1 : 1 + integrationAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
-            Upload = Math.Round(uploadAdd == 0 ? 1 : 1 + uploadAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
-            Auth = Math.Round(authAdd == 0 ? 1 : 1 + authAdd / baseForRatio, 3, MidpointRounding.AwayFromZero),
-            Workflow = Math.Round(workflowAdd == 0 ? 1 : 1 + workflowAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)
-        };
+        diagnostics.Multipliers = new List<string>
+    {
+        $"Crud: {Math.Round(crudMultiplier, 3, MidpointRounding.AwayFromZero)}",
+        $"Fields: {Math.Round(fieldAdd == 0 ? 1 : 1 + fieldAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)}",
+        $"Integrations: {Math.Round(integrationAdd == 0 ? 1 : 1 + integrationAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)}",
+        $"Upload: {Math.Round(uploadAdd == 0 ? 1 : 1 + uploadAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)}",
+        $"Auth: {Math.Round(authAdd == 0 ? 1 : 1 + authAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)}",
+        $"Workflow: {Math.Round(workflowAdd == 0 ? 1 : 1 + workflowAdd / baseForRatio, 3, MidpointRounding.AwayFromZero)}"
+    };
 
         var normalizedEstimates = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
         double? referenceBaselineForDiagnostics = null;
@@ -1375,26 +1398,40 @@ public class ProjectAssessmentAnalysisService
                                 ItemId = Guid.NewGuid().ToString(), // New ID for the instance
                                 ItemName = item.ItemName,
                                 ItemDetail = item.ItemDetail,
-                                Category = null, // Manual items in App-Level sections have no category
+                                Category = null, // Manual items in App-Level sections start with no category
                                 Effort = item.Effort?.ToList() ?? new List<string>()
                             }));
                         }
 
-                        // B. Add AI-Generated Items (Specific to this App Name)
+                        // B. Merge AI-Generated Items (Specific to this App Name)
                         if (itemsBySection.TryGetValue(derivedName, out var aiItems))
                         {
-                            derivedSection.Items.AddRange(aiItems.Select(addition => new TemplateItem
+                            foreach (var aiItem in aiItems)
                             {
-                                ItemId = addition.ItemId,
-                                ItemName = addition.ItemName,
-                                ItemDetail = addition.ItemDetail,
-                                Category = NormalizeCategory(addition.Category),
-                                Effort = section.Effort?.ToList() ?? new List<string>() // Inherit effort from section if needed
-                            }));
+                                var existing = derivedSection.Items.FirstOrDefault(x => string.Equals(x.ItemName, aiItem.ItemName, StringComparison.OrdinalIgnoreCase));
+                                if (existing != null)
+                                {
+                                    // Hydrate existing manual item with AI category if missing
+                                    if (string.IsNullOrWhiteSpace(existing.Category))
+                                    {
+                                        existing.Category = NormalizeCategory(aiItem.Category);
+                                    }
+                                }
+                                else
+                                {
+                                    // Add new AI item
+                                    derivedSection.Items.Add(new TemplateItem
+                                    {
+                                        ItemId = aiItem.ItemId,
+                                        ItemName = aiItem.ItemName,
+                                        ItemDetail = aiItem.ItemDetail,
+                                        Category = NormalizeCategory(aiItem.Category),
+                                        Effort = section.Effort?.ToList() ?? new List<string>() // Inherit effort from section
+                                    });
+                                }
+                            }
                         }
                         
-                        // Also check if there are items for the base name that should be included? (Unlikely for specific app)
-
                         augmented.Sections.Add(derivedSection);
                     }
                 }
@@ -1402,17 +1439,32 @@ public class ProjectAssessmentAnalysisService
                 {
                     // Fallback: Just keep it as is (1 instance)
                     var clonedSection = CloneSection(section);
-                    // Add any AI items that matched the EXACT name
+                    
+                    // B. Merge AI Items for the exact section name
                     if (itemsBySection.TryGetValue(section.SectionName, out var aiItems))
                     {
-                        clonedSection.Items.AddRange(aiItems.Select(addition => new TemplateItem
+                         foreach (var aiItem in aiItems)
                         {
-                            ItemId = addition.ItemId,
-                            ItemName = addition.ItemName,
-                            ItemDetail = addition.ItemDetail,
-                            Category = NormalizeCategory(addition.Category),
-                            Effort = section.Effort?.ToList() ?? new List<string>()
-                        }));
+                            var existing = clonedSection.Items.FirstOrDefault(x => string.Equals(x.ItemName, aiItem.ItemName, StringComparison.OrdinalIgnoreCase));
+                            if (existing != null)
+                            {
+                                if (string.IsNullOrWhiteSpace(existing.Category))
+                                {
+                                    existing.Category = NormalizeCategory(aiItem.Category);
+                                }
+                            }
+                            else
+                            {
+                                clonedSection.Items.Add(new TemplateItem
+                                {
+                                    ItemId = aiItem.ItemId,
+                                    ItemName = aiItem.ItemName,
+                                    ItemDetail = aiItem.ItemDetail,
+                                    Category = NormalizeCategory(aiItem.Category),
+                                    Effort = section.Effort?.ToList() ?? new List<string>()
+                                });
+                            }
+                        }
                     }
                     augmented.Sections.Add(clonedSection);
                 }
@@ -1424,16 +1476,30 @@ public class ProjectAssessmentAnalysisService
 
                 if (string.Equals(section.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (itemsBySection.TryGetValue(section.SectionName, out var additions))
+                    if (itemsBySection.TryGetValue(section.SectionName, out var aiItems))
                     {
-                         clonedSection.Items.AddRange(additions.Select(addition => new TemplateItem
+                        foreach (var aiItem in aiItems)
                         {
-                            ItemId = addition.ItemId,
-                            ItemName = addition.ItemName,
-                            ItemDetail = addition.ItemDetail,
-                            Category = NormalizeCategory(addition.Category),
-                            Effort = section.Effort?.ToList() ?? new List<string>()
-                        }));
+                            var existing = clonedSection.Items.FirstOrDefault(x => string.Equals(x.ItemName, aiItem.ItemName, StringComparison.OrdinalIgnoreCase));
+                            if (existing != null)
+                            {
+                                if (string.IsNullOrWhiteSpace(existing.Category))
+                                {
+                                    existing.Category = NormalizeCategory(aiItem.Category);
+                                }
+                            }
+                            else
+                            {
+                                clonedSection.Items.Add(new TemplateItem
+                                {
+                                    ItemId = aiItem.ItemId,
+                                    ItemName = aiItem.ItemName,
+                                    ItemDetail = aiItem.ItemDetail,
+                                    Category = NormalizeCategory(aiItem.Category),
+                                    Effort = section.Effort?.ToList() ?? new List<string>()
+                                });
+                            }
+                        }
                     }
                 }
 
@@ -2932,32 +2998,12 @@ public class ProjectAssessmentAnalysisService
     {
         public string? SizeClass { get; set; }
         public double? ComplexityScore { get; set; }
-        public ItemDiagnosticsSignals? Signals { get; set; }
-        public ItemDiagnosticsMultipliers? Multipliers { get; set; }
+        public List<string>? Signals { get; set; }
+        public List<string>? Multipliers { get; set; }
         public double? ReferenceMedian { get; set; }
         public string? Justification { get; set; }
         public double? JustificationScore { get; set; }
         public double? Confidence { get; set; }
         public string? ScopeFit { get; set; }
-    }
-
-    private sealed class ItemDiagnosticsSignals
-    {
-        public int? Fields { get; set; }
-        public int? Integrations { get; set; }
-        public int? WorkflowSteps { get; set; }
-        public bool? HasUpload { get; set; }
-        public bool? HasAuthRole { get; set; }
-        public string Crud { get; set; } = "-";
-    }
-
-    private sealed class ItemDiagnosticsMultipliers
-    {
-        public double Crud { get; set; } = 1;
-        public double Fields { get; set; } = 1;
-        public double Integrations { get; set; } = 1;
-        public double Upload { get; set; } = 1;
-        public double Auth { get; set; } = 1;
-        public double Workflow { get; set; } = 1;
     }
 }
