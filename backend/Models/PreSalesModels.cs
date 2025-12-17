@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using backend.Models.Serialization;
 
@@ -10,6 +11,29 @@ public class ProjectTemplate
     public string TemplateName { get; set; } = string.Empty;
     public List<string> EstimationColumns { get; set; } = new();
     public List<TemplateSection> Sections { get; set; } = new();
+    public List<TimelinePhaseTemplate> TimelinePhases { get; set; } = new();
+    
+    [JsonPropertyName("effortRoleMapping")]
+    public Dictionary<string, string> EffortRoleMapping { get; set; } = new();
+}
+
+public class TimelinePhaseTemplate
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public int Duration { get; set; } = 5;
+    public int StartDay { get; set; } = 1;
+    public List<TimelineItemTemplate> Items { get; set; } = new();
+}
+
+public class TimelineItemTemplate
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public int Duration { get; set; } = 3;
+    public int StartDayOffset { get; set; } = 0;
+    [JsonPropertyName("effort")]
+    public List<string> Effort { get; set; } = new();
 }
 
 public class AssessmentJob
@@ -103,6 +127,9 @@ public class TemplateSection
     public string SectionName { get; set; } = string.Empty;
     public string Type { get; set; } = "Project-Level";
     public List<TemplateItem> Items { get; set; } = new();
+
+    [JsonPropertyName("effort")]
+    public List<string> Effort { get; set; } = new();
 }
 
 public class TemplateItem
@@ -110,7 +137,10 @@ public class TemplateItem
     public string ItemId { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public string ItemDetail { get; set; } = string.Empty;
-    public string Category { get; set; } = "New UI";
+    public string? Category { get; set; }
+
+    [JsonPropertyName("effort")]
+    public List<string> Effort { get; set; } = new();
 }
 
 public class TemplateSectionItemReference
@@ -138,6 +168,7 @@ public class ProjectAssessment
     public string Status { get; set; } = "Draft";
     public int Step { get; set; } = 1;
     public List<AssessmentSection> Sections { get; set; } = new();
+    public List<TimelinePhaseTemplate> TimelinePhases { get; set; } = new();
     public DateTime? CreatedAt { get; set; }
     public DateTime? LastModifiedAt { get; set; }
 }
@@ -156,6 +187,8 @@ public class AssessmentItem
     public string ItemDetail { get; set; } = string.Empty;
     public string Category { get; set; } = "New UI";
     public Dictionary<string, double?> Estimates { get; set; } = new();
+    [JsonPropertyName("effort")]
+    public List<string> Effort { get; set; } = new();
 }
 
 public class ProjectAssessmentSummary

@@ -23,8 +23,7 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import SyncIcon from '@mui/icons-material/Sync';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+
 import { apiFetch } from '../../../lib/api';
 import Autocomplete from '@mui/material/Autocomplete';
 import { CostEstimationConfiguration } from '../../../types/cost-estimation';
@@ -37,29 +36,7 @@ interface PresalesRole {
   ratePerDay?: number;
 }
 
-interface PresalesActivity {
-  activityName: string;
-  displayOrder: number;
-}
 
-interface ItemActivityMapping {
-  sectionName: string;
-  itemName: string;
-  activityName: string;
-  displayOrder: number;
-}
-
-interface TemplateTaskReference {
-  sectionName: string;
-  sectionOrder: number;
-  itemName: string;
-  itemOrder: number;
-}
-
-interface EstimationColumnRoleMapping {
-  estimationColumn: string;
-  roleName: string;
-}
 
 interface TeamTypeRoleForm {
   id?: number;
@@ -106,17 +83,11 @@ const transformReferenceResponse = (item: TimelineEstimatorReferenceResponse): T
 
 interface PresalesConfiguration {
   roles: PresalesRole[];
-  activities: PresalesActivity[];
-  itemActivities: ItemActivityMapping[];
-  estimationColumnRoles: EstimationColumnRoleMapping[];
   teamTypes: TeamTypeForm[];
 }
 
 const emptyConfig: PresalesConfiguration = {
   roles: [],
-  activities: [],
-  itemActivities: [],
-  estimationColumnRoles: [],
   teamTypes: [],
 };
 
@@ -169,105 +140,7 @@ const parseNumericObject = (
   return result;
 };
 
-const normalizeOrderValue = (value: unknown, fallback = Number.MAX_SAFE_INTEGER) => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const parsed = parseInt(value, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return fallback;
-};
 
-const sortByOrder = <T extends { displayOrder?: number | null }>(items: T[]) =>
-  [...items].sort(
-    (a, b) =>
-      normalizeOrderValue((a as { displayOrder?: unknown }).displayOrder) -
-      normalizeOrderValue((b as { displayOrder?: unknown }).displayOrder)
-  );
-
-const resequenceList = <T extends { displayOrder?: number | null }>(items: T[]) =>
-  items.map(item => ({ ...item, displayOrder: normalizeOrderValue(item.displayOrder, 0) }))
-    .map((item, index) => ({ ...item, displayOrder: index + 1 }));
-
-const sanitizeActivitiesFromResponse = (source: unknown): PresalesActivity[] => {
-  if (!Array.isArray(source)) {
-    return [];
-  }
-
-  const normalized = source
-    .map(item => {
-      if (!item || typeof item !== 'object') {
-        return null;
-      }
-      const activity = item as Partial<PresalesActivity> & { displayOrder?: unknown };
-      return {
-        activityName: typeof activity.activityName === 'string' ? activity.activityName : '',
-        displayOrder: normalizeOrderValue(activity.displayOrder),
-      } satisfies PresalesActivity;
-    })
-    .filter((entry): entry is PresalesActivity => Boolean(entry));
-
-  return resequenceList(sortByOrder(normalized));
-};
-
-const sanitizeItemActivitiesFromResponse = (source: unknown): ItemActivityMapping[] => {
-  if (!Array.isArray(source)) {
-    return [];
-  }
-
-  const normalized = source
-    .map(item => {
-      if (!item || typeof item !== 'object') {
-        return null;
-      }
-      const mapping = item as Partial<ItemActivityMapping> & { displayOrder?: unknown };
-      return {
-        sectionName: typeof mapping.sectionName === 'string' ? mapping.sectionName : '',
-        itemName: typeof mapping.itemName === 'string' ? mapping.itemName : '',
-        activityName: typeof mapping.activityName === 'string' ? mapping.activityName : '',
-        displayOrder: normalizeOrderValue(mapping.displayOrder),
-      } satisfies ItemActivityMapping;
-    })
-    .filter((entry): entry is ItemActivityMapping => Boolean(entry));
-
-  return resequenceList(sortByOrder(normalized));
-};
-
-const reorderList = <T,>(items: T[], fromIndex: number, toIndex: number) => {
-  if (fromIndex === toIndex) {
-    return [...items];
-  }
-
-  const result = [...items];
-  if (fromIndex < 0 || fromIndex >= result.length) {
-    return result;
-  }
-
-  let clampedToIndex = Math.max(0, Math.min(toIndex, result.length));
-  const [moved] = result.splice(fromIndex, 1);
-  if (moved === undefined) {
-    return [...items];
-  }
-
-  if (fromIndex < clampedToIndex) {
-    clampedToIndex -= 1;
-  }
-
-  if (clampedToIndex < 0) {
-    clampedToIndex = 0;
-  }
-
-  if (clampedToIndex > result.length) {
-    clampedToIndex = result.length;
-  }
-
-  result.splice(clampedToIndex, 0, moved);
-  return result;
-};
 
 const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfiguration => {
   const roles = config.roles.map(role => ({
@@ -276,62 +149,9 @@ const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfigurat
     costPerDay: Number.isFinite(role.costPerDay) ? role.costPerDay : 0,
   }));
 
-  const activities = config.activities
-    .map(activity => ({
-      activityName: typeof activity.activityName === 'string' ? activity.activityName.trim() : '',
-    }))
-    .map((activity, index) => ({ ...activity, displayOrder: index + 1 }));
-
-  const itemActivities = config.itemActivities
-    .map(mapping => ({
-      sectionName: typeof mapping.sectionName === 'string' ? mapping.sectionName.trim() : '',
-      itemName: typeof mapping.itemName === 'string' ? mapping.itemName.trim() : '',
-      activityName: typeof mapping.activityName === 'string' ? mapping.activityName.trim() : '',
-    }))
-    .map((mapping, index) => ({ ...mapping, displayOrder: index + 1 }));
-
-  const estimationColumnRoles = config.estimationColumnRoles.map(mapping => ({
-    estimationColumn: typeof mapping.estimationColumn === 'string' ? mapping.estimationColumn.trim() : '',
-    roleName: typeof mapping.roleName === 'string' ? mapping.roleName.trim() : '',
-  }));
-
-  const teamTypes = config.teamTypes
-    .map(teamType => {
-      const rawMin = Number(teamType.minManDays);
-      const rawMax = Number(teamType.maxManDays);
-      let minManDays = Number.isFinite(rawMin) ? Math.max(0, Math.round(rawMin)) : 0;
-      let maxManDays = Number.isFinite(rawMax) ? Math.max(0, Math.round(rawMax)) : 0;
-      if (maxManDays > 0 && minManDays > maxManDays) {
-        const temp = minManDays;
-        minManDays = maxManDays;
-        maxManDays = temp;
-      }
-
-      const roles = (teamType.roles ?? [])
-        .map(role => ({
-          id: role.id,
-          teamTypeId: role.teamTypeId,
-          roleName: typeof role.roleName === 'string' ? role.roleName.trim() : '',
-          headcount: Number.isFinite(role.headcount) ? Math.max(0, Number(role.headcount)) : 0,
-        }))
-        .filter(role => role.roleName);
-
-      return {
-        id: teamType.id,
-        name: typeof teamType.name === 'string' ? teamType.name.trim() : '',
-        minManDays,
-        maxManDays,
-        roles,
-      };
-    })
-    .filter(teamType => teamType.name);
-
   return {
     roles,
-    activities,
-    itemActivities,
-    estimationColumnRoles,
-    teamTypes,
+    teamTypes: config.teamTypes,
   };
 };
 
@@ -369,66 +189,21 @@ const transformPresalesResponse = (
     };
   });
 
-  const estimationColumnRolesSource = Array.isArray(presalesData?.estimationColumnRoles)
-    ? presalesData.estimationColumnRoles
-    : [];
-  const estimationColumnRoles = estimationColumnRolesSource.map(
-    (mapping: Partial<EstimationColumnRoleMapping>) => ({
-      estimationColumn: typeof mapping.estimationColumn === 'string' ? mapping.estimationColumn : '',
-      roleName: typeof mapping.roleName === 'string' ? mapping.roleName : '',
-    })
-  );
-
-  const teamTypesSource = Array.isArray(presalesData?.teamTypes) ? presalesData.teamTypes : [];
-  const teamTypes = teamTypesSource.map((teamType: Partial<TeamTypeForm> & { roles?: Partial<TeamTypeRoleForm>[] }) => {
-    const roles = Array.isArray(teamType.roles)
-      ? teamType.roles.map(role => ({
-        id: typeof role?.id === 'number' ? role.id : undefined,
-        teamTypeId: typeof role?.teamTypeId === 'number' ? role.teamTypeId : undefined,
-        roleName: typeof role?.roleName === 'string' ? role.roleName : '',
-        headcount:
-          typeof role?.headcount === 'number' && Number.isFinite(role.headcount) ? Number(role.headcount) : 0,
-        clientKey: createClientKey(),
-      }))
-      : [];
-
-    return {
-      id: typeof teamType?.id === 'number' ? teamType.id : undefined,
-      name: typeof teamType?.name === 'string' ? teamType.name : '',
-      minManDays:
-        typeof teamType?.minManDays === 'number' && Number.isFinite(teamType.minManDays)
-          ? Number(teamType.minManDays)
-          : 0,
-      maxManDays:
-        typeof teamType?.maxManDays === 'number' && Number.isFinite(teamType.maxManDays)
-          ? Number(teamType.maxManDays)
-          : 0,
-      roles,
-      clientKey: createClientKey(),
-    } satisfies TeamTypeForm;
-  });
+  const teamTypes = Array.isArray(presalesData?.teamTypes) ? presalesData.teamTypes : [];
 
   return {
     roles,
-    activities: sanitizeActivitiesFromResponse(presalesData?.activities),
-    itemActivities: sanitizeItemActivitiesFromResponse(presalesData?.itemActivities),
-    estimationColumnRoles,
     teamTypes,
   };
 };
 
 type TabKey =
   | 'roles'
-  | 'activities'
-  | 'items'
-  | 'columns'
   | 'timelineTeamTypes'
   | 'timelineReferences';
+
 const TAB_KEYS: TabKey[] = [
   'roles',
-  'activities',
-  'items',
-  'columns',
   'timelineTeamTypes',
   'timelineReferences',
 ];
@@ -516,13 +291,9 @@ export default function PresalesConfigurationPage() {
   const router = useRouter();
   const [config, setConfig] = useState<PresalesConfiguration>(emptyConfig);
   const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
-  const [availableTasks, setAvailableTasks] = useState<TemplateTaskReference[]>([]);
-  const [availableEstimationColumns, setAvailableEstimationColumns] = useState<string[]>([]);
+
   const [activeTab, setActiveTab] = useState<TabKey>('roles');
-  const [activityDragIndex, setActivityDragIndex] = useState<number | null>(null);
-  const [itemActivityDragIndex, setItemActivityDragIndex] = useState<number | null>(null);
-  const [syncingItems, setSyncingItems] = useState(false);
-  const [syncingEstimationColumns, setSyncingEstimationColumns] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -548,74 +319,7 @@ export default function PresalesConfigurationPage() {
     }
   }, [router.isReady, router.query.tab]);
 
-  const fetchReferenceData = useCallback(async () => {
-    let items: TemplateTaskReference[] = [];
-    let estimationColumns: string[] = [];
 
-    try {
-      const [itemsRes, columnsRes] = await Promise.all([
-        apiFetch('/api/presales/config/items'),
-        apiFetch('/api/presales/config/estimation-columns'),
-      ]);
-
-      if (itemsRes.ok) {
-        try {
-          const data = await itemsRes.json();
-          if (Array.isArray(data)) {
-            items = data
-              .map(item => {
-                if (!item || typeof item !== 'object') return null;
-                const sectionName = typeof item.sectionName === 'string' ? item.sectionName.trim() : '';
-                const itemName = typeof item.itemName === 'string' ? item.itemName.trim() : '';
-                const rawSectionOrderValue = (item as { sectionOrder?: unknown }).sectionOrder;
-                const sectionOrder = typeof rawSectionOrderValue === 'number' && Number.isFinite(rawSectionOrderValue)
-                  ? rawSectionOrderValue
-                  : 0;
-                const rawItemOrderValue = (item as { itemOrder?: unknown }).itemOrder;
-                const itemOrder = typeof rawItemOrderValue === 'number' && Number.isFinite(rawItemOrderValue)
-                  ? rawItemOrderValue
-                  : 0;
-                if (!sectionName) return null;
-                return {
-                  sectionName,
-                  sectionOrder,
-                  itemName,
-                  itemOrder,
-                } satisfies TemplateTaskReference;
-              })
-              .filter((entry): entry is TemplateTaskReference => Boolean(entry));
-          } else {
-            items = [];
-          }
-        } catch (err) {
-          console.warn('Failed to parse item list', err);
-          items = [];
-        }
-      } else {
-        console.warn(`Failed to load item list (${itemsRes.status})`);
-        items = [];
-      }
-
-      if (columnsRes.ok) {
-        try {
-          const data = await columnsRes.json();
-          estimationColumns = Array.isArray(data) ? data : [];
-        } catch (err) {
-          console.warn('Failed to parse estimation column list', err);
-          estimationColumns = [];
-        }
-      } else {
-        console.warn(`Failed to load estimation column list (${columnsRes.status})`);
-        estimationColumns = [];
-      }
-    } catch (err) {
-      console.warn('Failed to load reference data', err);
-    }
-
-    setAvailableTasks(items);
-    setAvailableEstimationColumns(estimationColumns);
-    return { items, estimationColumns };
-  }, []);
 
   const resetTimelineReferenceDraft = useCallback(() => {
     setTimelineReferenceDraft(createReferenceDraft());
@@ -694,9 +398,7 @@ export default function PresalesConfigurationPage() {
     loadConfig();
   }, [loadConfig]);
 
-  useEffect(() => {
-    fetchReferenceData();
-  }, [fetchReferenceData]);
+
 
   useEffect(() => {
     loadTimelineReferences();
@@ -719,24 +421,7 @@ export default function PresalesConfigurationPage() {
     [router]
   );
 
-  const handleActivityDragStart = useCallback((event: DragEvent<HTMLElement>, index: number) => {
-    setActivityDragIndex(index);
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', `${index}`);
-    }
-  }, []);
 
-  const handleActivityDragEnd = useCallback(() => {
-    setActivityDragIndex(null);
-  }, []);
-
-  const handleActivityDragOver = useCallback((event: DragEvent<HTMLTableRowElement>) => {
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'move';
-    }
-  }, []);
 
   const updateTimelineReferenceState = useCallback((id: number, patch: Partial<TimelineEstimatorReference>) => {
     setTimelineReferences(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
@@ -890,102 +575,7 @@ export default function PresalesConfigurationPage() {
     [timelineReferencesPermissionDenied, loadTimelineReferences]
   );
 
-  const handleActivityDrop = useCallback(
-    (event: DragEvent<HTMLTableRowElement>, index: number) => {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
-      }
-      if (activityDragIndex === null) {
-        return;
-      }
 
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const offset = event.clientY - bounds.top;
-      const shouldPlaceAfter = offset > bounds.height / 2;
-      const desiredIndex = shouldPlaceAfter ? index + 1 : index;
-
-      setConfig(prev => {
-        const fromIndex = activityDragIndex;
-        if (fromIndex < 0 || fromIndex >= prev.activities.length) {
-          return prev;
-        }
-
-        let targetIndex = Math.max(0, Math.min(desiredIndex, prev.activities.length));
-        if (fromIndex < targetIndex) {
-          targetIndex -= 1;
-        }
-        if (targetIndex === fromIndex) {
-          return prev;
-        }
-
-        const reordered = reorderList(prev.activities, fromIndex, desiredIndex);
-        const resequenced = resequenceList(reordered);
-        return { ...prev, activities: resequenced };
-      });
-      setActivityDragIndex(null);
-    },
-    [activityDragIndex]
-  );
-
-  const handleItemActivityDragStart = useCallback((event: DragEvent<HTMLElement>, index: number) => {
-    setItemActivityDragIndex(index);
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', `${index}`);
-    }
-  }, []);
-
-  const handleItemActivityDragEnd = useCallback(() => {
-    setItemActivityDragIndex(null);
-  }, []);
-
-  const handleItemActivityDragOver = useCallback((event: DragEvent<HTMLTableRowElement>) => {
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'move';
-    }
-  }, []);
-
-  const handleItemActivityDrop = useCallback(
-    (event: DragEvent<HTMLTableRowElement>, index: number) => {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
-      }
-      if (itemActivityDragIndex === null) {
-        return;
-      }
-
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const offset = event.clientY - bounds.top;
-      const shouldPlaceAfter = offset > bounds.height / 2;
-      const desiredIndex = shouldPlaceAfter ? index + 1 : index;
-
-      setConfig(prev => {
-        const fromIndex = itemActivityDragIndex;
-        if (fromIndex < 0 || fromIndex >= prev.itemActivities.length) {
-          return prev;
-        }
-
-        let targetIndex = Math.max(0, Math.min(desiredIndex, prev.itemActivities.length));
-        if (fromIndex < targetIndex) {
-          targetIndex -= 1;
-        }
-        if (targetIndex === fromIndex) {
-          return prev;
-        }
-
-        const reordered = reorderList(prev.itemActivities, fromIndex, desiredIndex).map((mapping, orderIndex) => ({
-          ...mapping,
-          displayOrder: orderIndex + 1,
-        }));
-        return { ...prev, itemActivities: reordered };
-      });
-      setItemActivityDragIndex(null);
-    },
-    [itemActivityDragIndex]
-  );
 
   const handleRoleChange = useCallback((index: number, key: keyof PresalesRole, value: string) => {
     setConfig(prev => {
@@ -1001,13 +591,9 @@ export default function PresalesConfigurationPage() {
       }
       roles[index] = updated;
 
-      let estimationColumnRoles = prev.estimationColumnRoles;
       let teamTypes = prev.teamTypes;
 
       if (key === 'roleName' && previous.roleName && previous.roleName !== value) {
-        estimationColumnRoles = estimationColumnRoles.map(m =>
-          m.roleName === previous.roleName ? { ...m, roleName: value } : m
-        );
         teamTypes = teamTypes.map(t => ({
           ...t,
           roles: (t.roles || []).map(r => (r.roleName === previous.roleName ? { ...r, roleName: value } : r)),
@@ -1049,21 +635,11 @@ export default function PresalesConfigurationPage() {
         });
       }
 
-      return { ...prev, roles, estimationColumnRoles, teamTypes };
+      return { ...prev, roles, teamTypes };
     });
   }, []);
 
-  const handleActivityChange = useCallback((index: number, key: keyof PresalesActivity, value: string) => {
-    if (key !== 'activityName') {
-      return;
-    }
-    setConfig(prev => {
-      const activities = [...prev.activities];
-      const activity = { ...activities[index], activityName: value };
-      activities[index] = activity;
-      return { ...prev, activities: resequenceList(activities) };
-    });
-  }, []);
+
 
   const handleRoleSalaryChange = useCallback((index: number, value: string) => {
     const salary = toNumber(value, 0);
@@ -1127,19 +703,7 @@ export default function PresalesConfigurationPage() {
     });
   }, []);
 
-  const handleEstimationRoleChange = useCallback((index: number, key: 'estimationColumn' | 'roleName', value: string) => {
-    setConfig(prev => {
-      const estimationColumnRoles = [...prev.estimationColumnRoles];
-      const mapping = { ...estimationColumnRoles[index] };
-      if (key === 'estimationColumn') {
-        mapping.estimationColumn = value;
-      } else if (key === 'roleName') {
-        mapping.roleName = value;
-      }
-      estimationColumnRoles[index] = mapping;
-      return { ...prev, estimationColumnRoles };
-    });
-  }, []);
+
 
   const addRole = () =>
     setConfig(prev => ({
@@ -1149,21 +713,7 @@ export default function PresalesConfigurationPage() {
         { roleName: '', expectedLevel: '', costPerDay: 0, monthlySalary: undefined, ratePerDay: undefined },
       ],
     }));
-  const addActivity = () =>
-    setConfig(prev => ({
-      ...prev,
-      activities: resequenceList([...prev.activities, { activityName: '', displayOrder: prev.activities.length + 1 }]),
-    }));
-  const addItemActivity = () =>
-    setConfig(prev => ({
-      ...prev,
-      itemActivities: [...prev.itemActivities, { sectionName: '', itemName: '', activityName: '', displayOrder: 0 }],
-    }));
-  const addEstimationColumnRole = () =>
-    setConfig(prev => ({
-      ...prev,
-      estimationColumnRoles: [...prev.estimationColumnRoles, { estimationColumn: '', roleName: '' }],
-    }));
+
 
   const addTeamType = () =>
     setConfig(prev => ({
@@ -1275,109 +825,9 @@ export default function PresalesConfigurationPage() {
       }
       return { ...prev, roles };
     });
-  const removeActivity = (index: number) =>
-    setConfig(prev => ({
-      ...prev,
-      activities: resequenceList(prev.activities.filter((_, i) => i !== index)),
-    }));
-  const removeItemActivity = (index: number) =>
-    setConfig(prev => ({ ...prev, itemActivities: prev.itemActivities.filter((_, i) => i !== index) }));
-  const removeEstimationColumnRole = (index: number) =>
-    setConfig(prev => ({ ...prev, estimationColumnRoles: prev.estimationColumnRoles.filter((_, i) => i !== index) }));
 
-  const handleSyncItemsFromTemplate = useCallback(async () => {
-    setSyncingItems(true);
-    setError(null);
-    setSuccessMessage(null);
-    try {
-      const { items } = await fetchReferenceData();
-      let added = 0;
-      setConfig(prev => {
-        const existing = new Set(
-          prev.itemActivities.map(mapping => {
-            const section = mapping.sectionName?.trim().toLowerCase() ?? '';
-            const item = mapping.itemName?.trim().toLowerCase() ?? '';
-            return `${section}::${item}`;
-          })
-        );
 
-        const additions: ItemActivityMapping[] = [];
-        for (const task of items ?? []) {
-          if (!task) continue;
-          const section = task.sectionName?.trim();
-          const item = task.itemName?.trim();
-          if (!section || !item) {
-            continue;
-          }
 
-          const key = `${section.toLowerCase()}::${item.toLowerCase()}`;
-          if (existing.has(key)) {
-            continue;
-          }
-
-          existing.add(key);
-          additions.push({ sectionName: section, itemName: item, activityName: '', displayOrder: 0 });
-        }
-
-        added = additions.length;
-        if (added === 0) {
-          return prev;
-        }
-        const nextActivities = [...prev.itemActivities, ...additions];
-        return { ...prev, itemActivities: nextActivities };
-      });
-      if (added > 0) {
-        setSuccessMessage(`Added ${added} template item${added > 1 ? 's' : ''} that need activity mapping.`);
-      } else {
-        setSuccessMessage('All project template items already exist in the mapping.');
-      }
-    } catch (err) {
-      console.warn('Failed to sync template items', err);
-      setError(err instanceof Error ? err.message : 'Failed to sync template items');
-    } finally {
-      setSyncingItems(false);
-    }
-  }, [fetchReferenceData]);
-
-  const handleSyncEstimationColumns = useCallback(async () => {
-    setSyncingEstimationColumns(true);
-    setError(null);
-    setSuccessMessage(null);
-    try {
-      const { estimationColumns } = await fetchReferenceData();
-      let added = 0;
-      setConfig(prev => {
-        const existing = new Set(
-          prev.estimationColumnRoles
-            .map(mapping => mapping.estimationColumn?.trim().toLowerCase())
-            .filter((name): name is string => Boolean(name))
-        );
-        const additions = (estimationColumns ?? [])
-          .filter(column => {
-            if (!column) return false;
-            const key = column.trim().toLowerCase();
-            return key.length > 0 && !existing.has(key);
-          })
-          .map(column => ({ estimationColumn: column, roleName: '' }));
-        added = additions.length;
-        if (added === 0) {
-          return prev;
-        }
-        const nextRoles = [...prev.estimationColumnRoles, ...additions];
-        return { ...prev, estimationColumnRoles: nextRoles };
-      });
-      if (added > 0) {
-        setSuccessMessage(`Added ${added} estimation column${added > 1 ? 's' : ''} that need role allocation.`);
-      } else {
-        setSuccessMessage('All estimation columns already have role allocations.');
-      }
-    } catch (err) {
-      console.warn('Failed to sync estimation columns', err);
-      setError(err instanceof Error ? err.message : 'Failed to sync estimation columns');
-    } finally {
-      setSyncingEstimationColumns(false);
-    }
-  }, [fetchReferenceData]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -1449,189 +899,7 @@ export default function PresalesConfigurationPage() {
   }, [config.roles]);
 
   const isCreatingReference = timelineReferenceSavingId === 'new';
-  const activityNames = useMemo(
-    () => config.activities.map(activity => activity.activityName?.trim()).filter((name): name is string => Boolean(name)),
-    [config.activities]
-  );
 
-  const activityOrderLookup = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const activity of config.activities) {
-      const name = activity.activityName?.trim();
-      if (!name) continue;
-      map.set(name, typeof activity.displayOrder === 'number' ? activity.displayOrder : Number(activity.displayOrder) || 0);
-    }
-    return map;
-  }, [config.activities]);
-
-  const sectionOrderLookup = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const task of availableTasks) {
-      const section = task.sectionName?.trim();
-      if (!section) continue;
-      const order = typeof task.sectionOrder === 'number' ? task.sectionOrder : 0;
-      const current = map.get(section);
-      if (current === undefined || order < current) {
-        map.set(section, order);
-      }
-    }
-    return map;
-  }, [availableTasks]);
-
-  const itemOrderLookup = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const task of availableTasks) {
-      const section = task.sectionName?.trim();
-      if (!section) continue;
-      const item = task.itemName?.trim() ?? '';
-      const key = `${section}\0${item}`;
-      const order = typeof task.itemOrder === 'number' ? task.itemOrder : (item ? 0 : -1);
-      const current = map.get(key);
-      if (current === undefined || order < current) {
-        map.set(key, order);
-      }
-    }
-    return map;
-  }, [availableTasks]);
-
-  const sectionOptions = useMemo(
-    () =>
-      Array.from(sectionOrderLookup.entries())
-        .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-        .map(([value]) => value),
-    [sectionOrderLookup]
-  );
-
-  const itemsBySection = useMemo(() => {
-    const map = new Map<string, string[]>();
-    sectionOptions.forEach(section => {
-      map.set(section, ['']);
-    });
-
-    for (const task of availableTasks) {
-      const section = task.sectionName?.trim();
-      if (!section) continue;
-      if (!map.has(section)) {
-        map.set(section, ['']);
-      }
-
-      const item = task.itemName?.trim() ?? '';
-      if (!item) {
-        continue;
-      }
-
-      const list = map.get(section)!;
-      if (!list.some(existing => existing.localeCompare(item, undefined, { sensitivity: 'accent' }) === 0)) {
-        list.push(item);
-      }
-    }
-
-    map.forEach((list, section) => {
-      list.sort((a, b) => {
-        const orderA = itemOrderLookup.get(`${section}\0${a}`) ?? (a ? Number.MAX_SAFE_INTEGER : -1);
-        const orderB = itemOrderLookup.get(`${section}\0${b}`) ?? (b ? Number.MAX_SAFE_INTEGER : -1);
-        if (orderA !== orderB) {
-          return orderA - orderB;
-        }
-        return a.localeCompare(b);
-      });
-    });
-
-    return map;
-  }, [availableTasks, itemOrderLookup, sectionOptions]);
-
-  const computeDefaultDisplayOrder = useCallback(
-    (sectionName: string, itemName: string, activityName: string) => {
-      const normalizedActivity = (activityName ?? '').trim();
-      const normalizedSection = (sectionName ?? '').trim();
-      const normalizedItem = (itemName ?? '').trim();
-      const activityOrder = activityOrderLookup.get(normalizedActivity) ?? 10_000;
-      const sectionOrder = sectionOrderLookup.get(normalizedSection) ?? 10_000;
-      const itemKey = `${normalizedSection}\0${normalizedItem}`;
-      const rawItemOrder = itemOrderLookup.get(itemKey);
-      const itemOrder = rawItemOrder !== undefined ? rawItemOrder : (normalizedItem ? 1_000 : -1);
-      const normalizedItemOrder = itemOrder >= 0 ? itemOrder + 1 : 0;
-      return activityOrder * 1_000_000 + sectionOrder * 1_000 + normalizedItemOrder;
-    },
-    [activityOrderLookup, sectionOrderLookup, itemOrderLookup]
-  );
-
-  const applyDefaultDisplayOrder = useCallback(
-    (mapping: ItemActivityMapping): ItemActivityMapping => {
-      if (mapping.displayOrder && mapping.displayOrder > 0) {
-        return mapping;
-      }
-
-      const computed = computeDefaultDisplayOrder(mapping.sectionName, mapping.itemName, mapping.activityName);
-      if (computed <= 0 || computed === mapping.displayOrder) {
-        return mapping;
-      }
-
-      return { ...mapping, displayOrder: computed };
-    },
-    [computeDefaultDisplayOrder]
-  );
-
-  useEffect(() => {
-    setConfig(prev => {
-      let changed = false;
-      const nextItemActivities = prev.itemActivities.map(mapping => {
-        const updated = applyDefaultDisplayOrder(mapping);
-        if (updated !== mapping) {
-          changed = true;
-        }
-        return updated;
-      });
-      if (!changed) {
-        return prev;
-      }
-      return { ...prev, itemActivities: nextItemActivities };
-    });
-  }, [applyDefaultDisplayOrder]);
-
-  const handleItemActivityChange = useCallback(
-    (index: number, key: keyof ItemActivityMapping, value: string) => {
-      setConfig(prev => {
-        const itemActivities = [...prev.itemActivities];
-        const current = { ...itemActivities[index] };
-
-        if (key === 'sectionName') {
-          current.sectionName = value;
-          const normalizedSection = value.trim();
-          if (!normalizedSection) {
-            current.itemName = '';
-          } else if (current.itemName) {
-            const normalizedItem = current.itemName.trim();
-            const normalizedSectionLower = normalizedSection.toLowerCase();
-            const normalizedItemLower = normalizedItem.toLowerCase();
-            const hasItem = availableTasks.some(task => {
-              const taskSection = task.sectionName ? task.sectionName.trim().toLowerCase() : '';
-              if (!taskSection || taskSection !== normalizedSectionLower) {
-                return false;
-              }
-              const taskItem = task.itemName ? task.itemName.trim().toLowerCase() : '';
-              return taskItem === normalizedItemLower;
-            });
-            if (!hasItem) {
-              current.itemName = '';
-            }
-          }
-          current.displayOrder = 0;
-        } else if (key === 'itemName') {
-          current.itemName = value;
-          current.displayOrder = 0;
-        } else if (key === 'activityName') {
-          current.activityName = value;
-          current.displayOrder = 0;
-        }
-
-        const updated = applyDefaultDisplayOrder(current);
-        itemActivities[index] = updated;
-        return { ...prev, itemActivities };
-      });
-    },
-    [applyDefaultDisplayOrder, availableTasks]
-  );
 
 
   return (
@@ -1672,12 +940,9 @@ export default function PresalesConfigurationPage() {
               scrollButtons="auto"
               allowScrollButtonsMobile
             >
-              <Tab label="Roles & Rates" value="roles" />
-              <Tab label="Activity Groupings" value="activities" />
-              <Tab label="Item → Activity Mapping" value="items" />
-              <Tab label="Estimation Column → Role Allocation" value="columns" />
-              <Tab label="Timeline Estimator — Team Types" value="timelineTeamTypes" />
-              <Tab label="Timeline Estimator — References" value="timelineReferences" />
+              <Tab value="roles" label="Roles & Rates" />
+              <Tab value="timelineTeamTypes" label="Estimator Team Types" />
+              <Tab value="timelineReferences" label="Timeline Estimator References" />
             </Tabs>
 
             {activeTab === 'roles' && (
@@ -1722,288 +987,26 @@ export default function PresalesConfigurationPage() {
                             <TextField
                               fullWidth
                               size="small"
-                              value={formatIDR(role.monthlySalary)}
-                              inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
+                              value={role.monthlySalary || ''}
+                              type="number"
+                              inputProps={{ min: 0 }}
                               onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleSalaryChange(index, event.target.value)}
-                              placeholder="e.g. 15.000.000"
+                              placeholder="e.g. 15000000"
                             />
                           </TableCell>
                           <TableCell>
                             <TextField
                               fullWidth
                               size="small"
-                              value={formatIDR(role.ratePerDay)}
-                              inputProps={{ inputMode: 'numeric', pattern: '[0-9.,]*' }}
+                              value={role.ratePerDay || ''}
+                              type="number"
+                              inputProps={{ min: 0 }}
                               onChange={(event: ChangeEvent<HTMLInputElement>) => handleRoleRateChange(index, event.target.value)}
-                              placeholder="e.g. 1.500.000"
+                              placeholder="e.g. 1500000"
                             />
                           </TableCell>
                           <TableCell align="right">
                             <IconButton onClick={() => removeRole(index)} aria-label="Remove role">
-                              <DeleteIcon />
-                            </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Stack>
-            )}
-
-            {activeTab === 'activities' && (
-              <Stack spacing={2}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="h2" className="section-title">Activity Groupings</Typography>
-                  <Button startIcon={<AddIcon />} variant="outlined" onClick={addActivity}>Add Activity</Button>
-                </Stack>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell width={80}>Order</TableCell>
-                        <TableCell>Activity Name</TableCell>
-                        <TableCell align="right">Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {config.activities.map((activity, index) => (
-                        <TableRow
-                          key={index}
-                          onDrop={event => handleActivityDrop(event, index)}
-                          onDragOver={handleActivityDragOver}
-                        >
-                          <TableCell width={80} sx={{ color: 'text.secondary' }}>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                              <Box
-                                component="span"
-                                draggable
-                                onDragStart={event => handleActivityDragStart(event, index)}
-                                onDragEnd={handleActivityDragEnd}
-                                sx={{ cursor: 'grab', display: 'inline-flex', color: 'text.secondary' }}
-                                aria-label="Drag to reorder activity"
-                              >
-                                <DragIndicatorIcon fontSize="small" />
-                              </Box>
-                              <Typography variant="body2" color="text.secondary">
-                                {index + 1}
-                              </Typography>
-                            </Stack>
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              value={activity.activityName}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleActivityChange(index, 'activityName', event.target.value)}
-                              placeholder="e.g. Analysis & Design"
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <IconButton onClick={() => removeActivity(index)} aria-label="Remove activity">
-                              <DeleteIcon />
-                            </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Stack>
-            )}
-
-            {activeTab === 'items' && (
-              <Stack spacing={2}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
-                  <Typography variant="h2" className="section-title">Item → Activity Mapping</Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Button
-                      startIcon={<SyncIcon />}
-                      variant="outlined"
-                      onClick={handleSyncItemsFromTemplate}
-                      disabled={syncingItems || loading}
-                    >
-                      {syncingItems ? 'Syncing…' : 'Sync Template Items'}
-                    </Button>
-                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addItemActivity}>Add Mapping</Button>
-                  </Stack>
-                </Stack>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell width={80}>Order</TableCell>
-                        <TableCell>Section</TableCell>
-                        <TableCell>Item</TableCell>
-                        <TableCell>Activity</TableCell>
-                        <TableCell align="right">Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {config.itemActivities.map((mapping, index) => {
-                        const sectionValue = mapping.sectionName || '';
-                        const normalizedSection = sectionValue.trim();
-                        const itemOptions = itemsBySection.get(normalizedSection) ?? [''];
-                        return (
-                          <TableRow
-                            key={index}
-                            onDrop={event => handleItemActivityDrop(event, index)}
-                            onDragOver={handleItemActivityDragOver}
-                          >
-                            <TableCell width={80} sx={{ color: 'text.secondary' }}>
-                              <Stack direction="row" alignItems="center" spacing={1}>
-                                <Box
-                                  component="span"
-                                  draggable
-                                  onDragStart={event => handleItemActivityDragStart(event, index)}
-                                  onDragEnd={handleItemActivityDragEnd}
-                                  sx={{ cursor: 'grab', display: 'inline-flex', color: 'text.secondary' }}
-                                  aria-label="Drag to reorder mapping"
-                                >
-                                  <DragIndicatorIcon fontSize="small" />
-                                </Box>
-                                <Typography variant="body2" color="text.secondary">
-                                  {index + 1}
-                                </Typography>
-                              </Stack>
-                            </TableCell>
-                            <TableCell>
-                              <Autocomplete
-                                options={sectionOptions}
-                                freeSolo
-                                autoSelect
-                                value={sectionValue}
-                                onChange={(_, newValue) => handleItemActivityChange(index, 'sectionName', newValue ?? '')}
-                                onInputChange={(_, newValue) => handleItemActivityChange(index, 'sectionName', newValue ?? '')}
-                                renderInput={params => (
-                                  <TextField
-                                    {...params}
-                                    fullWidth
-                                    size="small"
-                                    placeholder="Select section"
-                                  />
-                                )}
-                                isOptionEqualToValue={(option, value) => option === value}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Autocomplete
-                                options={itemOptions}
-                                freeSolo
-                                autoSelect
-                                value={mapping.itemName || ''}
-                                onChange={(_, newValue) => handleItemActivityChange(index, 'itemName', newValue ?? '')}
-                                onInputChange={(_, newValue) => handleItemActivityChange(index, 'itemName', newValue ?? '')}
-                                getOptionLabel={option => (option ? option : 'Entire Section')}
-                                renderInput={params => (
-                                  <TextField
-                                    {...params}
-                                    fullWidth
-                                    size="small"
-                                    placeholder="Select item or leave blank for entire section"
-                                  />
-                                )}
-                                isOptionEqualToValue={(option, value) => option === value}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <TextField
-                                select
-                                fullWidth
-                                size="small"
-                                value={mapping.activityName}
-                                onChange={(event: ChangeEvent<HTMLInputElement>) => handleItemActivityChange(index, 'activityName', event.target.value)}
-                              >
-                                {activityNames.length === 0 && <MenuItem value="">—</MenuItem>}
-                                {activityNames.map(name => (
-                                  <MenuItem key={name} value={name}>{name}</MenuItem>
-                                ))}
-                              </TextField>
-                            </TableCell>
-                            <TableCell align="right">
-                              <IconButton onClick={() => removeItemActivity(index)} aria-label="Remove mapping">
-                                <DeleteIcon />
-                              </IconButton>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Stack>
-            )}
-
-            {activeTab === 'columns' && (
-              <Stack spacing={2}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
-                  <Typography variant="h2" className="section-title">Estimation Column → Role Allocation</Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Button
-                      startIcon={<SyncIcon />}
-                      variant="outlined"
-                      onClick={handleSyncEstimationColumns}
-                      disabled={syncingEstimationColumns || loading}
-                    >
-                      {syncingEstimationColumns ? 'Syncing…' : 'Sync Estimation Columns'}
-                    </Button>
-                    <Button startIcon={<AddIcon />} variant="outlined" onClick={addEstimationColumnRole}>Add Allocation</Button>
-                  </Stack>
-                </Stack>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Estimation Column</TableCell>
-                        <TableCell>Role</TableCell>
-                        <TableCell align="right">Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {config.estimationColumnRoles.map((mapping, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <Autocomplete
-                              options={availableEstimationColumns}
-                              value={mapping.estimationColumn || ''}
-                              onChange={(_, newValue) => handleEstimationRoleChange(index, 'estimationColumn', newValue ?? '')}
-                              autoHighlight
-                              renderInput={params => (
-                                <TextField
-                                  {...params}
-                                  fullWidth
-                                  size="small"
-                                  placeholder="Select estimation column"
-                                />
-                              )}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              select
-                              fullWidth
-                              size="small"
-                              value={mapping.roleName || ''}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleEstimationRoleChange(index, 'roleName', event.target.value)}
-                              SelectProps={{
-                                displayEmpty: true,
-                                renderValue: (selected: unknown) => {
-                                  if (typeof selected !== 'string' || !selected) {
-                                    return '—';
-                                  }
-                                  const option = roleOptions.find(item => item.value === selected);
-                                  return option?.label ?? selected;
-                                },
-                              }}
-                            >
-                              <MenuItem value="">—</MenuItem>
-                              {roleOptions.map(option => (
-                                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                              ))}
-                            </TextField>
-                          </TableCell>
-                          <TableCell align="right">
-                            <IconButton onClick={() => removeEstimationColumnRole(index)} aria-label="Remove allocation">
                               <DeleteIcon />
                             </IconButton>
                           </TableCell>
@@ -2182,9 +1185,12 @@ export default function PresalesConfigurationPage() {
                 >
                   Add Team Type
                 </Button>
-
               </Stack>
             )}
+
+
+
+
 
             {activeTab === 'timelineReferences' && (
               <Stack spacing={3}>
@@ -2396,9 +1402,9 @@ export default function PresalesConfigurationPage() {
                 </Paper>
               </Stack>
             )}
-          </Stack>
+          </Stack >
         )}
-      </Paper>
-    </Box>
+      </Paper >
+    </Box >
   );
 }

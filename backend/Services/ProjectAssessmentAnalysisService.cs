@@ -746,7 +746,7 @@ public class ProjectAssessmentAnalysisService
                     continue;
                 }
 
-                if (TryNormalizeAnalyzedItem(item, templateItem, columns, references))
+                if (TryNormalizeAnalyzedItem(item, templateItem, template, columns, references))
                 {
                     normalizedItems.Add(item);
                 }
@@ -810,6 +810,7 @@ public class ProjectAssessmentAnalysisService
     private bool TryNormalizeAnalyzedItem(
         AnalyzedItem item,
         TemplateItem templateItem,
+        ProjectTemplate template,
         IReadOnlyList<string> columns,
         IReadOnlyList<ProjectAssessment> references)
     {
@@ -877,6 +878,40 @@ public class ProjectAssessmentAnalysisService
         var normalizedEstimates = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
         double? referenceBaselineForDiagnostics = null;
 
+        var allowedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (templateItem.Effort != null)
+        {
+            foreach (var effort in templateItem.Effort)
+            {
+                allowedRoles.Add(effort);
+                if (template.EffortRoleMapping != null)
+                {
+                    // Global Mapping
+                    if (template.EffortRoleMapping.TryGetValue(effort, out var mappedRole) && !string.IsNullOrWhiteSpace(mappedRole))
+                    {
+                        var roles = mappedRole.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        foreach (var role in roles)
+                        {
+                            allowedRoles.Add(role);
+                        }
+                    }
+
+                    // Specific Item Mapping (e.g. "System Setup - Requirement")
+                    // Note: This aligns with Frontend "Item - Effort" display.
+                    var specificKey = $"{templateItem.ItemName} - {effort}";
+                    if (template.EffortRoleMapping.TryGetValue(specificKey, out var specificRole) && !string.IsNullOrWhiteSpace(specificRole))
+                    {
+                        var roles = specificRole.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        foreach (var role in roles)
+                        {
+                            allowedRoles.Add(role);
+                        }
+                    }
+                }
+            }
+        }
+        var hasRoleRestriction = allowedRoles.Count > 0;
+
         foreach (var column in columns)
         {
             if (string.IsNullOrWhiteSpace(column))
@@ -885,6 +920,12 @@ public class ProjectAssessmentAnalysisService
             }
 
             if (item.IsNeeded != true)
+            {
+                normalizedEstimates[column] = 0;
+                continue;
+            }
+
+            if (hasRoleRestriction && !allowedRoles.Contains(column))
             {
                 normalizedEstimates[column] = 0;
                 continue;
@@ -924,8 +965,14 @@ public class ProjectAssessmentAnalysisService
         return true;
     }
 
-    private (double xs, double s, double m, double l, double xl) ResolveBands(string category)
+    private (double xs, double s, double m, double l, double xl) ResolveBands(string? category)
     {
+        if (string.IsNullOrEmpty(category))
+        {
+             // Default bands if no category
+             return (4, 8, 16, 32, 56);
+        }
+
         if (_estimationPolicy.BaseHoursByCategory.TryGetValue(category, out var bands))
         {
             return bands;
@@ -956,7 +1003,8 @@ public class ProjectAssessmentAnalysisService
         double rawComplexity)
     {
         var size = NormalizeSizeClass(requested);
-        var guardActive = category.StartsWith("Adjust Existing", StringComparison.OrdinalIgnoreCase)
+        var guardActive = !string.IsNullOrEmpty(category) 
+            && category.StartsWith("Adjust Existing", StringComparison.OrdinalIgnoreCase)
             && _estimationPolicy.CapAdjustCategoriesToMaxM
             && justificationScore < _estimationPolicy.JustificationScoreThreshold;
 
@@ -1200,24 +1248,27 @@ public class ProjectAssessmentAnalysisService
             .Where(s => string.Equals(s.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (aiSections.Count == 0)
-        {
-            return result;
-        }
+        // If explicitly strictly mapped sections are needed, we can rely on SectionName.
+        // But for fallback (if LLM omits SectionName), we might want to default to the first AI section.
+        var defaultSectionName = aiSections.FirstOrDefault()?.SectionName;
 
-        for (var index = 0; index < responses.Count; index++)
+        foreach (var response in responses)
         {
-            var response = responses[index];
             if (string.IsNullOrWhiteSpace(response.ItemName))
             {
                 continue;
             }
 
-            var section = aiSections[index % aiSections.Count];
+            var sectionName = response.SectionName?.Trim();
+            if (string.IsNullOrWhiteSpace(sectionName))
+            {
+                sectionName = defaultSectionName ?? "Uncategorized";
+            }
+
             result.Add(new GeneratedAssessmentItem
             {
                 ItemId = $"ai-{Guid.NewGuid():N}",
-                SectionName = section.SectionName,
+                SectionName = sectionName,
                 ItemName = response.ItemName.Trim(),
                 ItemDetail = response.ItemDetail?.Trim() ?? string.Empty,
                 Category = NormalizeCategory(response.Category)
@@ -1252,46 +1303,163 @@ public class ProjectAssessmentAnalysisService
             Id = template.Id,
             TemplateName = template.TemplateName,
             EstimationColumns = template.EstimationColumns?.ToList() ?? new List<string>(),
+            EffortRoleMapping = template.EffortRoleMapping == null 
+                ? new Dictionary<string, string>() 
+                : new Dictionary<string, string>(template.EffortRoleMapping),
             Sections = new List<TemplateSection>()
         };
 
-        foreach (var section in template.Sections)
+        var itemsBySection = generatedItems
+            .GroupBy(i => i.SectionName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        // 1. Identify all "derivations" (App Names) found in the AI output
+        // We look at all App-Level sections in the template and see if we can find their "children" in the generated output.
+        // e.g. Template has "Modules". AI generated "Customer App - Modules". We extract "Customer App".
+        var detectedAppPrefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        var appLevelSections = template.Sections
+            .Where(s => string.Equals(s.Type, "App-Level", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var section in appLevelSections)
         {
-            var clonedSection = new TemplateSection
+            var suffix = $" - {section.SectionName}";
+            foreach (var key in itemsBySection.Keys)
             {
-                SectionName = section.SectionName,
-                Type = section.Type,
-                Items = section.Items.Select(item => new TemplateItem
+                if (key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 {
-                    ItemId = item.ItemId,
-                    ItemName = item.ItemName,
-                    ItemDetail = item.ItemDetail,
-                    Category = NormalizeCategory(item.Category)
-                }).ToList()
-            };
-
-            if (string.Equals(section.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
-            {
-                var additions = generatedItems
-                    .Where(item => string.Equals(item.SectionName, section.SectionName, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                foreach (var addition in additions)
-                {
-                    clonedSection.Items.Add(new TemplateItem
+                    // Found a match! "Customer App - Modules" ends with " - Modules"
+                    // Extract "Customer App"
+                    var prefixLength = key.Length - suffix.Length;
+                    if (prefixLength > 0)
                     {
-                        ItemId = addition.ItemId,
-                        ItemName = addition.ItemName,
-                        ItemDetail = addition.ItemDetail,
-                        Category = NormalizeCategory(addition.Category)
-                    });
+                        var prefix = key.Substring(0, prefixLength);
+                        detectedAppPrefixes.Add(prefix);
+                    }
+                }
+                else if (string.Equals(key, section.SectionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Exact match? Maybe single app scenario or fallback.
+                    // We can track this as a "default" app or empty prefix, but usually we want explicit apps.
                 }
             }
+        }
 
-            augmented.Sections.Add(clonedSection);
+        // If no apps detected, fallback: treat App-Level as Project-Level (single instance) or skip?
+        // Let's treat as Project-Level (single instance) using the original name if no apps found to avoid data loss.
+        var hasDetectedApps = detectedAppPrefixes.Count > 0;
+
+        foreach (var section in template.Sections)
+        {
+            if (string.Equals(section.Type, "App-Level", StringComparison.OrdinalIgnoreCase))
+            {
+                if (hasDetectedApps)
+                {
+                    // Explode for each app
+                    foreach (var appPrefix in detectedAppPrefixes.OrderBy(p => p)) // Order for consistency
+                    {
+                        var derivedName = $"{appPrefix} - {section.SectionName}";
+                        var derivedSection = new TemplateSection
+                        {
+                            SectionName = derivedName,
+                            Type = "AI-Generated", // Mark derived as AI-Generated/Dynamic
+                            Items = new List<TemplateItem>()
+                        };
+
+                        // A. Add Manual Items (Cloned from Prototype)
+                        if (section.Items != null)
+                        {
+                            derivedSection.Items.AddRange(section.Items.Select(item => new TemplateItem
+                            {
+                                ItemId = Guid.NewGuid().ToString(), // New ID for the instance
+                                ItemName = item.ItemName,
+                                ItemDetail = item.ItemDetail,
+                                Category = null, // Manual items in App-Level sections have no category
+                                Effort = item.Effort?.ToList() ?? new List<string>()
+                            }));
+                        }
+
+                        // B. Add AI-Generated Items (Specific to this App Name)
+                        if (itemsBySection.TryGetValue(derivedName, out var aiItems))
+                        {
+                            derivedSection.Items.AddRange(aiItems.Select(addition => new TemplateItem
+                            {
+                                ItemId = addition.ItemId,
+                                ItemName = addition.ItemName,
+                                ItemDetail = addition.ItemDetail,
+                                Category = NormalizeCategory(addition.Category),
+                                Effort = section.Effort?.ToList() ?? new List<string>() // Inherit effort from section if needed
+                            }));
+                        }
+                        
+                        // Also check if there are items for the base name that should be included? (Unlikely for specific app)
+
+                        augmented.Sections.Add(derivedSection);
+                    }
+                }
+                else
+                {
+                    // Fallback: Just keep it as is (1 instance)
+                    var clonedSection = CloneSection(section);
+                    // Add any AI items that matched the EXACT name
+                    if (itemsBySection.TryGetValue(section.SectionName, out var aiItems))
+                    {
+                        clonedSection.Items.AddRange(aiItems.Select(addition => new TemplateItem
+                        {
+                            ItemId = addition.ItemId,
+                            ItemName = addition.ItemName,
+                            ItemDetail = addition.ItemDetail,
+                            Category = NormalizeCategory(addition.Category),
+                            Effort = section.Effort?.ToList() ?? new List<string>()
+                        }));
+                    }
+                    augmented.Sections.Add(clonedSection);
+                }
+            }
+            else
+            {
+                // Normal Project-Level or AI-Generated
+                var clonedSection = CloneSection(section);
+
+                if (string.Equals(section.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (itemsBySection.TryGetValue(section.SectionName, out var additions))
+                    {
+                         clonedSection.Items.AddRange(additions.Select(addition => new TemplateItem
+                        {
+                            ItemId = addition.ItemId,
+                            ItemName = addition.ItemName,
+                            ItemDetail = addition.ItemDetail,
+                            Category = NormalizeCategory(addition.Category),
+                            Effort = section.Effort?.ToList() ?? new List<string>()
+                        }));
+                    }
+                }
+
+                augmented.Sections.Add(clonedSection);
+            }
         }
 
         return augmented;
+    }
+
+    private static TemplateSection CloneSection(TemplateSection section)
+    {
+        var isAiGenerated = string.Equals(section.Type, "AI-Generated", StringComparison.OrdinalIgnoreCase);
+        return new TemplateSection
+        {
+            SectionName = section.SectionName,
+            Type = section.Type,
+            Items = (section.Items ?? new List<TemplateItem>()).Select(item => new TemplateItem
+            {
+                ItemId = item.ItemId,
+                ItemName = item.ItemName,
+                ItemDetail = item.ItemDetail,
+                Category = isAiGenerated ? NormalizeCategory(item.Category) : null,
+                Effort = item.Effort?.ToList() ?? new List<string>()
+            }).ToList()
+        };
     }
 
     private static List<ProjectAssessment> DeserializeReferences(string? json, JsonSerializerOptions options)
@@ -1518,10 +1686,25 @@ public class ProjectAssessmentAnalysisService
             })
             .ToList();
 
+        var appLevelSections = template.Sections
+            .Where(s => string.Equals(s.Type, "App-Level", StringComparison.OrdinalIgnoreCase))
+            .Select(s => new GenerationPromptSection
+            {
+                SectionName = s.SectionName,
+                ExistingItems = s.Items.Select(item => new GenerationPromptItem
+                {
+                    ItemName = item.ItemName,
+                    ItemDetail = item.ItemDetail,
+                    Category = NormalizeCategory(item.Category)
+                }).ToList()
+            })
+            .ToList();
+
         var context = new GenerationPromptContext
         {
             ProjectName = projectName,
             Sections = sections,
+            AppLevelSections = appLevelSections,
             ReferenceDocuments = BuildGenerationPromptDocuments(referenceDocuments)
         };
 
@@ -1529,15 +1712,27 @@ public class ProjectAssessmentAnalysisService
         var instructionsBuilder = new StringBuilder();
         if (analysisMode == AssessmentAnalysisMode.Strict)
         {
-            instructionsBuilder.Append("You are a meticulous business analyst reviewing the attached scope document. Translate every explicitly described requirement into backlog items for the sections marked as AI-Generated. Do not invent new scope beyond what the document states.");
+            instructionsBuilder.Append("You are a meticulous business analyst reviewing the attached scope document. Translate every explicitly described requirement into backlog items.");
         }
         else
         {
-            instructionsBuilder.Append("You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered for the sections marked as AI-Generated.");
+            instructionsBuilder.Append("You are a senior business analyst reviewing the attached scope document. Identify additional backlog items that should be considered.");
         }
 
         instructionsBuilder.Append(' ');
-        instructionsBuilder.Append("You are a senior BA. Extract only in-scope backlog items. Prefer merging trivial UI fragments that don’t materially change estimates. If a function is clearly reusable from references, include [REUSE] tag in itemDetail. Category must be one of {{AllowedCategories}}. Return ONLY JSON array of {itemName,itemDetail,category}.");
+        instructionsBuilder.Append("Extract only in-scope backlog items. Prefer merging trivial UI fragments that don’t materially change estimates. If a function is clearly reusable from references, include [REUSE] tag in itemDetail. Category must be one of {{AllowedCategories}}.");
+
+        if (context.AppLevelSections.Count > 0)
+        {
+            instructionsBuilder.Append(" Analyze the scope to detect distinct applications (e.g., Customer App, Driver App, Admin Portal). For each App-Level section provided in context (e.g. 'Modules'), generate a corresponding section for EACH detected application using the naming format '{AppName} - {AppLevelSectionName}' (e.g. 'Customer App - Modules', 'Driver App - Modules'). Replicate the structure and generates relevant items for each app.");
+        }
+
+        if (context.Sections.Count > 0)
+        {
+            instructionsBuilder.Append(" For standard AI-Generated sections, populate them directly using the exact SectionName provided.");
+        }
+
+        instructionsBuilder.Append(" Return ONLY JSON array of {sectionName, itemName, itemDetail, category}.");
 
         var languageInstruction = outputLanguage == AssessmentLanguage.Indonesian
             ? "Return itemName and itemDetail written in Bahasa Indonesia."
@@ -1553,7 +1748,7 @@ public class ProjectAssessmentAnalysisService
         }
 
         var instructions = instructionsBuilder.ToString().Replace("{{AllowedCategories}}", categoryGuidance);
-        var outputRules = "Return ONLY JSON array of {itemName,itemDetail,category}. Avoid splitting trivial variants; prefer merge unless estimation impact > S. If similar component exists in references, append tag [REUSE] in itemDetail.";
+        var outputRules = "Return ONLY JSON array of {sectionName,itemName,itemDetail,category}. Avoid splitting trivial variants; prefer merge unless estimation impact > S. If similar component exists in references, append tag [REUSE] in itemDetail.";
         return $"{instructions}\n\nProject Context:\n{JsonSerializer.Serialize(context, _serializationOptions)}\n\n{outputRules}";
     }
 
@@ -1655,7 +1850,16 @@ public class ProjectAssessmentAnalysisService
             ? "Provide justification, signals, and textual diagnostics in Bahasa Indonesia."
             : "Provide justification, signals, and textual diagnostics in English.");
 
-        var rules = string.Join(Environment.NewLine, new[]
+        var rules = BuildAssessmentRules();
+        var examples = BuildAssessmentExamples();
+        var estimationGuidance = "Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras(upload/auth/workflow). Server may normalize.";
+
+        return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{examples}{Environment.NewLine}{estimationGuidance}";
+    }
+
+    private static string BuildAssessmentRules()
+    {
+        return string.Join(Environment.NewLine, new[]
         {
             "Rules:",
             "- (CRITICAL RULE) Your primary task is to distribute effort. For each item, determine the relevant EstimationColumns based on the work described. Assign effort hours ONLY to these relevant columns. All other columns for that item MUST be 0.",
@@ -1667,8 +1871,11 @@ public class ProjectAssessmentAnalysisService
             "- Classify scopeFit as 'in' or 'out' and set isNeeded accordingly. Provide diagnostics for each item: sizeClass, complexityScore (0..100), signals, multipliers, referenceMedian, justification, justificationScore, confidence.",
             "- Respond ONLY JSON object: { \"items\":[ ... ] } with numbers in hours (decimals allowed). No markdown.",
         });
+    }
 
-        var examples = string.Join(Environment.NewLine, new[]
+    private static string BuildAssessmentExamples()
+    {
+        return string.Join(Environment.NewLine, new[]
         {
             "Examples of Correct vs. Incorrect Output:",
             "Example 1: UI-heavy Task",
@@ -1689,10 +1896,6 @@ public class ProjectAssessmentAnalysisService
             "CORRECT (Desired Behavior): {\"Requirement\": 4, \"SIT\": 8, \"Setup\": 0, \"BE\": 24, \"FE\": 2}",
             "Justification: This is a complex backend task. Significant time for BA requirements and QA testing (SIT). Minimal FE work is needed to connect the UI."
         });
-
-        var estimationGuidance = "Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras(upload/auth/workflow). Server may normalize.";
-
-        return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{examples}{Environment.NewLine}{estimationGuidance}";
     }
 
     private static string BuildMiniMaxUserPrompt(string instructions, string? additionalContent, string label = "Scope Document")
@@ -1956,11 +2159,11 @@ public class ProjectAssessmentAnalysisService
         return trimmed.Trim();
     }
 
-    private static string NormalizeCategory(string? value)
+    private static string? NormalizeCategory(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return AllowedCategories[0];
+            return null; // Return null instead of forcing a default
         }
 
         var trimmed = value.Trim();
@@ -1968,8 +2171,12 @@ public class ProjectAssessmentAnalysisService
         {
             return normalized;
         }
-
-        return AllowedCategories[0];
+        
+        // If unrecognized, maybe return it as is or null? 
+        // For safety with current logic, let's fallback to null if not in lookup, 
+        // OR return the trimmed value if we want to allow new categories?
+        // Given "New UI" was default, let's stick to null if unknown so we fall to default bands in ResolveBands.
+        return null;
     }
 
     private static ProjectAssessment BuildAssessmentFromAnalysis(
@@ -2450,6 +2657,9 @@ public class ProjectAssessmentAnalysisService
 
     private sealed class GeneratedItemResponse
     {
+        [JsonPropertyName("sectionName")]
+        public string? SectionName { get; set; }
+
         [JsonPropertyName("itemName")]
         public string ItemName { get; set; } = string.Empty;
 
@@ -2473,6 +2683,7 @@ public class ProjectAssessmentAnalysisService
     {
         public string ProjectName { get; set; } = string.Empty;
         public List<GenerationPromptSection> Sections { get; set; } = new();
+        public List<GenerationPromptSection> AppLevelSections { get; set; } = new();
         public List<GenerationPromptDocument> ReferenceDocuments { get; set; } = new();
     }
 

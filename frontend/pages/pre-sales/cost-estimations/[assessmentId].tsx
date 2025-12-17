@@ -266,8 +266,8 @@ export default function CostEstimationDetailPage() {
   }, [assessmentId, inputs, goalSeekState]);
 
   const handleGoalSeekFieldChange = useCallback(
-    (field: keyof GoalSeekFormState) => (event: ChangeEvent<HTMLInputElement> | SelectChangeEvent<string>) => {
-      const value = (event.target as HTMLInputElement).value;
+    (field: keyof GoalSeekFormState) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent<string>) => {
+      const value = event.target.value as string;
       setGoalSeekState(prev => ({ ...prev, [field]: value }));
     },
     []

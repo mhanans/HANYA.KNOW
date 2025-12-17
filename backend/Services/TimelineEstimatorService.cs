@@ -14,6 +14,7 @@ public class TimelineEstimatorService
 {
     private readonly ProjectAssessmentStore _assessments;
     private readonly PresalesConfigurationStore _configurationStore;
+    private readonly ProjectTemplateStore _templateStore;
     private readonly TimelineEstimationReferenceStore _referenceStore;
     private readonly TimelineEstimationStore _estimationStore;
     private readonly LlmClient _llmClient;
@@ -22,6 +23,7 @@ public class TimelineEstimatorService
     public TimelineEstimatorService(
         ProjectAssessmentStore assessments,
         PresalesConfigurationStore configurationStore,
+        ProjectTemplateStore templateStore,
         TimelineEstimationReferenceStore referenceStore,
         TimelineEstimationStore estimationStore,
         LlmClient llmClient,
@@ -29,6 +31,7 @@ public class TimelineEstimatorService
     {
         _assessments = assessments;
         _configurationStore = configurationStore;
+        _templateStore = templateStore;
         _referenceStore = referenceStore;
         _estimationStore = estimationStore;
         _llmClient = llmClient;
@@ -109,7 +112,8 @@ public class TimelineEstimatorService
         TimelineEstimationRecord estimation;
         try
         {
-            estimation = BuildDeterministicEstimate(activityManDays, roleManDays, teamType, durationAnchor);
+            var template = await _templateStore.GetAsync(assessment.TemplateId).ConfigureAwait(false);
+            estimation = BuildDeterministicEstimate(activityManDays, roleManDays, teamType, durationAnchor, template?.TimelinePhases);
         }
         catch (Exception ex)
         {
@@ -236,7 +240,8 @@ public class TimelineEstimatorService
         Dictionary<string, double> activityManDays,
         Dictionary<string, double> roleManDays,
         TeamType teamType,
-        int durationAnchor)
+        int durationAnchor,
+        List<TimelinePhaseTemplate>? templatePhases = null)
     {
         if (teamType == null)
         {
@@ -255,13 +260,20 @@ public class TimelineEstimatorService
         var phaseSequence = new List<(string Name, string SequenceType)>
         {
             ("Project Preparation", "Serial"),
-            ("Analysis & Design", "Subsequent"),
-            ("Architecture & Setup", "Subsequent"),
+            ("Analysis & Design", "Parallel"),
+            ("Architecture & Setup", "Parallel"),
             ("Application Development", "Subsequent"),
             ("Testing & QA", "Parallel"),
             ("Testing & Bug Fixing", "Parallel"),
+
             ("Deployment & Handover", "Subsequent")
         };
+
+        if (templatePhases != null && templatePhases.Any())
+        {
+            // Use template phases to override default sequence
+            phaseSequence = templatePhases.OrderBy(p => p.StartDay).Select(p => (p.Name, "Custom")).ToList();
+        }
 
         var roleDefinitions = teamType.Roles ?? new List<TeamTypeRole>();
         var validHeadcounts = roleDefinitions
@@ -278,20 +290,39 @@ public class TimelineEstimatorService
 
         foreach (var (name, sequenceType) in phaseSequence)
         {
+            // If using template phases, we might want to force them even if no specific activity map
+            // For now, only include if activity matches or if it's a template phase
+            var templatePhase = templatePhases?.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+            
             if (!normalizedActivities.TryGetValue(name, out var manDays) || manDays <= 0)
             {
-                continue;
+                if (templatePhase != null)
+                {
+                     // Force include template phase even if no direct activity mapping, assume mostly logic/overhead
+                     manDays = templatePhase.Duration * averageHeadcount; // Reverse engineer effort from duration
+                }
+                else
+                {
+                    continue;
+                }
             }
 
-            var durationDays = CalculatePhaseDuration(manDays, averageHeadcount);
+            var durationDays = templatePhase?.Duration ?? CalculatePhaseDuration(manDays, averageHeadcount);
+            var sequence = templatePhase != null ? "Subsequent" : sequenceType; // Default to Subsequent for template logic if uncertain, or handle 'Custom' logic
+            
+            // Refine sequence for template phases based on StartDay relative overlapping?
+            // Simple approach: Trust the loop order and set type based on StartDay diffs?
+            // For Deterministic builder, we are limited.
+            // Let's just use the duration.
+            
             phaseEstimates.Add(new TimelinePhaseEstimate
             {
                 PhaseName = name,
                 DurationDays = durationDays,
-                SequenceType = sequenceType
+                SequenceType = sequence
             });
 
-            normalizedActivities.Remove(name);
+            if (normalizedActivities.ContainsKey(name)) normalizedActivities.Remove(name);
         }
 
         foreach (var kvp in normalizedActivities.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))

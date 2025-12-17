@@ -9,6 +9,8 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
+  SelectChangeEvent,
   Divider,
   FormControl,
   IconButton,
@@ -16,13 +18,10 @@ import {
   MenuItem,
   Paper,
   Select,
+  Stepper,
+  Step,
+  StepLabel,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -36,6 +35,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { apiFetch } from '../../lib/api';
+import TemplateTimelineEditor, { TimelinePhase } from './TemplateTimelineEditor';
+import TemplateColumnMapper from './TemplateColumnMapper';
 
 const CATEGORY_OPTIONS = [
   'New UI',
@@ -62,6 +63,7 @@ interface TemplateItem {
   itemDetail: string;
   category: CategoryOption;
   uid?: string;
+  effort?: string[];
 }
 
 interface TemplateSection {
@@ -69,6 +71,7 @@ interface TemplateSection {
   type: string;
   items: TemplateItem[];
   uid?: string;
+  effort?: string[];
 }
 
 interface ProjectTemplate {
@@ -76,15 +79,26 @@ interface ProjectTemplate {
   templateName: string;
   estimationColumns: string[];
   sections: TemplateSection[];
+  timelinePhases: TimelinePhase[];
+  effortRoleMapping?: Record<string, string>;
 }
 
 const createEmptyTemplate = (): ProjectTemplate => ({
   templateName: '',
   estimationColumns: [],
   sections: [],
+  timelinePhases: [],
+  effortRoleMapping: {},
 });
 
 const generateUid = () => Math.random().toString(36).slice(2, 10);
+
+const generateItemId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `item-${generateUid()}`;
+};
 
 const withGeneratedIds = (template: ProjectTemplate): ProjectTemplate => ({
   ...template,
@@ -95,7 +109,13 @@ const withGeneratedIds = (template: ProjectTemplate): ProjectTemplate => ({
       ...item,
       category: normalizeCategory(item.category),
       uid: item.uid ?? generateUid(),
+      effort: (item as any).effort ?? (item as any).roles ?? (item as any).Roles ?? [],
     })),
+    effort: (section as any).effort ?? (section as any).roles ?? (section as any).Roles ?? [],
+  })),
+  timelinePhases: (template.timelinePhases ?? []).map(phase => ({
+    ...phase,
+    id: phase.id ?? generateItemId(),
   })),
 });
 
@@ -115,9 +135,23 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
   const [dirty, setDirty] = useState(false);
   const [columnInput, setColumnInput] = useState('');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [activeStep, setActiveStep] = useState(0);
   const [dragSectionUid, setDragSectionUid] = useState<string | null>(null);
   const [dragSectionOverUid, setDragSectionOverUid] = useState<string | null>(null);
   const [dragItemRef, setDragItemRef] = useState<{ sectionUid: string; itemUid: string } | null>(null);
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Fetch roles for mapping
+    apiFetch('/api/presales/config')
+      .then(res => res.json())
+      .then(data => {
+        const roles = data.roles?.map((r: any) => r.roleName) || [];
+        setAvailableRoles(Array.from(new Set(roles)));
+      })
+      .catch(console.error);
+  }, []);
+
   const [dragItemOverRef, setDragItemOverRef] = useState<
     { sectionUid: string; itemUid: string | 'end' } | null
   >(null);
@@ -145,6 +179,8 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
           templateName: data.templateName,
           estimationColumns: data.estimationColumns ?? [],
           sections: data.sections ?? [],
+          timelinePhases: data.timelinePhases ?? [],
+          effortRoleMapping: data.effortRoleMapping ?? {},
         });
         setTemplate(next);
         setDirty(false);
@@ -273,12 +309,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
     }));
   };
 
-  const generateItemId = () => {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-      return crypto.randomUUID();
-    }
-    return `item-${generateUid()}`;
-  };
+
 
   const addItem = (sectionIndex: number) => {
     updateSection(sectionIndex, section => ({
@@ -345,8 +376,12 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
         itemName: item.itemName,
         itemDetail: item.itemDetail,
         category: item.category,
+        effort: item.effort || [],
       })),
+      effort: section.effort || [],
     })),
+    timelinePhases: input.timelinePhases,
+    effortRoleMapping: input.effortRoleMapping || {},
   });
 
   const handleSectionDragStart = (uid?: string) => (event: ReactDragEvent) => {
@@ -492,7 +527,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
           title: 'Template created',
           text: 'Template created successfully.',
         });
-        router.replace(`/pre-sales/project-templates/${created.id}`);
+        router.replace('/pre-sales/project-templates');
       } else {
         setDirty(false);
         await Swal.fire({
@@ -500,6 +535,7 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
           title: 'Template saved',
           text: 'Template saved successfully.',
         });
+        router.push('/pre-sales/project-templates');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save template';
@@ -534,6 +570,14 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
     event.stopPropagation();
   };
 
+  const handleNext = () => {
+    setActiveStep(prev => prev + 1);
+  };
+
+  const handleBack = () => {
+    setActiveStep(prev => prev - 1);
+  };
+
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
       <Stack
@@ -559,18 +603,35 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
           >
             Cancel
           </Button>
-          <LoadingButton
-            variant="contained"
-            color="primary"
-            onClick={save}
-            loading={saving}
-            disabled={!canSave}
-            sx={{ flexGrow: { xs: 1, md: 0 } }}
-          >
-            Save Template
-          </LoadingButton>
+          {(activeStep === 3) && (
+            <LoadingButton
+              variant="contained"
+              color="primary"
+              onClick={save}
+              loading={saving}
+              disabled={!canSave}
+              sx={{ flexGrow: { xs: 1, md: 0 } }}
+            >
+              Save Template
+            </LoadingButton>
+          )}
         </Stack>
       </Stack>
+
+      <Stepper activeStep={activeStep} alternativeLabel>
+        <Step>
+          <StepLabel>Define Structure</StepLabel>
+        </Step>
+        <Step>
+          <StepLabel>Column Mapping</StepLabel>
+        </Step>
+        <Step>
+          <StepLabel>Define Timeline</StepLabel>
+        </Step>
+        <Step>
+          <StepLabel>Role Mapping</StepLabel>
+        </Step>
+      </Stepper>
 
       {loading ? (
         <Paper sx={{ p: 4 }}>
@@ -578,435 +639,458 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
         </Paper>
       ) : (
         <Stack spacing={4}>
-          <Paper sx={{ p: { xs: 3, md: 4 } }}>
-            <Stack spacing={3}>
-              <TextField
-                label="Template Name"
-                placeholder="Insert Name Here"
-                value={template.templateName}
-                onChange={e => updateTemplate(prev => ({ ...prev, templateName: e.target.value }))}
-                fullWidth
-              />
-
-              <Box>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Typography variant="subtitle1">Estimation Columns</Typography>
-                  {template.estimationColumns.length === 0 && (
-                    <Typography variant="body2" color="text.secondary">
-                      No estimation columns yet.
-                    </Typography>
-                  )}
-                </Stack>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    gap: 1.5,
-                    overflowX: 'auto',
-                    pb: 1,
-                    pr: 1,
-                  }}
-                >
-                  {template.estimationColumns.map((column, index) => (
-                    <Paper
-                      key={`${column}-${index}`}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        px: 2,
-                        py: 1,
-                        borderRadius: 999,
-                        bgcolor: 'rgba(59,130,246,0.15)',
-                        border: '1px solid rgba(59,130,246,0.35)',
-                        flexShrink: 0,
-                        minWidth: 160,
-                      }}
-                      elevation={0}
-                    >
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {column}
-                      </Typography>
-                      <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Move left">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() => moveColumn(index, -1)}
-                              disabled={index === 0}
-                              sx={{ color: 'text.secondary' }}
-                            >
-                              <ArrowUpwardIcon fontSize="inherit" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title="Move right">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() => moveColumn(index, 1)}
-                              disabled={index === template.estimationColumns.length - 1}
-                              sx={{ color: 'text.secondary' }}
-                            >
-                              <ArrowDownwardIcon fontSize="inherit" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title="Remove column">
-                          <IconButton
-                            size="small"
-                            onClick={() => removeColumn(index)}
-                            sx={{ color: 'error.light' }}
-                          >
-                            <CloseIcon fontSize="inherit" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </Paper>
-                  ))}
-                </Box>
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  spacing={2}
-                  alignItems={{ xs: 'stretch', sm: 'center' }}
-                  mt={3}
-                >
+          {activeStep === 0 && (
+            <>
+              <Paper sx={{ p: { xs: 3, md: 4 } }}>
+                <Stack spacing={3}>
                   <TextField
-                    label="Add estimation column"
-                    placeholder="e.g. Backend Hours"
-                    value={columnInput}
-                    onChange={e => setColumnInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addColumn();
-                      }
-                    }}
+                    label="Template Name"
+                    placeholder="Insert Name Here"
+                    value={template.templateName}
+                    onChange={e => updateTemplate(prev => ({ ...prev, templateName: e.target.value }))}
                     fullWidth
                   />
-                  <Button
-                    variant="contained"
-                    color="secondary"
-                    startIcon={<AddIcon />}
-                    onClick={addColumn}
-                    sx={{ whiteSpace: 'nowrap' }}
-                  >
-                    Add Column
-                  </Button>
-                </Stack>
-              </Box>
-            </Stack>
-          </Paper>
 
-          <Paper sx={{ p: { xs: 3, md: 4 } }}>
-            <Stack spacing={3}>
-              <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={2}
-                justifyContent="space-between"
-                alignItems={{ xs: 'flex-start', md: 'center' }}
-              >
-                <Box>
-                  <Typography variant="h2">Sections &amp; Items</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Group the template structure into cards for easier navigation.
-                  </Typography>
-                </Box>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  startIcon={<AddIcon />}
-                  onClick={addSection}
-                >
-                  Add Section
-                </Button>
-              </Stack>
-              <Divider sx={{ borderColor: 'rgba(148, 163, 184, 0.2)' }} />
-              {template.sections.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <Typography variant="body1" color="text.secondary" gutterBottom>
-                    No sections yet. Start by adding your first section.
-                  </Typography>
-                  <Button variant="outlined" startIcon={<AddIcon />} onClick={addSection}>
+                  <Box>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                      <Typography variant="subtitle1">Estimation Columns</Typography>
+                      {template.estimationColumns.length === 0 && (
+                        <Typography variant="body2" color="text.secondary">
+                          No estimation columns yet.
+                        </Typography>
+                      )}
+                    </Stack>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        gap: 1.5,
+                        overflowX: 'auto',
+                        pb: 1,
+                        pr: 1,
+                      }}
+                    >
+                      {template.estimationColumns.map((column, index) => (
+                        <Paper
+                          key={`${column}-${index}`}
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            px: 2,
+                            py: 1,
+                            borderRadius: 999,
+                            bgcolor: 'rgba(59,130,246,0.15)',
+                            border: '1px solid rgba(59,130,246,0.35)',
+                            flexShrink: 0,
+                            minWidth: 160,
+                          }}
+                          elevation={0}
+                        >
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {column}
+                          </Typography>
+                          <Stack direction="row" spacing={0.5}>
+                            <Tooltip title="Move left">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => moveColumn(index, -1)}
+                                  disabled={index === 0}
+                                  sx={{ color: 'text.secondary' }}
+                                >
+                                  <ArrowUpwardIcon fontSize="inherit" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Move right">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => moveColumn(index, 1)}
+                                  disabled={index === template.estimationColumns.length - 1}
+                                  sx={{ color: 'text.secondary' }}
+                                >
+                                  <ArrowDownwardIcon fontSize="inherit" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Remove column">
+                              <IconButton
+                                size="small"
+                                onClick={() => removeColumn(index)}
+                                sx={{ color: 'error.light' }}
+                              >
+                                <CloseIcon fontSize="inherit" />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </Box>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      spacing={2}
+                      alignItems={{ xs: 'stretch', sm: 'center' }}
+                      mt={3}
+                    >
+                      <TextField
+                        label="Add estimation column"
+                        placeholder="e.g. Backend Hours"
+                        value={columnInput}
+                        onChange={e => setColumnInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addColumn();
+                          }
+                        }}
+                        fullWidth
+                      />
+                      <Button
+                        variant="contained"
+                        onClick={addColumn}
+                        disabled={!columnInput.trim()}
+                        startIcon={<AddIcon />}
+                        sx={{ minWidth: 160, height: 56 }}
+                      >
+                        Add Column
+                      </Button>
+                    </Stack>
+                  </Box>
+                </Stack>
+              </Paper>
+
+              <Stack spacing={2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Box>
+                    <Typography variant="h2">Sections & Items</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Group the template structure into cards for easier navigation.
+                    </Typography>
+                  </Box>
+                  <Button variant="contained" color="secondary" startIcon={<AddIcon />} onClick={addSection}>
                     Add Section
                   </Button>
-                </Box>
-              ) : (
-                <Stack spacing={2}>
-                  {template.sections.map((section, sectionIndex) => {
-                    const sectionUid = section.uid ?? `${sectionIndex}`;
-                    const isAiGenerated = section.type === 'AI-Generated';
-                    const isExpanded = expandedSections.has(sectionUid);
-                    const isDragOver = dragSectionOverUid === sectionUid;
-                    return (
-                      <Box
-                        key={sectionUid}
-                        draggable
-                        onDragStart={handleSectionDragStart(sectionUid)}
-                        onDragOver={handleSectionDragOver(sectionUid)}
-                        onDrop={handleSectionDrop(sectionUid)}
-                        onDragLeave={handleSectionDragLeave(sectionUid)}
-                        onDragEnd={handleSectionDragEnd}
-                        sx={{
-                          borderRadius: 3,
-                          border: '1px solid',
-                          borderColor: isDragOver ? 'primary.main' : 'rgba(148, 163, 184, 0.2)',
-                          boxShadow: isDragOver ? '0 0 0 2px rgba(59,130,246,0.35)' : 'none',
-                          transition: 'all 0.2s ease',
-                          overflow: 'hidden',
-                          backgroundColor: 'background.paper',
-                        }}
+                </Stack>
+
+                {template.sections.length === 0 ? (
+                  <Paper sx={{ p: 4, textAlign: 'center', bgcolor: 'transparent', borderStyle: 'dashed' }} variant="outlined">
+                    <Typography variant="body1" color="text.secondary">
+                      No sections added yet. Click &quot;Add Section&quot; to start.
+                    </Typography>
+                  </Paper>
+                ) : (
+                  template.sections.map((section, sectionIndex) => (
+                    <Accordion
+                      key={section.uid}
+                      expanded={expandedSections.has(section.uid || '')}
+                      onChange={() => toggleSection(section.uid)}
+                      disableGutters
+                      sx={{
+                        '&:before': { display: 'none' },
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        overflow: 'hidden',
+                        mb: 2,
+                      }}
+                    >
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        sx={{ bgcolor: 'action.hover', px: 2 }}
                       >
-                        <Accordion
-                          expanded={isExpanded}
-                          onChange={() => toggleSection(sectionUid)}
-                          disableGutters
-                          square={false}
-                          sx={{
-                            backgroundColor: 'transparent',
-                            '&:before': { display: 'none' },
-                          }}
-                        >
-                          <AccordionSummary
-                            expandIcon={<ExpandMoreIcon htmlColor="#94a3b8" />}
-                            sx={{ px: 3, py: 2 }}
+                        <Stack direction="row" alignItems="center" spacing={2} width="100%">
+                          <Box
+                            className="section-drag-handle"
+                            draggable
+                            onDragStart={handleSectionDragStart(section.uid)}
+                            onDragOver={handleSectionDragOver(section.uid)}
+                            onDragLeave={handleSectionDragLeave(section.uid)}
+                            onDrop={handleSectionDrop(section.uid)}
+                            onDragEnd={handleSectionDragEnd}
+                            onClick={stopPropagation}
+                            sx={{
+                              cursor: 'grab',
+                              display: 'flex',
+                              alignItems: 'center',
+                              color: 'text.secondary',
+                              '&:hover': { color: 'text.primary' },
+                              p: 0.5,
+                            }}
                           >
-                            <Stack
-                              direction={{ xs: 'column', lg: 'row' }}
-                              spacing={2}
-                              alignItems={{ xs: 'flex-start', lg: 'center' }}
-                              sx={{ width: '100%' }}
+                            <DragIndicatorIcon fontSize="small" />
+                          </Box>
+
+                          <TextField
+                            label="Section Name"
+                            variant="standard"
+                            value={section.sectionName}
+                            onChange={e => updateSection(sectionIndex, s => ({ ...s, sectionName: e.target.value }))}
+                            onClick={stopPropagation}
+                            onKeyDown={e => e.stopPropagation()}
+                            sx={{ flexGrow: 1 }}
+                            InputProps={{ disableUnderline: true, style: { fontSize: '1.1rem', fontWeight: 500 } }}
+                          />
+
+                          <FormControl variant="standard" sx={{ minWidth: 120 }}>
+                            <InputLabel>Type</InputLabel>
+                            <Select
+                              value={section.type}
+                              onChange={e => updateSection(sectionIndex, s => ({ ...s, type: e.target.value }))}
+                              label="Type"
+                              onClick={stopPropagation}
                             >
-                              <Stack
-                                direction="row"
-                                spacing={1}
-                                alignItems="center"
-                                sx={{ flexGrow: 1, width: '100%' }}
+                              <MenuItem value="Project-Level">Project-Level</MenuItem>
+                              <MenuItem value="App-Level">App-Level</MenuItem>
+                              <MenuItem value="AI-Generated">AI-Generated</MenuItem>
+                            </Select>
+                          </FormControl>
+
+                          <Tooltip title="Delete Section">
+                            <IconButton
+                              onClick={e => {
+                                e.stopPropagation();
+                                removeSection(sectionIndex);
+                              }}
+                              color="error"
+                              size="small"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </AccordionSummary>
+                      <AccordionDetails sx={{ p: 0 }}>
+                        <Divider />
+                        {section.type === 'AI-Generated' ? (
+                          <Box sx={{ p: 4, textAlign: 'center', bgcolor: 'background.default' }}>
+                            <Typography variant="body2" color="text.secondary" fontStyle="italic">
+                              Items in this section will be automatically generated by AI based on project scope.
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Box>
+                            {section.items.map((item, itemIndex) => (
+                              <Box
+                                key={item.uid}
+                                draggable
+                                onDragStart={handleItemDragStart(section.uid, item.uid)}
+                                onDragOver={handleItemDragOver(section.uid, item.uid)}
+                                onDragLeave={handleItemDragLeave(section.uid, item.uid)}
+                                onDrop={handleItemDrop(section.uid, item.uid)}
+                                onDragEnd={handleItemDragEnd}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'start',
+                                  gap: 2,
+                                  p: 2,
+                                  borderBottom: '1px solid',
+                                  borderColor: 'divider',
+                                  bgcolor: 'background.paper',
+                                  position: 'relative',
+                                  borderTop: dragItemOverRef?.sectionUid === section.uid && dragItemOverRef?.itemUid === item.uid ? '2px solid #3b82f6' : undefined,
+                                }}
                               >
-                                <IconButton
-                                  className="section-drag-handle"
-                                  onClick={stopPropagation}
-                                  size="small"
-                                  sx={{ color: 'text.secondary', cursor: 'grab' }}
+                                <Box
+                                  className="item-drag-handle"
+                                  sx={{ mt: 2, cursor: 'grab', color: 'text.disabled', '&:hover': { color: 'text.primary' } }}
                                 >
-                                  <DragIndicatorIcon />
+                                  <DragIndicatorIcon fontSize="small" />
+                                </Box>
+
+                                <Stack spacing={2} flexGrow={1}>
+                                  <TextField
+                                    label="Item Name"
+                                    value={item.itemName}
+                                    onChange={e => updateItem(sectionIndex, itemIndex, i => ({ ...i, itemName: e.target.value }))}
+                                    fullWidth
+                                    size="small"
+                                  />
+                                  <TextField
+                                    label="Item Detail / Instruction"
+                                    value={item.itemDetail}
+                                    onChange={e => updateItem(sectionIndex, itemIndex, i => ({ ...i, itemDetail: e.target.value }))}
+                                    fullWidth
+                                    multiline
+                                    rows={2}
+                                    size="small"
+                                    placeholder="Describe what needs to be done..."
+                                  />
+                                </Stack>
+
+                                <IconButton
+                                  onClick={() => removeItem(sectionIndex, itemIndex)}
+                                  size="small"
+                                  sx={{ mt: 1, color: 'text.disabled', '&:hover': { color: 'error.main' } }}
+                                >
+                                  <CloseIcon fontSize="small" />
                                 </IconButton>
-                                <TextField
-                                  label="Section Name"
-                                  value={section.sectionName}
-                                  onChange={e =>
-                                    updateSection(sectionIndex, current => ({
-                                      ...current,
-                                      sectionName: e.target.value,
-                                    }))
-                                  }
-                                  onClick={stopPropagation}
-                                  fullWidth
-                                />
-                              </Stack>
-                              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: { lg: 300 } }}>
-                                <FormControl fullWidth onClick={stopPropagation}>
-                                  <InputLabel id={`section-type-${sectionUid}`}>Type</InputLabel>
-                                  <Select
-                                    labelId={`section-type-${sectionUid}`}
-                                    label="Type"
-                                    value={section.type}
-                                    onChange={e =>
-                                      updateSection(sectionIndex, current => ({
-                                        ...current,
-                                        type: e.target.value,
-                                      }))
-                                    }
-                                  >
-                                    <MenuItem value="Project-Level">Project-Level</MenuItem>
-                                    <MenuItem value="App-Level">App-Level</MenuItem>
-                                    <MenuItem value="AI-Generated">AI-Generated</MenuItem>
-                                  </Select>
-                                </FormControl>
-                                <Tooltip title="Delete section">
-                                  <IconButton
-                                    color="error"
-                                    onClick={event => {
-                                      event.stopPropagation();
-                                      removeSection(sectionIndex);
-                                    }}
-                                  >
-                                    <DeleteIcon />
-                                  </IconButton>
-                                </Tooltip>
-                              </Stack>
-                            </Stack>
-                          </AccordionSummary>
-                          <AccordionDetails sx={{ px: 0, pb: 3 }}>
-                            <Box sx={{ px: 3, pt: 1 }}>
-                              {isAiGenerated ? (
-                                <Alert severity="info">
-                                  Items in this section are generated automatically when running the AI-assisted assessment.
-                                  Manual editing is disabled.
-                                </Alert>
-                              ) : (
-                                <>
-                                  <TableContainer component={Paper} variant="outlined">
-                                    <Table size="small">
-                                      <TableHead>
-                                        <TableRow>
-                                          <TableCell width={56}></TableCell>
-                                          <TableCell width="30%">Item Name</TableCell>
-                                          <TableCell>Item Detail</TableCell>
-                                          <TableCell width="20%">Category</TableCell>
-                                          <TableCell align="right" width={120}>
-                                            Actions
-                                          </TableCell>
-                                        </TableRow>
-                                      </TableHead>
-                                      <TableBody>
-                                        {section.items.length === 0 ? (
-                                          <TableRow>
-                                            <TableCell colSpan={5}>
-                                              <Typography variant="body2" color="text.secondary">
-                                                No items yet. Add items to this section to build your estimation grid.
-                                              </Typography>
-                                            </TableCell>
-                                          </TableRow>
-                                        ) : (
-                                          section.items.map((item, itemIndex) => {
-                                            const itemUid = item.uid ?? `${sectionUid}-${itemIndex}`;
-                                            return (
-                                              <TableRow
-                                                key={itemUid}
-                                                draggable
-                                                onDragStart={handleItemDragStart(sectionUid, itemUid)}
-                                                onDragOver={handleItemDragOver(sectionUid, itemUid)}
-                                                onDrop={handleItemDrop(sectionUid, itemUid)}
-                                                onDragLeave={handleItemDragLeave(sectionUid, itemUid)}
-                                                onDragEnd={handleItemDragEnd}
-                                              >
-                                                <TableCell width={56}>
-                                                  <IconButton
-                                                    className="item-drag-handle"
-                                                    size="small"
-                                                    sx={{ color: 'text.secondary', cursor: 'grab' }}
-                                                  >
-                                                    <DragIndicatorIcon fontSize="small" />
-                                                  </IconButton>
-                                                </TableCell>
-                                                <TableCell width="30%">
-                                                  <TextField
-                                                    variant="outlined"
-                                                    size="small"
-                                                    value={item.itemName}
-                                                    onChange={e =>
-                                                      updateItem(sectionIndex, itemIndex, current => ({
-                                                        ...current,
-                                                        itemName: e.target.value,
-                                                      }))
-                                                    }
-                                                    placeholder="User Authentication"
-                                                    fullWidth
-                                                  />
-                                                </TableCell>
-                                                <TableCell>
-                                                  <TextField
-                                                    variant="outlined"
-                                                    size="small"
-                                                    value={item.itemDetail}
-                                                    onChange={e =>
-                                                      updateItem(sectionIndex, itemIndex, current => ({
-                                                        ...current,
-                                                        itemDetail: e.target.value,
-                                                      }))
-                                                    }
-                                                    placeholder="Implement secure login, JWT, and password reset"
-                                                    fullWidth
-                                                  />
-                                                </TableCell>
-                                                <TableCell width="20%">
-                                                  <TextField
-                                                    select
-                                                    variant="outlined"
-                                                    size="small"
-                                                    value={item.category}
-                                                    onChange={e =>
-                                                      updateItem(sectionIndex, itemIndex, current => ({
-                                                        ...current,
-                                                        category: normalizeCategory(e.target.value),
-                                                      }))
-                                                    }
-                                                    fullWidth
-                                                  >
-                                                    {CATEGORY_OPTIONS.map(option => (
-                                                      <MenuItem key={option} value={option}>
-                                                        {option}
-                                                      </MenuItem>
-                                                    ))}
-                                                  </TextField>
-                                                </TableCell>
-                                                <TableCell align="right" width={120}>
-                                                  <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                                    <Tooltip title="Move up">
-                                                      <span>
-                                                        <IconButton
-                                                          size="small"
-                                                          onClick={() => moveItem(sectionIndex, itemIndex, -1)}
-                                                          disabled={itemIndex === 0}
-                                                        >
-                                                          <ArrowUpwardIcon fontSize="inherit" />
-                                                        </IconButton>
-                                                      </span>
-                                                    </Tooltip>
-                                                    <Tooltip title="Move down">
-                                                      <span>
-                                                        <IconButton
-                                                          size="small"
-                                                          onClick={() => moveItem(sectionIndex, itemIndex, 1)}
-                                                          disabled={itemIndex === section.items.length - 1}
-                                                        >
-                                                          <ArrowDownwardIcon fontSize="inherit" />
-                                                        </IconButton>
-                                                      </span>
-                                                    </Tooltip>
-                                                    <Tooltip title="Delete item">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="error"
-                                                        onClick={() => removeItem(sectionIndex, itemIndex)}
-                                                      >
-                                                        <DeleteIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                  </Stack>
-                                                </TableCell>
-                                              </TableRow>
-                                            );
-                                          })
-                                        )}
-                                      </TableBody>
-                                    </Table>
-                                  </TableContainer>
-                                  <Button
-                                    variant="outlined"
-                                    startIcon={<AddIcon />}
-                                    onClick={() => addItem(sectionIndex)}
-                                    sx={{ mt: 2 }}
-                                  >
-                                    Add Item
-                                  </Button>
-                                </>
-                              )}
+                              </Box>
+                            ))}
+                            {/* Drop target for end of list */}
+                            <Box
+                              onDragOver={handleItemDragOver(section.uid, 'end')}
+                              onDragLeave={handleItemDragLeave(section.uid, 'end')}
+                              onDrop={handleItemDrop(section.uid, 'end')}
+                              sx={{
+                                height: 10,
+                                bgcolor: dragItemOverRef?.sectionUid === section.uid && dragItemOverRef?.itemUid === 'end' ? 'primary.light' : 'transparent',
+                                transition: 'background-color 0.2s'
+                              }}
+                            />
+                            <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
+                              <Button
+                                startIcon={<AddIcon />}
+                                onClick={() => addItem(sectionIndex)}
+                                size="small"
+                              >
+                                Add Item
+                              </Button>
                             </Box>
-                          </AccordionDetails>
-                        </Accordion>
+                          </Box>
+                        )}
+                      </AccordionDetails>
+                    </Accordion>
+                  ))
+                )}
+              </Stack>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="contained" onClick={handleNext}>
+                  Next Step
+                </Button>
+              </Box>
+            </>
+          )}
+
+          {activeStep === 1 && (
+            <>
+              <Paper sx={{ p: { xs: 3, md: 4 } }}>
+                <TemplateColumnMapper
+                  sections={template.sections as any}
+                  estimationColumns={template.estimationColumns}
+                  onChange={(sections) => updateTemplate(prev => ({ ...prev, sections: sections as any }))}
+                />
+              </Paper>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', pt: 2 }}>
+                <Button variant="outlined" onClick={handleBack}>
+                  Back
+                </Button>
+                <Button variant="contained" onClick={handleNext}>
+                  Next Step
+                </Button>
+              </Box>
+            </>
+          )}
+
+          {activeStep === 2 && (
+            <>
+              <TemplateTimelineEditor
+                phases={template.timelinePhases}
+                sections={template.sections as any}
+                onChange={phases => updateTemplate(prev => ({ ...prev, timelinePhases: phases }))}
+              />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', pt: 2 }}>
+                <Button variant="outlined" onClick={handleBack}>
+                  Back
+                </Button>
+                <Button variant="contained" onClick={handleNext}>
+                  Next Step
+                </Button>
+              </Box>
+            </>
+          )}
+
+          {activeStep === 3 && (
+            <Paper sx={{ p: 4 }}>
+              <Typography variant="h4" gutterBottom>Role Mapping</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
+                Map the &quot;Efforts&quot; identified in the timeline to specific Roles (and Rates) defined in the configuration.
+              </Typography>
+
+              <Stack spacing={4}>
+                {template.sections && template.sections.length > 0 ? (
+                  template.sections.map((section, sIndex) => {
+                    // Collect mappable keys for this section
+                    const keys = new Set<string>();
+
+                    // Type A: AI-Generated Section (Uses Section Name + Effort)
+                    if (section.type === 'AI-Generated' && section.effort && section.effort.length > 0) {
+                      section.effort.forEach(e => keys.add(`${section.sectionName} - ${e}`));
+                    }
+                    // Type B: Standard Section (Item Name + Effort)
+                    else if (section.items && section.items.length > 0) {
+                      section.items.forEach(item => {
+                        (item.effort || []).forEach(e => keys.add(`${item.itemName} - ${e}`));
+                      });
+                    }
+                    // Type C: Fallback Section level effort (if no items)
+                    else if (section.effort && section.effort.length > 0) {
+                      section.effort.forEach(e => keys.add(`${section.sectionName} - ${e}`));
+                    }
+
+                    if (keys.size === 0) return null;
+
+                    return (
+                      <Box key={sIndex} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
+                        <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                          {section.sectionName}
+                        </Typography>
+                        <Stack spacing={2}>
+                          {Array.from(keys).map((key) => (
+                            <Stack key={key} direction="row" alignItems="center" spacing={2} sx={{ pb: 2, borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
+                              <Typography sx={{ width: 350, fontWeight: 500, fontSize: '0.9rem' }}>{key}</Typography>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Mapped Role(s)</InputLabel>
+                                <Select
+                                  label="Mapped Role(s)"
+                                  multiple
+                                  value={(template.effortRoleMapping?.[key] || '').split(',').filter(Boolean)}
+                                  onChange={(e: SelectChangeEvent<string[]>) => {
+                                    const val = e.target.value;
+                                    const newValue = typeof val === 'string' ? val : val.join(',');
+
+                                    updateTemplate(prev => ({
+                                      ...prev,
+                                      effortRoleMapping: {
+                                        ...(prev.effortRoleMapping || {}),
+                                        [key]: newValue
+                                      }
+                                    }));
+                                  }}
+                                  renderValue={(selected) => (
+                                    <Stack direction="row" gap={0.5} flexWrap="wrap">
+                                      {selected.map((value) => (
+                                        <Chip key={value} label={value} size="small" />
+                                      ))}
+                                    </Stack>
+                                  )}
+                                >
+                                  {availableRoles.map(r => (
+                                    <MenuItem key={r} value={r}>{r}</MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            </Stack>
+                          ))}
+                        </Stack>
                       </Box>
                     );
-                  })}
-                </Stack>
-              )}
-            </Stack>
-          </Paper>
+                  })
+                ) : (
+                  <Typography color="text.secondary">No sections defined.</Typography>
+                )}
+              </Stack>
 
-          {error && <Alert severity="error">{error}</Alert>}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', pt: 4 }}>
+                <Button variant="outlined" onClick={handleBack}>
+                  Back
+                </Button>
+              </Box>
+            </Paper>
+          )}
         </Stack>
-      )}
-    </Box>
+      )
+      }
+    </Box >
   );
 }
-

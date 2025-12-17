@@ -234,50 +234,52 @@ public class PresalesConfigurationStore
             }
 
             const string insertRoleSql = "INSERT INTO presales_roles (role_name, expected_level, cost_per_day) VALUES (@name, @level, @cost)";
+            var uniqueRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var role in configuration.Roles)
             {
-                if (string.IsNullOrWhiteSpace(role?.RoleName))
+                if (role == null) continue;
+                var roleName = role.RoleName?.Trim();
+                if (string.IsNullOrWhiteSpace(roleName) || !uniqueRoles.Add(roleName))
                 {
                     continue;
                 }
 
                 await using var cmd = new NpgsqlCommand(insertRoleSql, conn, tx);
-                cmd.Parameters.AddWithValue("name", role.RoleName.Trim());
+                cmd.Parameters.AddWithValue("name", roleName);
                 cmd.Parameters.AddWithValue("level", role.ExpectedLevel?.Trim() ?? string.Empty);
                 cmd.Parameters.AddWithValue("cost", NpgsqlDbType.Numeric, role.CostPerDay);
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
             const string insertActivitySql = "INSERT INTO presales_activities (activity_name, display_order) VALUES (@name, @order)";
+            var uniqueActivities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var activity in configuration.Activities)
             {
-                if (string.IsNullOrWhiteSpace(activity?.ActivityName))
+                if (activity == null) continue;
+                var activityName = activity.ActivityName?.Trim();
+                if (string.IsNullOrWhiteSpace(activityName) || !uniqueActivities.Add(activityName))
                 {
                     continue;
                 }
 
                 await using var cmd = new NpgsqlCommand(insertActivitySql, conn, tx);
-                cmd.Parameters.AddWithValue("name", activity.ActivityName.Trim());
+                cmd.Parameters.AddWithValue("name", activityName);
                 cmd.Parameters.AddWithValue("order", activity.DisplayOrder);
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
             const string insertItemActivitySql = "INSERT INTO presales_item_activities (section_name, item_name, activity_name, display_order) VALUES (@section, @item, @activity, @order)";
+            var uniqueItemActivities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var mapping in configuration.ItemActivities)
             {
-                if (mapping == null)
-                {
-                    continue;
-                }
-
+                if (mapping == null) continue;
                 var sectionName = mapping.SectionName?.Trim() ?? string.Empty;
                 var itemName = mapping.ItemName?.Trim() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(sectionName) && string.IsNullOrWhiteSpace(itemName))
-                {
-                    continue;
-                }
+                var key = $"{sectionName}::{itemName}";
 
-                if (string.IsNullOrWhiteSpace(mapping.ActivityName))
+                if ((string.IsNullOrWhiteSpace(sectionName) && string.IsNullOrWhiteSpace(itemName)) || 
+                    string.IsNullOrWhiteSpace(mapping.ActivityName) || 
+                    !uniqueItemActivities.Add(key))
                 {
                     continue;
                 }
@@ -291,16 +293,22 @@ public class PresalesConfigurationStore
             }
 
             const string insertColumnRoleSql = "INSERT INTO presales_estimation_column_roles (estimation_column, role_name) VALUES (@column, @role)";
+            var uniqueColumnRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var mapping in configuration.EstimationColumnRoles)
             {
-                if (string.IsNullOrWhiteSpace(mapping?.EstimationColumn) || string.IsNullOrWhiteSpace(mapping.RoleName))
+                if (mapping == null) continue;
+                var col = mapping.EstimationColumn?.Trim();
+                var roleName = mapping.RoleName?.Trim();
+                var key = $"{col}::{roleName}";
+
+                if (string.IsNullOrWhiteSpace(col) || string.IsNullOrWhiteSpace(roleName) || !uniqueColumnRoles.Add(key))
                 {
                     continue;
                 }
 
                 await using var cmd = new NpgsqlCommand(insertColumnRoleSql, conn, tx);
-                cmd.Parameters.AddWithValue("column", mapping.EstimationColumn.Trim());
-                cmd.Parameters.AddWithValue("role", mapping.RoleName.Trim());
+                cmd.Parameters.AddWithValue("column", col);
+                cmd.Parameters.AddWithValue("role", roleName);
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 

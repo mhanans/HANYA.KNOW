@@ -184,84 +184,263 @@ public class CostEstimationService
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("Estimation");
 
-        sheet.Cell("A1").Value = "Project";
-        sheet.Cell("B1").Value = result.ProjectName;
-        sheet.Cell("A2").Value = "Template";
-        sheet.Cell("B2").Value = result.TemplateName;
+        // Styling Constants
+        var headerColor = XLColor.FromHtml("#1F4E78"); // Dark Blue
+        var whiteColor = XLColor.White;
 
-        sheet.Cell("A4").Value = "Role";
-        sheet.Cell("B4").Value = "Resources";
-        sheet.Cell("C4").Value = "Salary (IDR)";
-        sheet.Cell("D4").Value = "Best Case (mo)";
-        sheet.Cell("E4").Value = "Worst Case (mo)";
-        sheet.Cell("F4").Value = "Total";
+        var currencyFormat = "#,##0";
+        var decimalFormat = "#,##0.00";
+        var percentFormat = "0.00%";
 
-        var row = 5;
+        // Helper to create headers
+        void CreateHeader(IXLRange range)
+        {
+            range.Style.Font.Bold = true;
+            range.Style.Font.FontColor = whiteColor;
+            range.Style.Fill.BackgroundColor = headerColor;
+            range.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        }
+
+        void ApplyTitleStyle(IXLCell cell)
+        {
+            cell.Style.Font.FontSize = 14;
+            cell.Style.Font.Bold = true;
+        }
+
+        void AddBorder(IXLRange range)
+        {
+            range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+
+        // Project Info
+        sheet.Cell("A1").Value = "PROJECT COST ESTIMATION";
+        sheet.Range("A1:F1").Merge().Style.Font.FontSize = 16;
+        sheet.Range("A1:F1").Style.Font.Bold = true;
+        sheet.Range("A1:F1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        sheet.Cell("A3").Value = "Project Name";
+        sheet.Cell("B3").Value = result.ProjectName;
+        sheet.Cell("A4").Value = "Template";
+        sheet.Cell("B4").Value = result.TemplateName;
+        sheet.Cell("A5").Value = "Date";
+        sheet.Cell("B5").Value = DateTime.Now.ToString("dd MMM yyyy");
+        sheet.Range("A3:A5").Style.Font.Bold = true;
+
+        int row = 8;
+
+        // 1. Role Costs Table
+        sheet.Cell(row, 1).Value = "1. ROLE COST BREAKDOWN";
+        ApplyTitleStyle(sheet.Cell(row, 1));
+        row++;
+
+        var roleHeaderRow = row;
+        sheet.Cell(row, 1).Value = "Role";
+        sheet.Cell(row, 2).Value = "Resources";
+        sheet.Cell(row, 3).Value = "Monthly Salary (IDR)";
+        sheet.Cell(row, 4).Value = "Best Case (Mo)";
+        sheet.Cell(row, 5).Value = "Worst Case (Mo)";
+        sheet.Cell(row, 6).Value = "Total Cost (IDR)";
+        CreateHeader(sheet.Range(row, 1, row, 6));
+        row++;
+
         foreach (var rc in result.RoleCosts)
         {
             sheet.Cell(row, 1).Value = rc.Role;
             sheet.Cell(row, 2).Value = rc.Resources;
             sheet.Cell(row, 3).Value = rc.MonthlySalary;
+            sheet.Cell(row, 3).Style.NumberFormat.Format = currencyFormat;
             sheet.Cell(row, 4).Value = rc.BestCaseMonths;
             sheet.Cell(row, 5).FormulaA1 = $"=D{row}*(1+{result.Inputs.WorstCaseBufferPercent}/100)";
             sheet.Cell(row, 6).FormulaA1 = $"=B{row}*C{row}*E{row}";
+            sheet.Cell(row, 6).Style.NumberFormat.Format = currencyFormat;
             row++;
         }
 
         sheet.Cell(row, 5).Value = "Total Salaries";
-        sheet.Cell(row, 6).FormulaA1 = $"=SUM(F5:F{row - 1})";
-        row += 2;
+        sheet.Cell(row, 5).Style.Font.Bold = true;
+        sheet.Cell(row, 6).FormulaA1 = $"=SUM(F{roleHeaderRow + 1}:F{row - 1})";
+        sheet.Cell(row, 6).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 6).Style.Font.Bold = true;
+        
+        AddBorder(sheet.Range(roleHeaderRow, 1, row, 6));
+        row += 3;
 
-        var warrantyStart = row;
-        sheet.Cell(row, 1).Value = "Warranty";
-        sheet.Cell(row + 1, 1).Value = "Analyst Resources";
-        sheet.Cell(row + 1, 2).Value = inputs.WarrantyAnalystResources;
-        sheet.Cell(row + 2, 1).Value = "Developer Resources";
-        sheet.Cell(row + 2, 2).Value = inputs.WarrantyDeveloperResources;
-        sheet.Cell(row + 3, 1).Value = "Duration (months)";
-        sheet.Cell(row + 3, 2).Value = inputs.WarrantyDurationMonths;
-        sheet.Cell(row + 4, 1).Value = "Total Warranty";
-        var analystSalaryValue = result.Warranty.AnalystMonthlySalary.ToString(CultureInfo.InvariantCulture);
-        var developerSalaryValue = result.Warranty.DeveloperMonthlySalary.ToString(CultureInfo.InvariantCulture);
-        sheet.Cell(row + 4, 2).FormulaA1 = $"=B{row + 1}*B{row + 3}*{analystSalaryValue}+B{row + 2}*B{row + 3}*{developerSalaryValue}";
+        // 2. Warranty
+        sheet.Cell(row, 1).Value = "2. WARRANTY SUPPORT";
+        ApplyTitleStyle(sheet.Cell(row, 1));
+        row++;
 
-        row += 6;
+        var warrantyHeaderRow = row;
+        sheet.Cell(row, 1).Value = "Item";
+        sheet.Cell(row, 2).Value = "Count / Months";
+        sheet.Cell(row, 3).Value = "Rate / Salary (IDR)";
+        sheet.Cell(row, 4).Value = "Subtotal (IDR)";
+        CreateHeader(sheet.Range(row, 1, row, 4));
+        row++;
 
-        sheet.Cell(row, 1).Value = "Revenue";
-        sheet.Cell(row + 1, 1).Value = "Role";
-        sheet.Cell(row + 1, 2).Value = "Mandays";
-        sheet.Cell(row + 1, 3).Value = "Rate";
-        sheet.Cell(row + 1, 4).Value = "Mandays Price";
-        var revenueRow = row + 2;
+        // Analyst
+        sheet.Cell(row, 1).Value = "Analyst Support";
+        sheet.Cell(row, 2).Value = inputs.WarrantyAnalystResources;
+        sheet.Cell(row, 3).Value = result.Warranty.AnalystMonthlySalary;
+        sheet.Cell(row, 3).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 4).FormulaA1 = $"=B{row}*C{row}*{inputs.WarrantyDurationMonths}";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        row++;
+
+        // Developer
+        sheet.Cell(row, 1).Value = "Developer Support";
+        sheet.Cell(row, 2).Value = inputs.WarrantyDeveloperResources;
+        sheet.Cell(row, 3).Value = result.Warranty.DeveloperMonthlySalary;
+        sheet.Cell(row, 3).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 4).FormulaA1 = $"=B{row}*C{row}*{inputs.WarrantyDurationMonths}";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        row++;
+
+        sheet.Cell(row, 1).Value = "Duration (Months)";
+        sheet.Cell(row, 2).Value = inputs.WarrantyDurationMonths;
+        row++;
+
+        sheet.Cell(row, 3).Value = "Total Warranty";
+        sheet.Cell(row, 3).Style.Font.Bold = true;
+        sheet.Cell(row, 4).FormulaA1 = $"=D{row - 3}+D{row - 2}";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 4).Style.Font.Bold = true;
+
+        AddBorder(sheet.Range(warrantyHeaderRow, 1, row, 4));
+        row += 3;
+
+
+        // 3. Components Summary
+        sheet.Cell(row, 1).Value = "3. COST COMPONENTS";
+        ApplyTitleStyle(sheet.Cell(row, 1));
+        row++;
+
+        var compHeaderRow = row;
+        sheet.Cell(row, 1).Value = "Component";
+        sheet.Cell(row, 2).Value = "Cost (IDR)";
+        CreateHeader(sheet.Range(row, 1, row, 2));
+        row++;
+
+        var components = result.Components;
+        AddRow(sheet, ref row, "Financing Cost", components.FinancingCost, currencyFormat);
+        AddRow(sheet, ref row, "Overhead Cost", components.OverheadCost, currencyFormat);
+        AddRow(sheet, ref row, "Operational Cost", components.OperationalCost, currencyFormat);
+        AddRow(sheet, ref row, "External Commission", components.ExternalCommission, currencyFormat);
+        AddRow(sheet, ref row, "PPH", components.PphCost, currencyFormat);
+        AddRow(sheet, ref row, "Sales Commission", components.SalesCommission, currencyFormat);
+        AddRow(sheet, ref row, "Cost Commission", components.CostCommission, currencyFormat);
+
+        AddBorder(sheet.Range(compHeaderRow, 1, row - 1, 2));
+        row += 3;
+
+
+        // 4. Revenue & Commercial
+        sheet.Cell(row, 1).Value = "4. REVENUE & COMMERCIAL";
+        ApplyTitleStyle(sheet.Cell(row, 1));
+        row++;
+
+        var revHeaderRow = row;
+        sheet.Cell(row, 1).Value = "Role";
+        sheet.Cell(row, 2).Value = "Man Days";
+        sheet.Cell(row, 3).Value = "Rate (IDR)";
+        sheet.Cell(row, 4).Value = "Total Price (IDR)";
+        CreateHeader(sheet.Range(row, 1, row, 4));
+        row++;
+
+        var revDataStart = row;
         foreach (var rev in result.Revenue.Rows)
         {
-            sheet.Cell(revenueRow, 1).Value = rev.Role;
-            sheet.Cell(revenueRow, 2).Value = rev.ManDays;
-            sheet.Cell(revenueRow, 3).Value = rev.RatePerDay;
-            sheet.Cell(revenueRow, 4).FormulaA1 = $"=B{revenueRow}*C{revenueRow}";
-            revenueRow++;
+            sheet.Cell(row, 1).Value = rev.Role;
+            sheet.Cell(row, 2).Value = rev.ManDays;
+            sheet.Cell(row, 2).Style.NumberFormat.Format = decimalFormat;
+            sheet.Cell(row, 3).Value = rev.RatePerDay;
+            sheet.Cell(row, 3).Style.NumberFormat.Format = currencyFormat;
+            sheet.Cell(row, 4).FormulaA1 = $"=B{row}*C{row}";
+            sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+            row++;
         }
 
-        sheet.Cell(revenueRow, 3).Value = "Nilai Project";
-        sheet.Cell(revenueRow, 4).FormulaA1 = $"=SUM(D{row + 2}:D{revenueRow - 1})";
-        sheet.Cell(revenueRow + 1, 3).Value = "Multiplier";
-        sheet.Cell(revenueRow + 1, 4).Value = inputs.Multiplier;
-        sheet.Cell(revenueRow + 2, 3).Value = "Price after Multiplier";
-        sheet.Cell(revenueRow + 2, 4).FormulaA1 = $"=D{revenueRow}*D{revenueRow + 1}";
-        sheet.Cell(revenueRow + 3, 3).Value = "Discount %";
-        sheet.Cell(revenueRow + 3, 4).Value = inputs.DiscountPercent / 100m;
-        sheet.Cell(revenueRow + 4, 3).Value = "Discount Amount";
-        sheet.Cell(revenueRow + 4, 4).FormulaA1 = $"=D{revenueRow + 2}*D{revenueRow + 3}";
-        sheet.Cell(revenueRow + 5, 3).Value = "Price after Discount";
-        sheet.Cell(revenueRow + 5, 4).FormulaA1 = $"=D{revenueRow + 2}-D{revenueRow + 4}";
+        sheet.Cell(row, 3).Value = "Project Value (Gross)";
+        sheet.Cell(row, 3).Style.Font.Bold = true;
+        sheet.Cell(row, 4).FormulaA1 = $"=SUM(D{revDataStart}:D{row - 1})";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 4).Style.Font.Bold = true;
+        row++;
 
-        sheet.Columns().AdjustToContents(8d, 80d);
-        sheet.Range("A4:F4").Style.Font.Bold = true;
-        sheet.Range(warrantyStart, 1, warrantyStart, 2).Style.Font.Bold = true;
+        sheet.Cell(row, 3).Value = "Multiplier";
+        sheet.Cell(row, 4).Value = inputs.Multiplier;
+        sheet.Cell(row, 4).Style.NumberFormat.Format = "0.00";
+        row++;
+
+        sheet.Cell(row, 3).Value = "Price Before Discount";
+        sheet.Cell(row, 3).Style.Font.Bold = true;
+        sheet.Cell(row, 4).FormulaA1 = $"=D{row - 2}*D{row - 1}";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 4).Style.Font.Bold = true;
+        var pamRow = row;
+        row++;
+
+        sheet.Cell(row, 3).Value = "Discount";
+        sheet.Cell(row, 4).Value = inputs.DiscountPercent / 100m;
+        sheet.Cell(row, 4).Style.NumberFormat.Format = percentFormat;
+        row++;
+
+        sheet.Cell(row, 3).Value = "Discount Amount";
+        sheet.Cell(row, 4).FormulaA1 = $"=D{pamRow}*D{row - 1}";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        row++;
+
+        sheet.Cell(row, 3).Value = "Net Price";
+        sheet.Cell(row, 3).Style.Font.Bold = true;
+        sheet.Cell(row, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#E2EFDA"); // Light Green
+        sheet.Cell(row, 4).FormulaA1 = $"=D{pamRow}-D{row - 1}";
+        sheet.Cell(row, 4).Style.NumberFormat.Format = currencyFormat;
+        sheet.Cell(row, 4).Style.Font.Bold = true;
+        sheet.Cell(row, 4).Style.Fill.BackgroundColor = XLColor.FromHtml("#E2EFDA"); // Light Green
+
+        AddBorder(sheet.Range(revHeaderRow, 1, row, 4));
+        row += 3;
+
+        // 5. Profitability
+        sheet.Cell(row, 1).Value = "5. PROFITABILITY ANALYSIS";
+        ApplyTitleStyle(sheet.Cell(row, 1));
+        row++;
+
+        var profitHeaderRow = row;
+        sheet.Cell(row, 1).Value = "Metric";
+        sheet.Cell(row, 2).Value = "Value";
+        CreateHeader(sheet.Range(row, 1, row, 2));
+        row++;
+
+        AddRow(sheet, ref row, "Total Cost", result.Profitability.TotalCost, currencyFormat);
+        AddRow(sheet, ref row, "Profit Amount", result.Profitability.ProfitAmount, currencyFormat);
+
+        sheet.Cell(row, 1).Value = "Profit Margin";
+        sheet.Cell(row, 2).Value = result.Profitability.ProfitPercent / 100m;
+        sheet.Cell(row, 2).Style.NumberFormat.Format = percentFormat;
+        sheet.Cell(row, 2).Style.Font.Bold = true;
+        
+        AddBorder(sheet.Range(profitHeaderRow, 1, row, 2));
+
+        // Layout Adjustments
+        sheet.Column(1).Width = 35;
+        sheet.Column(2).Width = 18;
+        sheet.Column(3).Width = 22;
+        sheet.Column(4).Width = 22;
+        sheet.Column(5).Width = 22;
+        sheet.Column(6).Width = 25;
 
         using var stream = new System.IO.MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private static void AddRow(IXLWorksheet sheet, ref int row, string label, decimal value, string format)
+    {
+        sheet.Cell(row, 1).Value = label;
+        sheet.Cell(row, 2).Value = value;
+        sheet.Cell(row, 2).Style.NumberFormat.Format = format;
+        row++;
     }
 
     public CostEstimationResult Calculate(TimelineRecord timeline, CostEstimationConfiguration configuration, CostEstimationInputs inputs)

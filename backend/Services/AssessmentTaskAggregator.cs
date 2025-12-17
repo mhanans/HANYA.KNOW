@@ -293,7 +293,7 @@ public static class AssessmentTaskAggregator
         return tasks;
     }
 
-    public static string ResolveActivityName(string sectionName, string itemName, string columnName, PresalesConfiguration configuration)
+    public static string ResolveActivityName(string sectionName, string itemName, string columnName, PresalesConfiguration? configuration)
     {
         var mappings = configuration?.ItemActivities ?? new List<ItemActivityMapping>();
         var mapping = mappings.FirstOrDefault(m =>
