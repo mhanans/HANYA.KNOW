@@ -24,7 +24,10 @@ public class CostEstimationConfigurationStore
     public async Task<CostEstimationConfiguration> GetAsync(CancellationToken cancellationToken)
     {
         var config = await TryReadAsync(cancellationToken).ConfigureAwait(false);
-        return config ?? CreateDefaultConfiguration();
+        config ??= CreateDefaultConfiguration();
+
+        await EnrichFromTableAsync(config, cancellationToken).ConfigureAwait(false);
+        return config;
     }
 
     public async Task<CostEstimationConfiguration> SaveAsync(CostEstimationConfiguration configuration, CancellationToken cancellationToken)
@@ -70,6 +73,54 @@ public class CostEstimationConfigurationStore
         {
             _logger.LogError(ex, "Failed to deserialize cost estimation configuration stored in settings table.");
             return null;
+        }
+    }
+
+    private async Task EnrichFromTableAsync(CostEstimationConfiguration config, CancellationToken cancellationToken)
+    {
+        const string sql = "SELECT role_name, expected_level, monthly_salary, rate_per_day FROM presales_roles";
+        try
+        {
+            await using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (config.RateCards == null) config.RateCards = new Dictionary<string, RateCardDefinition>(StringComparer.OrdinalIgnoreCase);
+            var defaultKey = config.DefaultRateCardKey ?? "default";
+            if (!config.RateCards.ContainsKey(defaultKey))
+            {
+                config.RateCards[defaultKey] = new RateCardDefinition { DisplayName = "Default" };
+            }
+            var rateCard = config.RateCards[defaultKey];
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var roleName = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+                var level = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                var salary = reader.IsDBNull(2) ? 0m : reader.GetFieldValue<decimal>(2);
+                var rate = reader.IsDBNull(3) ? 0m : reader.GetFieldValue<decimal>(3);
+
+                if (string.IsNullOrWhiteSpace(roleName)) continue;
+
+                // Construct label matching PresalesRoleFormatter logic
+                var label = !string.IsNullOrWhiteSpace(level) ? $"{roleName} – {level}" : roleName;
+
+                if (salary > 0)
+                {
+                    config.RoleMonthlySalaries[label] = salary;
+                    if (!string.IsNullOrWhiteSpace(roleName)) config.RoleMonthlySalaries[roleName] = salary;
+                }
+                if (rate > 0)
+                {
+                    rateCard.RoleRates[label] = rate;
+                    if (!string.IsNullOrWhiteSpace(roleName)) rateCard.RoleRates[roleName] = rate;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enrich cost configuration from presales_roles table.");
         }
     }
 

@@ -55,31 +55,6 @@ interface TeamTypeForm {
   clientKey?: string;
 }
 
-interface TimelineEstimatorReferenceResponse {
-  id: number;
-  projectScale: string;
-  totalDurationDays: number;
-  phaseDurations: Record<string, number>;
-  resourceAllocation: Record<string, number>;
-}
-
-interface TimelineEstimatorReference extends TimelineEstimatorReferenceResponse {
-  phaseDurationsText: string;
-  resourceAllocationText: string;
-}
-
-interface TimelineEstimatorReferenceDraft {
-  projectScale: string;
-  totalDurationDays: number;
-  phaseDurationsText: string;
-  resourceAllocationText: string;
-}
-
-const transformReferenceResponse = (item: TimelineEstimatorReferenceResponse): TimelineEstimatorReference => ({
-  ...item,
-  phaseDurationsText: stringifyObject(item.phaseDurations ?? {}),
-  resourceAllocationText: stringifyObject(item.resourceAllocation ?? {}),
-});
 
 interface PresalesConfiguration {
   roles: PresalesRole[];
@@ -91,55 +66,7 @@ const emptyConfig: PresalesConfiguration = {
   teamTypes: [],
 };
 
-const createClientKey = () => Math.random().toString(36).slice(2, 11);
-
-const stringifyObject = (value: Record<string, number>) => JSON.stringify(value, null, 2);
-
-const createReferenceDraft = (): TimelineEstimatorReferenceDraft => ({
-  projectScale: 'Medium',
-  totalDurationDays: 30,
-  phaseDurationsText: stringifyObject({ Discovery: 5, Execution: 20, Stabilization: 5 }),
-  resourceAllocationText: stringifyObject({ 'Delivery Lead': 1, 'Solution Architect': 1, 'Engineer': 4 }),
-});
-
-const parseNumericObject = (
-  text: string,
-  { allowFloat, label }: { allowFloat: boolean; label: string }
-): Record<string, number> => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(`${label} must be a valid JSON object.`);
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${label} must be a JSON object.`);
-  }
-
-  const result: Record<string, number> = {};
-  for (const [key, rawValue] of Object.entries(parsed)) {
-    const trimmedKey = key.trim();
-    if (!trimmedKey) {
-      throw new Error(`${label} cannot contain empty keys.`);
-    }
-    const numberValue = Number(rawValue);
-    if (!Number.isFinite(numberValue) || numberValue <= 0) {
-      throw new Error(`${label} must contain positive numbers. Invalid value for "${trimmedKey}".`);
-    }
-    if (!allowFloat && !Number.isInteger(numberValue)) {
-      throw new Error(`${label} must use whole numbers. "${trimmedKey}" has a non-integer value.`);
-    }
-    result[trimmedKey] = allowFloat ? numberValue : Math.round(numberValue);
-  }
-
-  if (Object.keys(result).length === 0) {
-    throw new Error(`${label} must contain at least one entry.`);
-  }
-
-  return result;
-};
-
+const createClientKey = () => Math.random().toString(36).substring(2, 10);
 
 
 const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfiguration => {
@@ -147,6 +74,8 @@ const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfigurat
     roleName: typeof role.roleName === 'string' ? role.roleName.trim() : '',
     expectedLevel: typeof role.expectedLevel === 'string' ? role.expectedLevel.trim() : '',
     costPerDay: Number.isFinite(role.costPerDay) ? role.costPerDay : 0,
+    monthlySalary: Number.isFinite(role.monthlySalary) ? role.monthlySalary : 0,
+    ratePerDay: Number.isFinite(role.ratePerDay) ? role.ratePerDay : 0,
   }));
 
   return {
@@ -156,36 +85,16 @@ const buildPresalesPayload = (config: PresalesConfiguration): PresalesConfigurat
 };
 
 const transformPresalesResponse = (
-  presalesData: any,
-  normalizedCost: CostEstimationConfiguration | null
+  presalesData: any
 ): PresalesConfiguration => {
-  const activeRateCardKey = resolveDefaultRateCardKey(normalizedCost ?? null);
-  const activeRateCard = normalizedCost?.rateCards?.[activeRateCardKey];
-
   const rolesSource = Array.isArray(presalesData?.roles) ? presalesData.roles : [];
   const roles = rolesSource.map((role: Partial<PresalesRole>) => {
-    const baseRole: PresalesRole = {
+    return {
       roleName: typeof role.roleName === 'string' ? role.roleName : '',
       expectedLevel: typeof role.expectedLevel === 'string' ? role.expectedLevel : '',
-      costPerDay:
-        typeof role.costPerDay === 'number' && Number.isFinite(role.costPerDay) ? role.costPerDay : 0,
-      monthlySalary: role.monthlySalary,
-      ratePerDay: role.ratePerDay,
-    };
-    const label = buildRoleLabelFromRole(baseRole);
-    const costKeys = enumerateCostKeysForRole(baseRole);
-    const monthlySalary =
-      label && normalizedCost
-        ? findFirstDefinedValue(costKeys, normalizedCost.roleMonthlySalaries) ?? baseRole.monthlySalary ?? 0
-        : baseRole.monthlySalary ?? 0;
-    const ratePerDay =
-      label && activeRateCard
-        ? findFirstDefinedValue(costKeys, activeRateCard.roleRates) ?? baseRole.ratePerDay ?? 0
-        : baseRole.ratePerDay ?? 0;
-    return {
-      ...baseRole,
-      monthlySalary,
-      ratePerDay,
+      costPerDay: typeof role.costPerDay === 'number' && Number.isFinite(role.costPerDay) ? role.costPerDay : 0,
+      monthlySalary: typeof role.monthlySalary === 'number' && Number.isFinite(role.monthlySalary) ? role.monthlySalary : 0,
+      ratePerDay: typeof role.ratePerDay === 'number' && Number.isFinite(role.ratePerDay) ? role.ratePerDay : 0,
     };
   });
 
@@ -199,13 +108,11 @@ const transformPresalesResponse = (
 
 type TabKey =
   | 'roles'
-  | 'timelineTeamTypes'
-  | 'timelineReferences';
+  | 'timelineTeamTypes';
 
 const TAB_KEYS: TabKey[] = [
   'roles',
   'timelineTeamTypes',
-  'timelineReferences',
 ];
 
 const ROLE_LABEL_SEPARATOR = ' – ';
@@ -290,7 +197,6 @@ const prepareRateCard = (config: CostEstimationConfiguration, key: string) => {
 export default function PresalesConfigurationPage() {
   const router = useRouter();
   const [config, setConfig] = useState<PresalesConfiguration>(emptyConfig);
-  const [costConfig, setCostConfig] = useState<CostEstimationConfiguration | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabKey>('roles');
 
@@ -298,14 +204,6 @@ export default function PresalesConfigurationPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [timelineReferences, setTimelineReferences] = useState<TimelineEstimatorReference[]>([]);
-  const [timelineReferenceDraft, setTimelineReferenceDraft] = useState<TimelineEstimatorReferenceDraft>(
-    createReferenceDraft()
-  );
-  const [timelineReferencesLoading, setTimelineReferencesLoading] = useState(false);
-  const [timelineReferencesError, setTimelineReferencesError] = useState<string | null>(null);
-  const [timelineReferencesPermissionDenied, setTimelineReferencesPermissionDenied] = useState(false);
-  const [timelineReferenceSavingId, setTimelineReferenceSavingId] = useState<number | 'new' | null>(null);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -321,72 +219,19 @@ export default function PresalesConfigurationPage() {
 
 
 
-  const resetTimelineReferenceDraft = useCallback(() => {
-    setTimelineReferenceDraft(createReferenceDraft());
-  }, []);
 
-  const loadTimelineReferences = useCallback(async () => {
-    setTimelineReferencesLoading(true);
-    setTimelineReferencesError(null);
-    try {
-      const res = await apiFetch('/api/TimelineEstimationReferences');
-      if (res.status === 403 || res.status === 401) {
-        setTimelineReferences([]);
-        setTimelineReferencesPermissionDenied(true);
-        return;
-      }
-      if (!res.ok) {
-        throw new Error(`Failed to load timeline estimator references (${res.status})`);
-      }
-      const data = await res.json();
-      const items: TimelineEstimatorReferenceResponse[] = Array.isArray(data) ? data : [];
-      setTimelineReferences(items.map(transformReferenceResponse));
-      setTimelineReferencesPermissionDenied(false);
-    } catch (err) {
-      setTimelineReferencesError(
-        err instanceof Error ? err.message : 'Failed to load timeline estimator references'
-      );
-    } finally {
-      setTimelineReferencesLoading(false);
-    }
-  }, []);
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [presalesRes, costRes] = await Promise.all([
-        apiFetch('/api/presales/config'),
-        apiFetch('/api/cost-estimations/configuration'),
-      ]);
+      const presalesRes = await apiFetch('/api/presales/config');
       if (!presalesRes.ok) {
         throw new Error(`Failed to load configuration (${presalesRes.status})`);
       }
 
       const presalesData = await presalesRes.json();
-      let costData: CostEstimationConfiguration | null = null;
-      if (costRes.ok) {
-        try {
-          const json = await costRes.json();
-          costData = json ?? null;
-        } catch (err) {
-          console.warn('Failed to parse cost configuration', err);
-        }
-      }
-
-      let normalizedCost: CostEstimationConfiguration | null = null;
-      if (costData) {
-        const key = resolveDefaultRateCardKey(costData);
-        const { rateCards } = prepareRateCard(costData, key);
-        normalizedCost = {
-          ...costData,
-          defaultRateCardKey: key,
-          rateCards,
-          roleMonthlySalaries: { ...costData.roleMonthlySalaries },
-        };
-      }
-      setConfig(transformPresalesResponse(presalesData, normalizedCost));
-      setCostConfig(normalizedCost);
+      setConfig(transformPresalesResponse(presalesData));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load configuration');
     } finally {
@@ -400,9 +245,7 @@ export default function PresalesConfigurationPage() {
 
 
 
-  useEffect(() => {
-    loadTimelineReferences();
-  }, [loadTimelineReferences]);
+
 
   const handleTabChange = useCallback(
     (_: SyntheticEvent, newValue: string) => {
@@ -423,157 +266,7 @@ export default function PresalesConfigurationPage() {
 
 
 
-  const updateTimelineReferenceState = useCallback((id: number, patch: Partial<TimelineEstimatorReference>) => {
-    setTimelineReferences(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
-  }, []);
 
-  const handleCreateTimelineReference = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (timelineReferencesPermissionDenied) {
-        setTimelineReferencesError('You do not have permission to manage timeline estimator references.');
-        return;
-      }
-
-      const projectScale = timelineReferenceDraft.projectScale?.trim();
-      const totalDuration = Number(timelineReferenceDraft.totalDurationDays);
-      try {
-        if (!projectScale) {
-          throw new Error('Project scale is required.');
-        }
-        if (!Number.isFinite(totalDuration) || totalDuration <= 0) {
-          throw new Error('Total duration must be greater than zero.');
-        }
-        const phaseDurations = parseNumericObject(timelineReferenceDraft.phaseDurationsText, {
-          allowFloat: false,
-          label: 'Phase durations',
-        });
-        const resourceAllocation = parseNumericObject(timelineReferenceDraft.resourceAllocationText, {
-          allowFloat: true,
-          label: 'Resource allocation',
-        });
-
-        setTimelineReferenceSavingId('new');
-        setTimelineReferencesError(null);
-        const response = await apiFetch('/api/TimelineEstimationReferences', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectScale,
-            totalDurationDays: Math.round(totalDuration),
-            phaseDurations,
-            resourceAllocation,
-          }),
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || 'Failed to create timeline estimator reference.');
-        }
-        setSuccessMessage('Timeline estimator reference added.');
-        resetTimelineReferenceDraft();
-        await loadTimelineReferences();
-      } catch (err) {
-        setTimelineReferencesError(
-          err instanceof Error ? err.message : 'Failed to create timeline estimator reference.'
-        );
-      } finally {
-        setTimelineReferenceSavingId(null);
-      }
-    },
-    [
-      timelineReferenceDraft,
-      timelineReferencesPermissionDenied,
-      loadTimelineReferences,
-      resetTimelineReferenceDraft,
-    ]
-  );
-
-  const handleSaveTimelineReference = useCallback(
-    async (referenceId: number) => {
-      if (timelineReferencesPermissionDenied) {
-        setTimelineReferencesError('You do not have permission to manage timeline estimator references.');
-        return;
-      }
-      const target = timelineReferences.find(item => item.id === referenceId);
-      if (!target) {
-        return;
-      }
-
-      const projectScale = target.projectScale?.trim();
-      const totalDuration = Number(target.totalDurationDays);
-      try {
-        if (!projectScale) {
-          throw new Error('Project scale is required.');
-        }
-        if (!Number.isFinite(totalDuration) || totalDuration <= 0) {
-          throw new Error('Total duration must be greater than zero.');
-        }
-        const phaseDurations = parseNumericObject(target.phaseDurationsText, {
-          allowFloat: false,
-          label: 'Phase durations',
-        });
-        const resourceAllocation = parseNumericObject(target.resourceAllocationText, {
-          allowFloat: true,
-          label: 'Resource allocation',
-        });
-
-        setTimelineReferenceSavingId(referenceId);
-        setTimelineReferencesError(null);
-        const response = await apiFetch(`/api/TimelineEstimationReferences/${referenceId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectScale,
-            totalDurationDays: Math.round(totalDuration),
-            phaseDurations,
-            resourceAllocation,
-          }),
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || 'Failed to update timeline estimator reference.');
-        }
-        setSuccessMessage('Timeline estimator reference updated.');
-        await loadTimelineReferences();
-      } catch (err) {
-        setTimelineReferencesError(
-          err instanceof Error ? err.message : 'Failed to update timeline estimator reference.'
-        );
-      } finally {
-        setTimelineReferenceSavingId(null);
-      }
-    },
-    [timelineReferences, timelineReferencesPermissionDenied, loadTimelineReferences]
-  );
-
-  const handleDeleteTimelineReference = useCallback(
-    async (referenceId: number) => {
-      if (timelineReferencesPermissionDenied) {
-        setTimelineReferencesError('You do not have permission to manage timeline estimator references.');
-        return;
-      }
-      setTimelineReferenceSavingId(referenceId);
-      setTimelineReferencesError(null);
-      try {
-        const response = await apiFetch(`/api/TimelineEstimationReferences/${referenceId}`, {
-          method: 'DELETE',
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || 'Failed to delete timeline estimator reference.');
-        }
-        setSuccessMessage('Timeline estimator reference deleted.');
-        await loadTimelineReferences();
-      } catch (err) {
-        setTimelineReferencesError(
-          err instanceof Error ? err.message : 'Failed to delete timeline estimator reference.'
-        );
-      } finally {
-        setTimelineReferenceSavingId(null);
-      }
-    },
-    [timelineReferencesPermissionDenied, loadTimelineReferences]
-  );
 
 
 
@@ -600,41 +293,6 @@ export default function PresalesConfigurationPage() {
         }));
       }
 
-      if (key === 'roleName' || key === 'expectedLevel') {
-        const oldKeys = enumerateCostKeysForRole(previous);
-        const newLabel = buildRoleLabelFromRole(updated);
-        setCostConfig(current => {
-          if (!current) return current;
-          const roleMonthlySalaries = { ...current.roleMonthlySalaries };
-          const keyName = resolveDefaultRateCardKey(current);
-          const { rateCards, card } = prepareRateCard(current, keyName);
-          const roleRates = { ...card.roleRates };
-
-          const previousSalary = findFirstDefinedValue(oldKeys, roleMonthlySalaries);
-          const previousRate = findFirstDefinedValue(oldKeys, roleRates);
-
-          for (const candidate of oldKeys) {
-            if (candidate) {
-              delete roleMonthlySalaries[candidate];
-              delete roleRates[candidate];
-            }
-          }
-
-          if (newLabel) {
-            roleMonthlySalaries[newLabel] = previousSalary ?? updated.monthlySalary ?? 0;
-            const finalRate = previousRate ?? updated.ratePerDay ?? 0;
-            if (finalRate > 0) {
-              roleRates[newLabel] = finalRate;
-            } else {
-              delete roleRates[newLabel];
-            }
-          }
-
-          rateCards[keyName] = { ...card, roleRates };
-          return { ...current, roleMonthlySalaries, rateCards, defaultRateCardKey: keyName };
-        });
-      }
-
       return { ...prev, roles, teamTypes };
     });
   }, []);
@@ -648,24 +306,6 @@ export default function PresalesConfigurationPage() {
       const role = { ...roles[index] };
       role.monthlySalary = salary;
       roles[index] = role;
-      const label = buildRoleLabelFromRole(role);
-      if (label) {
-        const oldKeys = enumerateCostKeysForRole(role);
-        setCostConfig(current => {
-          if (!current) return current;
-          const roleMonthlySalaries = { ...current.roleMonthlySalaries };
-          for (const keyOption of oldKeys) {
-            if (keyOption && keyOption !== label) {
-              delete roleMonthlySalaries[keyOption];
-            }
-          }
-          roleMonthlySalaries[label] = salary;
-          return {
-            ...current,
-            roleMonthlySalaries,
-          };
-        });
-      }
       return { ...prev, roles };
     });
   }, []);
@@ -677,28 +317,6 @@ export default function PresalesConfigurationPage() {
       const role = { ...roles[index] };
       role.ratePerDay = rate;
       roles[index] = role;
-      const label = buildRoleLabelFromRole(role);
-      if (label) {
-        const oldKeys = enumerateCostKeysForRole(role);
-        setCostConfig(current => {
-          if (!current) return current;
-          const keyName = resolveDefaultRateCardKey(current);
-          const { rateCards, card } = prepareRateCard(current, keyName);
-          const roleRates = { ...card.roleRates };
-          for (const keyOption of oldKeys) {
-            if (keyOption && keyOption !== label) {
-              delete roleRates[keyOption];
-            }
-          }
-          if (rate > 0) {
-            roleRates[label] = rate;
-          } else {
-            delete roleRates[label];
-          }
-          rateCards[keyName] = { ...card, roleRates };
-          return { ...current, rateCards, defaultRateCardKey: keyName };
-        });
-      }
       return { ...prev, roles };
     });
   }, []);
@@ -795,34 +413,6 @@ export default function PresalesConfigurationPage() {
   const removeRole = (index: number) =>
     setConfig(prev => {
       const roles = prev.roles.filter((_, i) => i !== index);
-      const removed = prev.roles[index];
-      if (removed) {
-        const label = buildRoleLabelFromRole(removed);
-        const oldKeys = enumerateCostKeysForRole(removed);
-        setCostConfig(current => {
-          if (!current) return current;
-          const roleMonthlySalaries = { ...current.roleMonthlySalaries };
-          for (const keyOption of oldKeys) {
-            if (keyOption) {
-              delete roleMonthlySalaries[keyOption];
-            }
-          }
-          const keyName = resolveDefaultRateCardKey(current);
-          const { rateCards, card } = prepareRateCard(current, keyName);
-          const roleRates = { ...card.roleRates };
-          for (const keyOption of oldKeys) {
-            if (keyOption) {
-              delete roleRates[keyOption];
-            }
-          }
-          if (label) {
-            delete roleMonthlySalaries[label];
-            delete roleRates[label];
-          }
-          rateCards[keyName] = { ...card, roleRates };
-          return { ...current, roleMonthlySalaries, rateCards, defaultRateCardKey: keyName };
-        });
-      }
       return { ...prev, roles };
     });
 
@@ -846,42 +436,14 @@ export default function PresalesConfigurationPage() {
       }
       const presalesData = await presalesResponse.json();
 
-      let updatedCost = costConfig;
-      if (costConfig) {
-        const costResponse = await apiFetch('/api/cost-estimations/configuration', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(costConfig),
-        });
-        if (!costResponse.ok) {
-          const text = await costResponse.text();
-          throw new Error(text || 'Failed to save cost configuration');
-        }
-        const savedCost = await costResponse.json();
-        if (savedCost) {
-          const keyName = resolveDefaultRateCardKey(savedCost);
-          const { rateCards } = prepareRateCard(savedCost, keyName);
-          updatedCost = {
-            ...savedCost,
-            defaultRateCardKey: keyName,
-            rateCards,
-            roleMonthlySalaries: { ...savedCost.roleMonthlySalaries },
-          };
-          setCostConfig(updatedCost);
-        }
-      }
-
-      const activeRateCardKey = resolveDefaultRateCardKey(updatedCost);
-      const activeRateCard = updatedCost?.rateCards?.[activeRateCardKey];
-
-      setConfig(transformPresalesResponse(presalesData, updatedCost));
+      setConfig(transformPresalesResponse(presalesData));
       setSuccessMessage('Configuration saved successfully.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
     } finally {
       setSaving(false);
     }
-  }, [config, costConfig]);
+  }, [config]);
 
   const roleOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -898,7 +460,7 @@ export default function PresalesConfigurationPage() {
     }, []);
   }, [config.roles]);
 
-  const isCreatingReference = timelineReferenceSavingId === 'new';
+
 
 
 
@@ -942,7 +504,6 @@ export default function PresalesConfigurationPage() {
             >
               <Tab value="roles" label="Roles & Rates" />
               <Tab value="timelineTeamTypes" label="Estimator Team Types" />
-              <Tab value="timelineReferences" label="Timeline Estimator References" />
             </Tabs>
 
             {activeTab === 'roles' && (
@@ -1192,216 +753,7 @@ export default function PresalesConfigurationPage() {
 
 
 
-            {activeTab === 'timelineReferences' && (
-              <Stack spacing={3}>
-                <Stack spacing={1}>
-                  <Typography variant="h2" className="section-title">Timeline Estimator References</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Maintain the historical phase durations and resource allocations that the Timeline Estimator consults before
-                    it summarizes the Presales Workspace → Timeline Estimator → Timeline Generation → Estimated Cost Generation
-                    flow.
-                  </Typography>
-                </Stack>
 
-                {timelineReferencesPermissionDenied && (
-                  <Alert severity="warning">
-                    Your role does not currently have access to the timeline estimator reference catalog. Ask an administrator to
-                    grant the <code>timeline-estimation-references</code> permission if you need to manage these records.
-                  </Alert>
-                )}
-                {timelineReferencesError && <Alert severity="error">{timelineReferencesError}</Alert>}
-
-                <Box component="form" onSubmit={handleCreateTimelineReference}>
-                  <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-                    <Stack spacing={2}>
-                      <Typography variant="subtitle1">Add Reference</Typography>
-                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                        <TextField
-                          label="Project Scale"
-                          placeholder="e.g. Medium"
-                          fullWidth
-                          size="small"
-                          value={timelineReferenceDraft.projectScale}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            setTimelineReferenceDraft(prev => ({ ...prev, projectScale: event.target.value }))
-                          }
-                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
-                          required
-                        />
-                        <TextField
-                          label="Total Duration (days)"
-                          type="number"
-                          size="small"
-                          value={timelineReferenceDraft.totalDurationDays}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            setTimelineReferenceDraft(prev => ({
-                              ...prev,
-                              totalDurationDays: Number(event.target.value) || 0,
-                            }))
-                          }
-                          inputProps={{ min: 1 }}
-                          sx={{ width: { xs: '100%', md: 200 } }}
-                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
-                          required
-                        />
-                      </Stack>
-                      <TextField
-                        label="Phase Durations (JSON)"
-                        multiline
-                        minRows={4}
-                        value={timelineReferenceDraft.phaseDurationsText}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          setTimelineReferenceDraft(prev => ({ ...prev, phaseDurationsText: event.target.value }))
-                        }
-                        placeholder={'{\n  "Discovery": 5,\n  "Build": 20,\n  "Stabilization": 5\n}'}
-                        disabled={timelineReferencesPermissionDenied || isCreatingReference}
-                        required
-                      />
-                      <TextField
-                        label="Resource Allocation (JSON)"
-                        multiline
-                        minRows={4}
-                        value={timelineReferenceDraft.resourceAllocationText}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          setTimelineReferenceDraft(prev => ({ ...prev, resourceAllocationText: event.target.value }))
-                        }
-                        placeholder={'{\n  "Delivery Lead": 1,\n  "Engineer": 4\n}'}
-                        disabled={timelineReferencesPermissionDenied || isCreatingReference}
-                        required
-                      />
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Button
-                          type="button"
-                          variant="text"
-                          color="inherit"
-                          onClick={resetTimelineReferenceDraft}
-                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
-                        >
-                          Reset
-                        </Button>
-                        <Button
-                          type="submit"
-                          variant="contained"
-                          disabled={timelineReferencesPermissionDenied || isCreatingReference}
-                        >
-                          {isCreatingReference ? 'Saving…' : 'Add Reference'}
-                        </Button>
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                </Box>
-
-                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-                  <Stack spacing={2}>
-                    <Typography variant="subtitle1">Existing References</Typography>
-                    {timelineReferencesLoading ? (
-                      <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-                        <CircularProgress size={24} />
-                        <Typography variant="body2">Loading reference library…</Typography>
-                      </Stack>
-                    ) : timelineReferences.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">
-                        No timeline estimator references found.
-                      </Typography>
-                    ) : (
-                      <TableContainer>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Project Scale</TableCell>
-                              <TableCell width={160}>Total Duration (days)</TableCell>
-                              <TableCell>Phase Durations (JSON)</TableCell>
-                              <TableCell>Resource Allocation (JSON)</TableCell>
-                              <TableCell align="right">Actions</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {timelineReferences.map(reference => {
-                              const isSaving = timelineReferenceSavingId === reference.id;
-                              return (
-                                <TableRow key={reference.id} hover>
-                                  <TableCell>
-                                    <TextField
-                                      fullWidth
-                                      size="small"
-                                      value={reference.projectScale}
-                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                        updateTimelineReferenceState(reference.id, { projectScale: event.target.value })
-                                      }
-                                      disabled={timelineReferencesPermissionDenied || isSaving}
-                                    />
-                                  </TableCell>
-                                  <TableCell width={160}>
-                                    <TextField
-                                      type="number"
-                                      size="small"
-                                      value={reference.totalDurationDays}
-                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                        updateTimelineReferenceState(reference.id, {
-                                          totalDurationDays: Number(event.target.value) || 0,
-                                        })
-                                      }
-                                      inputProps={{ min: 1 }}
-                                      disabled={timelineReferencesPermissionDenied || isSaving}
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    <TextField
-                                      multiline
-                                      minRows={4}
-                                      value={reference.phaseDurationsText}
-                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                        updateTimelineReferenceState(reference.id, {
-                                          phaseDurationsText: event.target.value,
-                                        })
-                                      }
-                                      disabled={timelineReferencesPermissionDenied || isSaving}
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    <TextField
-                                      multiline
-                                      minRows={4}
-                                      value={reference.resourceAllocationText}
-                                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                        updateTimelineReferenceState(reference.id, {
-                                          resourceAllocationText: event.target.value,
-                                        })
-                                      }
-                                      disabled={timelineReferencesPermissionDenied || isSaving}
-                                    />
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                      <Button
-                                        size="small"
-                                        variant="contained"
-                                        onClick={() => handleSaveTimelineReference(reference.id)}
-                                        disabled={timelineReferencesPermissionDenied || isSaving}
-                                      >
-                                        {isSaving ? 'Saving…' : 'Save'}
-                                      </Button>
-                                      <Button
-                                        size="small"
-                                        color="error"
-                                        onClick={() => handleDeleteTimelineReference(reference.id)}
-                                        disabled={timelineReferencesPermissionDenied || isSaving}
-                                      >
-                                        {isSaving ? 'Removing…' : 'Delete'}
-                                      </Button>
-                                    </Stack>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    )}
-                  </Stack>
-                </Paper>
-              </Stack>
-            )}
           </Stack >
         )}
       </Paper >

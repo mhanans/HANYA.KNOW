@@ -127,4 +127,14 @@ public class TimelineStore
 
         return results;
     }
+
+    public async Task DeleteAsync(int assessmentId, CancellationToken cancellationToken)
+    {
+        const string sql = @"DELETE FROM assessment_timelines WHERE assessment_id=@id";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", assessmentId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

@@ -12,19 +12,27 @@ public static class TimelineExcelBuilder
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("Project Timeline");
 
-        const int leftPaneColumns = 4;
-        const int startColumn = leftPaneColumns + 1; // Column E
+        const int leftPaneColumns = 5; // Activity, Task, Actor, ManDays, Duration
+        const int startColumn = leftPaneColumns + 1; // Column F
         var totalDays = Math.Max(timeline.TotalDurationDays, 0);
 
         worksheet.Column(1).Width = 25;
         worksheet.Column(2).Width = 35;
         worksheet.Column(3).Width = 20;
-        worksheet.Column(4).Width = 12;
+        worksheet.Column(4).Width = 12; // Man-days
+        worksheet.Column(5).Width = 12; // Duration
 
         for (var i = 0; i < totalDays; i++)
         {
             worksheet.Column(startColumn + i).Width = 3;
         }
+
+        // ... (Skipping Header Logic, need to re-verify startColumn usages below) ...
+
+        // Adjust StartColumn logic here... wait, I need to replace the whole file? No, just chunks.
+        // But startColumn is a constant used everywhere. It's safer to duplicate some logic or replace the whole block carefully.
+        // Let's replace the top part first to redefine startColumn.
+
 
         var weeks = new List<(string Label, int Span)>();
         var remainingDays = totalDays;
@@ -110,10 +118,14 @@ public static class TimelineExcelBuilder
         worksheet.Cell(activityHeaderRow, 1).Value = "Activity";
         worksheet.Cell(activityHeaderRow, 2).Value = "Task";
         worksheet.Cell(activityHeaderRow, 3).Value = "Actor";
-        worksheet.Cell(activityHeaderRow, 4).Value = "Duration (days)";
-        worksheet.Range(activityHeaderRow, 1, activityHeaderRow, leftPaneColumns).Style.Font.SetBold();
-        worksheet.Range(activityHeaderRow, 1, activityHeaderRow, leftPaneColumns).Style.Fill.SetBackgroundColor(XLColor.FromHtml("#BDD7EE"));
-        worksheet.Range(activityHeaderRow, 1, activityHeaderRow, leftPaneColumns).Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+        worksheet.Cell(activityHeaderRow, 4).Value = "Man-days";
+        worksheet.Cell(activityHeaderRow, 5).Value = "Duration (days)";
+        
+        var headerRange = worksheet.Range(activityHeaderRow, 1, activityHeaderRow, leftPaneColumns);
+        headerRange.Style.Font.SetBold();
+        headerRange.Style.Fill.SetBackgroundColor(XLColor.FromHtml("#BDD7EE"));
+        headerRange.Style.Border.SetInsideBorder(XLBorderStyleValues.Thin);
+        headerRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
 
         var currentRow = activityHeaderRow + 1;
         foreach (var activity in timeline.Activities ?? new List<TimelineActivity>())
@@ -124,10 +136,16 @@ public static class TimelineExcelBuilder
                 worksheet.Cell(currentRow, 1).Value = activity.ActivityName;
                 worksheet.Cell(currentRow, 2).Value = detail.TaskName;
                 worksheet.Cell(currentRow, 3).Value = detail.Actor;
-                worksheet.Cell(currentRow, 4).Value = detail.DurationDays;
+                
+                worksheet.Cell(currentRow, 4).Value = detail.ManDays;
+                worksheet.Cell(currentRow, 4).Style.NumberFormat.Format = "0.##";
                 worksheet.Cell(currentRow, 4).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
 
+                worksheet.Cell(currentRow, 5).Value = detail.DurationDays;
+                worksheet.Cell(currentRow, 5).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
                 var detailRange = worksheet.Range(currentRow, 1, currentRow, leftPaneColumns);
+                detailRange.Style.Border.SetInsideBorder(XLBorderStyleValues.Thin);
                 detailRange.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
                 detailRange.Style.Fill.SetBackgroundColor(activityFill);
 
@@ -135,14 +153,15 @@ public static class TimelineExcelBuilder
                 {
                     var column = startColumn + detail.StartDay - 1 + day;
                     var cell = worksheet.Cell(currentRow, column);
-                    cell.Style.Fill.SetBackgroundColor(day % 2 == 0 ? greenFill : yellowFill);
+                    // Use Green only as requested
+                    cell.Style.Fill.SetBackgroundColor(greenFill);
                     cell.Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
                 }
 
                 currentRow++;
             }
 
-            if (activityStartRow < currentRow - 1)
+            if (activityStartRow < currentRow)
             {
                 var mergeRange = worksheet.Range(activityStartRow, 1, currentRow - 1, 1);
                 mergeRange.Merge();

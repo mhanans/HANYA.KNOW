@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Alert, Box, Button, CircularProgress, Paper, Stack, Typography } from '@mui/material';
+import Swal from 'sweetalert2';
 import { apiFetch } from '../../../lib/api';
 import styles from './timeline.module.css';
 
@@ -49,6 +50,7 @@ export default function ProjectTimelineDetailPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [dragging, setDragging] = useState<{
     actIdx: number;
     detIdx: number;
@@ -81,17 +83,39 @@ export default function ProjectTimelineDetailPage() {
     loadTimeline();
   }, [loadTimeline]);
 
-  const handleRegenerate = useCallback(async () => {
+  const handleReset = useCallback(async () => {
     if (!resolvedId) return;
-    setRegenerating(true);
-    await apiFetch('/api/timelines', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assessmentId: resolvedId }),
+
+    const result = await Swal.fire({
+      title: 'Reset Timeline?',
+      text: "This will permanently delete the current timeline and return you to the list.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, reset it!'
     });
-    setRegenerating(false);
-    await loadTimeline();
-  }, [resolvedId, loadTimeline]);
+
+    if (!result.isConfirmed) return;
+
+    setRegenerating(true);
+    try {
+      const res = await apiFetch(`/api/timelines/${resolvedId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      await Swal.fire(
+        'Reset!',
+        'Your timeline has been reset.',
+        'success'
+      );
+      router.push('/pre-sales/project-timelines');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset timeline');
+      setRegenerating(false);
+    }
+  }, [resolvedId, router]);
 
   const handleExport = useCallback(async () => {
     if (!resolvedId) return;
@@ -128,21 +152,17 @@ export default function ProjectTimelineDetailPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       setDirty(false);
-      // Recalc metrics/resource allocation logic if simple drag didn't update it?
-      // Assuming resource allocation doesn't change by SHIFTING (it assumes role presence per day).
-      // Actually, shifting tasks changes daily resource overlap.
-      // We are NOT recalculating resource allocation in frontend. It will be stale until reload or backend recalc?
-      // User said "without altering calculation of durations".
-      // But resource allocation chart (at bottom) depends on WHEN tasks happen.
-      // Ideally, we should re-fetch after save?
+      setIsEditing(false); // Exit edit mode
       await loadTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
       setLoading(false);
     }
   }, [resolvedId, timeline, loadTimeline]);
 
   const handleDragStart = (e: React.MouseEvent, actIdx: number, detIdx: number, detail: TimelineDetail) => {
+    if (!isEditing) return; // Prevent drag if not editing
     e.preventDefault();
     setDragging({
       actIdx,
@@ -294,14 +314,24 @@ export default function ProjectTimelineDetailPage() {
           >
             {exporting ? 'Preparing…' : 'Download as Excel'}
           </Button>
-          <Button variant="contained" onClick={handleRegenerate} disabled={regenerating}>
-            {regenerating ? 'Regenerating…' : 'Regenerate Timeline'}
-          </Button>
-          {dirty && (
-            <Button variant="contained" color="warning" onClick={handleSave}>
-              Save Changes
+          {!isEditing && (
+            <Button variant="contained" color="secondary" onClick={() => setIsEditing(true)}>
+              Edit Timeline
             </Button>
           )}
+          {isEditing && (
+            <>
+              <Button color="inherit" onClick={() => { setIsEditing(false); loadTimeline(); }}>
+                Cancel
+              </Button>
+              <Button variant="contained" color="primary" onClick={handleSave} disabled={!dirty}>
+                Save Changes
+              </Button>
+            </>
+          )}
+          <Button variant="contained" onClick={handleReset} disabled={regenerating} sx={{ ml: 2 }}>
+            {regenerating ? 'Resetting…' : 'Reset Timeline'}
+          </Button>
         </Stack>
       </Stack>
       {exportError && <Alert severity="error">{exportError}</Alert>}

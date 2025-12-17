@@ -61,6 +61,8 @@ public class PresalesRole
     public string RoleName { get; set; } = string.Empty;
     public string ExpectedLevel { get; set; } = string.Empty;
     public decimal CostPerDay { get; set; }
+    public decimal MonthlySalary { get; set; }
+    public decimal RatePerDay { get; set; }
 }
 
 public class PresalesActivity

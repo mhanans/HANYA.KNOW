@@ -54,7 +54,7 @@ public class PresalesConfigurationStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        const string roleSql = "SELECT role_name, expected_level, cost_per_day FROM presales_roles ORDER BY role_name, expected_level";
+        const string roleSql = "SELECT role_name, expected_level, cost_per_day, monthly_salary, rate_per_day FROM presales_roles ORDER BY role_name, expected_level";
         await using (var roleCmd = new NpgsqlCommand(roleSql, conn))
         await using (var reader = await roleCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -64,7 +64,9 @@ public class PresalesConfigurationStore
                 {
                     RoleName = reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
                     ExpectedLevel = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                    CostPerDay = reader.IsDBNull(2) ? 0 : reader.GetFieldValue<decimal>(2)
+                    CostPerDay = reader.IsDBNull(2) ? 0 : reader.GetFieldValue<decimal>(2),
+                    MonthlySalary = reader.IsDBNull(3) ? 0 : reader.GetFieldValue<decimal>(3),
+                    RatePerDay = reader.IsDBNull(4) ? 0 : reader.GetFieldValue<decimal>(4)
                 };
                 if (!string.IsNullOrWhiteSpace(role.RoleName))
                 {
@@ -233,7 +235,7 @@ public class PresalesConfigurationStore
                 await clearActivities.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            const string insertRoleSql = "INSERT INTO presales_roles (role_name, expected_level, cost_per_day) VALUES (@name, @level, @cost)";
+            const string insertRoleSql = "INSERT INTO presales_roles (role_name, expected_level, cost_per_day, monthly_salary, rate_per_day) VALUES (@name, @level, @cost, @salary, @rate)";
             var uniqueRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var role in configuration.Roles)
             {
@@ -248,6 +250,8 @@ public class PresalesConfigurationStore
                 cmd.Parameters.AddWithValue("name", roleName);
                 cmd.Parameters.AddWithValue("level", role.ExpectedLevel?.Trim() ?? string.Empty);
                 cmd.Parameters.AddWithValue("cost", NpgsqlDbType.Numeric, role.CostPerDay);
+                cmd.Parameters.AddWithValue("salary", NpgsqlDbType.Numeric, role.MonthlySalary);
+                cmd.Parameters.AddWithValue("rate", NpgsqlDbType.Numeric, role.RatePerDay);
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 

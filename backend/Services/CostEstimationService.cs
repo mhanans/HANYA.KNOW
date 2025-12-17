@@ -453,8 +453,9 @@ public class CostEstimationService
         {
             var monthlySalary = GetRoleValueOrDefault(configuration.RoleMonthlySalaries, allocation.Role, 0m);
 
-            var resources = ResolveHeadcount(allocation.Role, inputs, configuration);
-            var bestCaseMonths = (decimal)allocation.TotalManDays / 20m;
+            var resources = ResolveHeadcount(allocation, inputs, configuration);
+            var activeDays = allocation.DailyEffort?.Count(d => d > 0) ?? 0;
+            var bestCaseMonths = (decimal)activeDays / 20m;
             var worstCaseMonths = bestCaseMonths * (1m + inputs.WorstCaseBufferPercent / 100m);
             var total = resources * monthlySalary * worstCaseMonths;
             totalSalary += total;
@@ -532,8 +533,9 @@ public class CostEstimationService
         };
     }
 
-    private static decimal ResolveHeadcount(string role, CostEstimationInputs inputs, CostEstimationConfiguration configuration)
+    private static decimal ResolveHeadcount(TimelineResourceAllocationEntry allocation, CostEstimationInputs inputs, CostEstimationConfiguration configuration)
     {
+        var role = allocation.Role;
         if (!string.IsNullOrWhiteSpace(role) && inputs.RoleHeadcounts.TryGetValue(role, out var custom) && custom > 0)
         {
             return custom;
@@ -542,6 +544,15 @@ public class CostEstimationService
         if (!string.IsNullOrWhiteSpace(role) && TryGetRoleValue(configuration.RoleDefaultHeadcount, role, out var defaultValue) && defaultValue > 0)
         {
             return defaultValue;
+        }
+
+        if (allocation.DailyEffort != null && allocation.DailyEffort.Any())
+        {
+            var maxEffort = (decimal)allocation.DailyEffort.Max();
+            if (maxEffort > 0)
+            {
+                return Math.Max(1m, Math.Ceiling(maxEffort));
+            }
         }
 
         return 1m;

@@ -835,9 +835,24 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
         var phaseMetrics = new Dictionary<string, (int TemplateStart, int TemplateDuration, int ActualDuration, int ActualStart)>(StringComparer.OrdinalIgnoreCase);
         var phaseActivities = new Dictionary<string, TimelineActivity>(StringComparer.OrdinalIgnoreCase);
 
+        // DEBUG: Diagnose Phase Mismatch
+        var groups = ganttTasks.Select(t => t.ActivityGroup).Distinct().ToList();
+        _logger.LogWarning($"[PHASE DEBUG] Available Groups in GanttTasks: {string.Join(", ", groups.Select(g => $"'{g}'"))}");
+        _logger.LogWarning($"[PHASE DEBUG] Template Phases: {string.Join(", ", phases.Select(p => $"'{p.Name}'"))}");
+
         foreach (var ph in phases)
         {
             var phaseTasks = ganttTasks.Where(t => string.Equals(t.ActivityGroup, ph.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+            
+            // FALLBACK: If no tasks found by explicit group name, consider ALL tasks as candidates.
+            // This fixes issues where the Template Phase Name (e.g. "Development & Testing") 
+            // differs from the Aggregated Group Name (e.g. "Application Development").
+            if (phaseTasks.Count == 0)
+            {
+                phaseTasks = ganttTasks.ToList();
+                _logger.LogWarning($"[PHASE RELAXED] Phase '{ph.Name}' found no direct matches. Using ALL {phaseTasks.Count} tasks as candidates.");
+            }
+
             var activity = new TimelineActivity { ActivityName = ph.Name, Details = new List<TimelineDetail>() };
             int calculatedDuration = 0;
 
@@ -849,17 +864,65 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
 
                 foreach (var tmplItem in ph.Items)
                 {
-                    var matchedTasks = phaseTasks.Where(t => tmplItem.Name.StartsWith(t.Detail, StringComparison.OrdinalIgnoreCase)).ToList();
+                    // DEBUG: Special check for problematic task
+                    bool isDebugTarget = tmplItem.Name.Contains("Sprint Planning", StringComparison.OrdinalIgnoreCase); 
+                    if (isDebugTarget)
+                    {
+                         _logger.LogWarning($"[MATCH DEBUG] Target Template Item: '{tmplItem.Name}' in Phase '{ph.Name}'. Candidates in Phase: {phaseTasks.Count}");
+                         foreach(var pt in phaseTasks)
+                         {
+                             bool match1 = tmplItem.Name.Contains(pt.Detail, StringComparison.OrdinalIgnoreCase);
+                             bool match2 = pt.Detail.Contains(tmplItem.Name, StringComparison.OrdinalIgnoreCase);
+                             _logger.LogWarning($"   - Candidate: '{pt.Detail}' (Grp: {pt.ActivityGroup}) | Match T->C: {match1} | Match C->T: {match2} | MD: {pt.ManDays}");
+                         }
+                    }
+
+                    // Loose match by Name (Bidirectional Contains to catch partial AI matches)
+                    var matchedTasks = phaseTasks.Where(t => 
+                        !string.IsNullOrWhiteSpace(t.Detail) && (
+                            tmplItem.Name.Contains(t.Detail, StringComparison.OrdinalIgnoreCase) || 
+                            t.Detail.Contains(tmplItem.Name, StringComparison.OrdinalIgnoreCase)
+                        )).ToList();
                     
                     double totalRawManDays = matchedTasks.Sum(t => t.ManDays);
                     double adjustedManDays = totalRawManDays * bufferMultiplier;
 
                     // Determine Actor
                     string primaryActor = "General";
-                    
+                    double maxHc = 1;
+
                     if (template.EffortRoleMapping != null && template.EffortRoleMapping.TryGetValue(tmplItem.Name, out var mappedRole))
                     {
-                        primaryActor = mappedRole;
+                        var candidates = mappedRole.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                                                   .Select(s => s.Trim())
+                                                   .ToList();
+                        
+                        // Filter candidates
+                        var validActors = new List<string>();
+                        foreach (var c in candidates)
+                        {
+                           // 1. Exact Match
+                           var match = roleHeadcounts.Keys.FirstOrDefault(k => string.Equals(k, c, StringComparison.OrdinalIgnoreCase));
+                           
+                           // 2. Team Role Contains Candidate (e.g. Team: "Senior Business Analyst", Candidate: "Business Analyst")
+                           if (match == null) match = roleHeadcounts.Keys.FirstOrDefault(k => k.Contains(c, StringComparison.OrdinalIgnoreCase));
+                           
+                           // 3. Candidate Contains Team Role (e.g. Team: "Analyst", Candidate: "Business Analyst")
+                           if (match == null) match = roleHeadcounts.Keys.FirstOrDefault(k => c.Contains(k, StringComparison.OrdinalIgnoreCase));
+                           
+                           if (match != null && !validActors.Contains(match)) validActors.Add(match);
+                        }
+
+                        if (validActors.Any())
+                        {
+                            primaryActor = string.Join(", ", validActors);
+                            maxHc = validActors.Max(a => roleHeadcounts.GetValueOrDefault(a, 1));
+                        }
+                        else
+                        {
+                            // If no role matched, default to General/1.
+                            primaryActor = "General"; 
+                        }
                     }
                     else if (matchedTasks.Any())
                     {
@@ -867,28 +930,40 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
                             .GroupBy(x => x)
                             .OrderByDescending(g => g.Count())
                             .FirstOrDefault()?.Key ?? "General";
+                            
+                         if (roleHeadcounts.ContainsKey(primaryActor)) maxHc = roleHeadcounts[primaryActor];
+                         else {
+                             // Fallback: Try bidirectional contains match
+                             var best = roleHeadcounts.Keys.FirstOrDefault(k => primaryActor.Contains(k, StringComparison.OrdinalIgnoreCase) || k.Contains(primaryActor, StringComparison.OrdinalIgnoreCase));
+                             if (best != null) { primaryActor = best; maxHc = roleHeadcounts[best]; }
+                         }
                     }
                     else
                     {
-                         // Fallback parse
+                         // Fallback parser
                          var parts = tmplItem.Name.Split('-');
                          if (parts.Length > 1) primaryActor = parts.Last().Replace("Setup", "").Trim();
+                         
+                         if (roleHeadcounts.ContainsKey(primaryActor)) maxHc = roleHeadcounts[primaryActor];
+                         else {
+                             var best = roleHeadcounts.Keys.FirstOrDefault(k => primaryActor.Contains(k, StringComparison.OrdinalIgnoreCase) || k.Contains(primaryActor, StringComparison.OrdinalIgnoreCase));
+                             if (best != null) { primaryActor = best; maxHc = roleHeadcounts[best]; }
+                         }
                     }
 
-                    // Normalize Actor ID against Strict Roles
-                    if (!roleHeadcounts.ContainsKey(primaryActor))
+                    // Enforce minimum headcount of 1 for duration calculation
+                    if (maxHc < 1) maxHc = 1;
+
+                    // Fallback: Use Template Duration as ManDays estimate if no assessment data
+                    if (adjustedManDays <= 0)
                     {
-                        var bestMatch = roleHeadcounts.Keys.FirstOrDefault(k => primaryActor.Contains(k, StringComparison.OrdinalIgnoreCase));
-                        if (bestMatch != null) primaryActor = bestMatch;
+                         adjustedManDays = (double)tmplItem.Duration;
                     }
 
-                    if (roleHeadcounts.TryGetValue(primaryActor, out var hc) && hc > 0) { } else { hc = 1; }
-
-                    var duration = (adjustedManDays > 0) 
-                        ? (int)Math.Ceiling(adjustedManDays / hc)
-                        : tmplItem.Duration; 
-                    
+                    var duration = (int)Math.Ceiling(adjustedManDays / maxHc);
                     duration = Math.Max(1, duration);
+
+                    _logger.LogWarning($"[CRITICAL DEBUG] Task: '{tmplItem.Name}' | Actor: '{primaryActor}' | ManDays: {adjustedManDays:F4} | HC: {maxHc:F2} | FinalDuration: {duration} days");
 
                     int relativeStart = tmplItem.StartDayOffset; 
                     int relativeEnd = relativeStart + duration;
@@ -900,13 +975,15 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
                     {
                         TaskName = tmplItem.Name,
                         Actor = primaryActor,
-                        ManDays = adjustedManDays > 0 ? adjustedManDays : (duration * 0.5),
+                        ManDays = adjustedManDays,
                         StartDay = relativeStart,
                         DurationDays = duration
                     });
                 }
                 
                 calculatedDuration = (maxItemEnd > 0) ? maxItemEnd : ph.Duration;
+                // Fix: If we have explicit items, the phase duration IS the span of those items.
+                if (maxItemEnd > 0) calculatedDuration = maxItemEnd;
             }
             else
             {
@@ -1010,15 +1087,11 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
         int totalDays,
         List<TimelineRoleEstimate>? confirmedRoles)
     {
-        var buffer = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<TimelineResourceAllocationEntry>();
+        if (confirmedRoles == null || !confirmedRoles.Any()) return result;
 
-        if (confirmedRoles != null)
-        {
-            foreach (var r in confirmedRoles)
-            {
-                buffer[r.Role] = new double[totalDays + 5];
-            }
-        }
+        // Flatten all tasks to find start/end range per role
+        var roleRanges = new Dictionary<string, (int MinStart, int MaxEnd)>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var act in activities)
         {
@@ -1026,44 +1099,81 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
             {
                 if (det.DurationDays <= 0) continue;
                 
-                var roleName = det.Actor; 
-                // Normalize to buffer key
-                if (!buffer.ContainsKey(roleName))
-                {
-                    var match = buffer.Keys.FirstOrDefault(k => roleName.Contains(k, StringComparison.OrdinalIgnoreCase));
-                    if (match != null) roleName = match;
-                    else buffer[roleName] = new double[totalDays + 5];
-                }
+                // Split actor string (e.g., "Business Analyst, Developer")
+                var taskActors = det.Actor.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                                          .Select(s => s.Trim())
+                                          .ToList();
 
-                var dailyEffort = (det.ManDays / det.DurationDays); 
-                var arr = buffer[roleName];
-                for (int i = 0; i < det.DurationDays; i++)
+                foreach (var actorCandidate in taskActors)
                 {
-                    int day = det.StartDay + i - 1; 
-                    if (day >= 0 && day < arr.Length)
+                    var rName = actorCandidate;
+                    var match = confirmedRoles.FirstOrDefault(r => r.Role.Equals(rName, StringComparison.OrdinalIgnoreCase)) 
+                                ?? confirmedRoles.FirstOrDefault(r => rName.Contains(r.Role, StringComparison.OrdinalIgnoreCase));
+                    
+                    if (match != null)
                     {
-                        arr[day] += dailyEffort;
+                        rName = match.Role;
+                        int start = det.StartDay;
+                        int end = det.StartDay + det.DurationDays - 1;
+
+                        if (!roleRanges.ContainsKey(rName)) roleRanges[rName] = (start, end);
+                        else
+                        {
+                            var curr = roleRanges[rName];
+                            roleRanges[rName] = (Math.Min(curr.MinStart, start), Math.Max(curr.MaxEnd, end));
+                        }
                     }
                 }
             }
         }
 
-        var result = new List<TimelineResourceAllocationEntry>();
-        
-        foreach (var kvp in buffer)
+        foreach (var role in confirmedRoles)
         {
-            var daily = kvp.Value.Take(totalDays).Select(v => Math.Round(v, 2)).ToList();
-            var total = daily.Sum();
+            var daily = new double[totalDays + 5]; // +5 buffer
             
-            // Allow 0 sum if initialized (User requirement for PM/Arch visibility)
+            // Logic: PM and Architect -> Always from Day 1 to TotalDays
+            bool isAlwaysPresence = role.Role.IndexOf("Project Manager", StringComparison.OrdinalIgnoreCase) >= 0 
+                                 || role.Role.IndexOf("Architect", StringComparison.OrdinalIgnoreCase) >= 0
+                                 || role.Role.IndexOf("PM", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            int startScan = 1;
+            int endScan = totalDays;
+
+            if (!isAlwaysPresence)
+            {
+                // Use detected range
+                if (roleRanges.TryGetValue(role.Role, out var range))
+                {
+                    startScan = range.MinStart;
+                    endScan = range.MaxEnd;
+                }
+                else
+                {
+                    // Role has no tasks.
+                    startScan = -1; 
+                }
+            }
+            
+            // Fill
+            if (startScan > 0)
+            {
+                for (int d = 1; d <= totalDays; d++)
+                {
+                    if (d >= startScan && d <= endScan)
+                    {
+                        daily[d - 1] = role.EstimatedHeadcount;
+                    }
+                }
+            }
+
             result.Add(new TimelineResourceAllocationEntry
             {
-                Role = kvp.Key,
-                TotalManDays = Math.Round(total, 2),
-                DailyEffort = daily
+                Role = role.Role,
+                TotalManDays = daily.Take(totalDays).Sum(),
+                DailyEffort = daily.Take(totalDays).ToList()
             });
         }
-        
+
         return result.OrderBy(r => r.Role).ToList();
     }
 

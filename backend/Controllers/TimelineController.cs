@@ -153,4 +153,13 @@ public class TimelineController : ControllerBase
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
+    [HttpDelete("{assessmentId}")]
+    [UiAuthorize("pre-sales-project-timelines")]
+    public async Task<IActionResult> DeleteTimeline(int assessmentId)
+    {
+        if (assessmentId <= 0) return BadRequest("Invalid Data");
+
+        await _timelineStore.DeleteAsync(assessmentId, HttpContext.RequestAborted).ConfigureAwait(false);
+        return Ok();
+    }
 }
