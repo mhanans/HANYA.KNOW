@@ -305,6 +305,20 @@ public class TimelineGenerationService
         // If no roles found (legacy), try to rebuild reasonable defaults from config or active roles?
         // But the user specifically wants strict behavior "PM follow from start to end".
         // Let's rely on the estimation roles.
+
+        // Fix: Ensure TotalDurationDays covers all activities before calculating allocation
+        if (record.Activities != null)
+        {
+            var maxActivityEnd = record.Activities
+                .Where(a => a.Details != null)
+                .SelectMany(a => a.Details)
+                .Where(d => d.DurationDays > 0)
+                .Max(d => (int?)(d.StartDay + d.DurationDays - 1)) ?? 0;
+            
+            // STRICT RECALCULATION: The duration of the timeline IS the end of the last task.
+            // We do not trust the incoming 'TotalDurationDays' from the client as it might be stale.
+            record.TotalDurationDays = Math.Max(1, maxActivityEnd);
+        }
         
         return CalculateResourceAllocation(record, roles);
     }
@@ -318,7 +332,6 @@ public class TimelineGenerationService
 
         var totalDays = record.TotalDurationDays;
         
-        // 1. Identify Activity Ranges per Role from the Timeline Activities
         // Flatten all tasks to find start/end range per role
         var roleRanges = new Dictionary<string, (int MinStart, int MaxEnd)>(StringComparer.OrdinalIgnoreCase);
 
@@ -327,28 +340,25 @@ public class TimelineGenerationService
             foreach (var act in record.Activities)
             {
                 if (act.Details == null) continue;
+
                 foreach (var det in act.Details)
                 {
                     if (det.DurationDays <= 0) continue;
-
+                    
                     // Split actor string (e.g., "Business Analyst, Developer")
-                    // We need to match these to the "Confirmed Roles"
-                    var taskActors = (det.Actor ?? string.Empty)
-                                    .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                                    .Select(s => s.Trim())
-                                    .ToList();
+                    // Adaptation: Match V0 logic
+                    var taskActors = (det.Actor ?? string.Empty).Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                                              .Select(s => s.Trim())
+                                              .ToList();
 
                     foreach (var actorCandidate in taskActors)
                     {
-                        // Fuzzy match the task actor to a Confirmed Role
                         var rName = actorCandidate;
-                        // Try Exact Match
-                        var match = confirmedRoles.FirstOrDefault(r => r.Role.Equals(rName, StringComparison.OrdinalIgnoreCase));
-                        // Try Contains
-                        if (match == null) match = confirmedRoles.FirstOrDefault(r => rName.Contains(r.Role, StringComparison.OrdinalIgnoreCase));
-                        // Try Reverse Contains
-                        if (match == null) match = confirmedRoles.FirstOrDefault(r => r.Role.Contains(rName, StringComparison.OrdinalIgnoreCase));
-
+                        // Adaptation: Match V0 Logic strictly
+                        // V0 Logic: match = specific || contains
+                        var match = confirmedRoles.FirstOrDefault(r => r.Role.Equals(rName, StringComparison.OrdinalIgnoreCase)) 
+                                    ?? confirmedRoles.FirstOrDefault(r => rName.Contains(r.Role, StringComparison.OrdinalIgnoreCase));
+                        
                         if (match != null)
                         {
                             rName = match.Role;
@@ -367,24 +377,22 @@ public class TimelineGenerationService
             }
         }
 
-        // 2. Build Allocation Rows based on Rules
         foreach (var role in confirmedRoles)
         {
-            var daily = new double[totalDays + 5]; // +Buffer safely
-
-            // RULE: PM and Architect follow from start to end (Full Project Duration)
-            // We check against common names for these roles.
-            bool isAlwaysPresence = role.Role.Contains("Project Manager", StringComparison.OrdinalIgnoreCase)
-                                 || role.Role.Contains("Architect", StringComparison.OrdinalIgnoreCase)
-                                 || role.Role.Contains("PM", StringComparison.OrdinalIgnoreCase)
-                                 || role.Role.Contains("Coordinator", StringComparison.OrdinalIgnoreCase);
+            var daily = new double[totalDays + 5]; // +5 buffer
+            
+            // Logic: PM and Architect -> Always from Day 1 to TotalDays
+            // Adaptation: Match V0 Logic explicitly
+            bool isAlwaysPresence = role.Role.IndexOf("Project Manager", StringComparison.OrdinalIgnoreCase) >= 0 
+                                 || role.Role.IndexOf("Architect", StringComparison.OrdinalIgnoreCase) >= 0
+                                 || role.Role.IndexOf("PM", StringComparison.OrdinalIgnoreCase) >= 0;
 
             int startScan = 1;
             int endScan = totalDays;
 
             if (!isAlwaysPresence)
             {
-                // RULE: Others follow from "it appear until they end" (Range)
+                // Use detected range
                 if (roleRanges.TryGetValue(role.Role, out var range))
                 {
                     startScan = range.MinStart;
@@ -392,20 +400,14 @@ public class TimelineGenerationService
                 }
                 else
                 {
-                    // Role has no tasks assigned in this timeline version?
-                    // Don't allocate costs if they aren't working.
-                    startScan = -1;
+                    // Role has no tasks.
+                    startScan = -1; 
                 }
             }
-
-            // Fill the days
+            
+            // Fill
             if (startScan > 0)
             {
-                // Clamp to project duration
-                // Actually, if a task extends beyond TotalDurationDays, we should probably grow the duration, 
-                // but here we just show cost up to the declared duration or slightly beyond?
-                // Visual table usually matches grid. Let's stick to TotalDays.
-                
                 for (int d = 1; d <= totalDays; d++)
                 {
                     if (d >= startScan && d <= endScan)

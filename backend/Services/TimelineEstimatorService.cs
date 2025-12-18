@@ -1065,7 +1065,7 @@ You are an expert Project Planner AI. Your task is to create a high-level phase 
             {
                 foreach (var det in act.Details)
                 {
-                    det.StartDay = actualStart + det.StartDay;
+                    det.StartDay = actualStart + (det.StartDay > 0 ? det.StartDay - 1 : 0);
                 }
                 timeline.Activities.Add(act);
             }
