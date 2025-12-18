@@ -42,6 +42,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (key.toLowerCase() === 'transfer-encoding') return;
     res.setHeader(key, value);
   });
+
+  if (response.status === 204 || response.status === 304) {
+    res.end();
+    return;
+  }
+
   const buf = Buffer.from(await response.arrayBuffer());
   res.send(buf);
 }

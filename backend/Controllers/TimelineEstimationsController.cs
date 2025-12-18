@@ -100,16 +100,22 @@ public class TimelineEstimationsController : ControllerBase
                 .GenerateStrictAsync(request.AssessmentId, request.ConfirmedTeam, HttpContext.RequestAborted)
                 .ConfigureAwait(false);
 
-            // 2. Generate Deterministic Timeline (The Chart)
+            // 2. Generate Deterministic Timeline (The Chart) - Version 0
             // This bypasses the AI Generation Service to ensure strict adherence to the Template's item structure.
-            var timeline = await _estimatorService
+            var timelineV0 = await _estimatorService
                 .GenerateTimelineFromStrictAsync(request.AssessmentId, strictEst, request.BufferPercentage, HttpContext.RequestAborted)
                 .ConfigureAwait(false);
             
-            // 3. Persist
-            await _timelineStore.SaveAsync(timeline, HttpContext.RequestAborted).ConfigureAwait(false);
+            // 3. Persist V0
+            await _timelineStore.SaveAsync(timelineV0, HttpContext.RequestAborted).ConfigureAwait(false);
 
-            return Ok(timeline);
+            // 4. Generate AI Refined Timeline (V1) based on V0
+            // This ensures we have both the baseline (V0) and the intelligent refinement (V1).
+            var timelineV1 = await _generationService
+                .GenerateV1AfterStrictAsync(request.AssessmentId, strictEst, timelineV0, HttpContext.RequestAborted)
+                .ConfigureAwait(false);
+
+            return Ok(timelineV1);
         }
         catch (KeyNotFoundException)
         {

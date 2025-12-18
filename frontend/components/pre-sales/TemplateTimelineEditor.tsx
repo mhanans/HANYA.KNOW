@@ -100,15 +100,6 @@ export default function TemplateTimelineEditor({ phases, sections = [], onChange
                     const efforts = item.effort || item.roles || [];
                     if (efforts.length > 0) {
                         efforts.forEach(e => requiredItems.add(`${item.itemName} - ${e}`));
-                    } else {
-                        // User requirement: "no need of just the item (without effort) on timeline"
-                        // So we SKIP items without effort? 
-                        // "the effort so it's item (effort) like in unscheduled no need of just the item (without effort)"
-                        // If we strictly follow this, we exclude pure items. 
-                        // But just in case, let's include if purely generic? 
-                        // prompt: "effort its not there (still using item, and section on timeline)... i want is the list like on the timeline (with effort)"
-                        // prompt: "no need of just the item (without effort) on timeline template"
-                        // => STRICTLY Item - Effort.
                     }
                 });
             } else if (section.effort) {
@@ -129,7 +120,7 @@ export default function TemplateTimelineEditor({ phases, sections = [], onChange
                         id: crypto.randomUUID(),
                         name: reqName,
                         duration: 3,
-                        startDayOffset: 0
+                        startDayOffset: phase.startDay // Absolute Start Day
                     });
                     hasChanges = true; // Item added
                 }
@@ -139,9 +130,16 @@ export default function TemplateTimelineEditor({ phases, sections = [], onChange
 
             // Update needed?
             // Recalculate duration?
-            const maxEnd = Math.max(phase.duration, ...phase.items.map(i => i.startDayOffset + i.duration));
-            if (maxEnd > phase.duration) {
-                phase.duration = maxEnd;
+            // Logic: Duration should cover all items relative to phase start
+            const itemsEndIdx = phase.items.map(i => i.startDayOffset + i.duration);
+            const maxItemEnd = itemsEndIdx.length > 0 ? Math.max(...itemsEndIdx) : 0;
+            // Phase End = phase.startDay + phase.duration
+            // We want Phase End >= maxItemEnd
+            // duration >= maxItemEnd - phase.startDay
+            const requiredDuration = Math.max(phase.duration, maxItemEnd - phase.startDay);
+
+            if (requiredDuration > phase.duration) {
+                phase.duration = requiredDuration;
                 hasChanges = true;
             }
 
@@ -183,7 +181,7 @@ export default function TemplateTimelineEditor({ phases, sections = [], onChange
             // Recalculate phase duration
             let newDuration = p.duration;
             if (newItems.length > 0) {
-                const maxEnd = Math.max(...newItems.map(i => i.startDayOffset + i.duration));
+                const maxEnd = Math.max(...newItems.map(i => (i.startDayOffset + i.duration) - p.startDay));
                 newDuration = Math.max(newDuration, maxEnd);
             }
 
@@ -229,7 +227,8 @@ export default function TemplateTimelineEditor({ phases, sections = [], onChange
                 updatePhase(dragState.phaseId, { startDay: newStart });
             } else if (dragState.target === 'item' && dragState.itemId) {
                 if (dragState.type === 'move') {
-                    const newOffset = Math.max(0, dragState.initialStart + deltaDays);
+                    // Start Day is Absolute (1-based), so min is 1
+                    const newOffset = Math.max(1, dragState.initialStart + deltaDays);
                     updateItem(dragState.phaseId, dragState.itemId, { startDayOffset: newOffset });
                 } else {
                     const newDuration = Math.max(1, dragState.initialDuration + deltaDays);
@@ -405,7 +404,7 @@ export default function TemplateTimelineEditor({ phases, sections = [], onChange
                                         <Box
                                             sx={{
                                                 position: 'absolute',
-                                                left: (phase.startDay + item.startDayOffset - 1) * CELL_WIDTH,
+                                                left: (item.startDayOffset - 1) * CELL_WIDTH,
                                                 width: item.duration * CELL_WIDTH,
                                                 height: 20,
                                                 top: (ROW_HEIGHT - 20) / 2,

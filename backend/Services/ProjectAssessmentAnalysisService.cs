@@ -41,7 +41,6 @@ public class ProjectAssessmentAnalysisService
     private readonly ProjectAssessmentStore _projectAssessmentStore;
     private readonly EffectiveEstimationPolicy _estimationPolicy;
     private readonly HttpClient _httpClient;
-    private readonly SettingsStore _settingsStore;
     private readonly LlmOptions _defaultLlmOptions;
     private readonly string? _configuredApiKey;
     private readonly string? _configuredModel;
@@ -57,14 +56,14 @@ public class ProjectAssessmentAnalysisService
         AssessmentJobStore jobStore,
         ProjectAssessmentStore projectAssessmentStore,
         EffectiveEstimationPolicy estimationPolicy,
-        SettingsStore settingsStore,
         IOptions<LlmOptions> llmOptions)
     {
         _logger = logger;
         _jobStore = jobStore;
         _projectAssessmentStore = projectAssessmentStore;
         _estimationPolicy = estimationPolicy;
-        _settingsStore = settingsStore;
+        _projectAssessmentStore = projectAssessmentStore;
+        _estimationPolicy = estimationPolicy;
         _defaultLlmOptions = llmOptions.Value;
         
         var defaultRefId = configuration["PresalesWorkflow:DefaultReferenceAssessmentId"];
@@ -2011,58 +2010,25 @@ public class ProjectAssessmentAnalysisService
         return builder.ToString();
     }
 
-    private async Task<LlmConfiguration> ResolveLlmConfigurationAsync()
+    private Task<LlmConfiguration> ResolveLlmConfigurationAsync()
     {
-        var settings = await _settingsStore.GetAsync().ConfigureAwait(false);
-
-        var provider = string.IsNullOrWhiteSpace(settings.LlmProvider)
-            ? null
-            : settings.LlmProvider;
-        var apiKey = string.IsNullOrWhiteSpace(settings.LlmApiKey)
-            ? null
-            : settings.LlmApiKey;
-        var model = string.IsNullOrWhiteSpace(settings.LlmModel)
-            ? null
-            : settings.LlmModel;
-
-        if (string.IsNullOrWhiteSpace(provider))
-        {
-            provider = string.IsNullOrWhiteSpace(_defaultLlmOptions.Provider)
-                ? _configuredProvider
-                : _defaultLlmOptions.Provider;
-        }
-
-        provider = string.IsNullOrWhiteSpace(provider)
-            ? "gemini"
-            : provider.Trim();
+        var provider = _configuredProvider;
+        var apiKey = _configuredApiKey;
+        var model = _configuredModel;
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            apiKey = string.IsNullOrWhiteSpace(_defaultLlmOptions.ApiKey)
-                ? _configuredApiKey
-                : _defaultLlmOptions.ApiKey;
+            throw new InvalidOperationException("LLM API key is not configured. Please update the LLM configuration in appsettings.");
         }
 
         if (string.IsNullOrWhiteSpace(model))
         {
-            model = string.IsNullOrWhiteSpace(_defaultLlmOptions.Model)
-                ? _configuredModel
-                : _defaultLlmOptions.Model;
-        }
-
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new InvalidOperationException("LLM API key is not configured. Please update the LLM settings.");
-        }
-
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            model = string.Equals(provider, "minimax", StringComparison.OrdinalIgnoreCase)
+             model = string.Equals(provider, "minimax", StringComparison.OrdinalIgnoreCase)
                 ? "MiniMax-M2"
                 : "gemini-pro-vision";
         }
 
-        return new LlmConfiguration(provider, apiKey!, model!);
+        return Task.FromResult(new LlmConfiguration(provider, apiKey!, model!));
     }
 
     private async Task<string> SendMiniMaxRequestAsync(string userPrompt, LlmConfiguration config, CancellationToken cancellationToken)

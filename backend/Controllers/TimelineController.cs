@@ -100,20 +100,29 @@ public class TimelineController : ControllerBase
 
     [HttpGet("{assessmentId}")]
     [UiAuthorize("pre-sales-project-timelines")]
-    public async Task<ActionResult<TimelineRecord>> GetTimeline(int assessmentId)
+    public async Task<ActionResult<TimelineRecord>> GetTimeline(int assessmentId, [FromQuery] int? version)
     {
         if (assessmentId <= 0)
         {
             return BadRequest("AssessmentId is required.");
         }
 
-        var record = await _timelineStore.GetAsync(assessmentId, HttpContext.RequestAborted).ConfigureAwait(false);
+        var record = await _timelineStore.GetAsync(assessmentId, version, HttpContext.RequestAborted).ConfigureAwait(false);
         if (record == null)
         {
             return NotFound();
         }
 
         return Ok(record);
+    }
+
+    [HttpGet("{assessmentId}/versions")]
+    [UiAuthorize("pre-sales-project-timelines")]
+    public async Task<ActionResult<List<TimelineRecord>>> GetTimelineVersions(int assessmentId)
+    {
+        if (assessmentId <= 0) return BadRequest("AssessmentId is required.");
+        var versions = await _timelineStore.GetAllVersionsAsync(assessmentId, HttpContext.RequestAborted).ConfigureAwait(false);
+        return Ok(versions);
     }
 
     [HttpPut("{assessmentId}")]
@@ -123,22 +132,33 @@ public class TimelineController : ControllerBase
         if (assessmentId <= 0 || timeline == null) return BadRequest("Invalid Data");
         if (assessmentId != timeline.AssessmentId) return BadRequest("Assessment ID mismatch.");
         
-        // Optionally Validate?
-        // Just save.
+        // Save as NEW version
+        var versions = await _timelineStore.GetAllVersionsAsync(assessmentId, HttpContext.RequestAborted).ConfigureAwait(false);
+        var nextVersion = (versions.Count > 0 ? versions.Max(v => v.Version) : 0) + 1;
+        
+        timeline.Version = nextVersion;
+        timeline.GeneratedAt = DateTime.UtcNow; // Mark as modified now
+
+        // Recalculate Resource Allocation based on the edited Activities
+        if (timeline.Activities != null && timeline.Activities.Any())
+        {
+             timeline.ResourceAllocation = await _generationService.RecalculateResourceAllocationAsync(timeline, HttpContext.RequestAborted).ConfigureAwait(false);
+        }
+
         await _timelineStore.SaveAsync(timeline, HttpContext.RequestAborted).ConfigureAwait(false);
-        return Ok();
+        return Ok(timeline); // Return the saved record with new version
     }
 
     [HttpGet("{assessmentId}/export")]
     [UiAuthorize("pre-sales-project-timelines")]
-    public async Task<IActionResult> ExportTimeline(int assessmentId)
+    public async Task<IActionResult> ExportTimeline(int assessmentId, [FromQuery] int? version)
     {
         if (assessmentId <= 0)
         {
             return BadRequest("AssessmentId is required.");
         }
 
-        var record = await _timelineStore.GetAsync(assessmentId, HttpContext.RequestAborted).ConfigureAwait(false);
+        var record = await _timelineStore.GetAsync(assessmentId, version, HttpContext.RequestAborted).ConfigureAwait(false);
         if (record == null)
         {
             return NotFound("Timeline data not found for this assessment.");

@@ -1,25 +1,15 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
-type LlmProvider = 'openai' | 'gemini' | 'ollama' | 'minimax';
-
 interface Settings {
   applicationName?: string;
   logoUrl?: string;
-  llmProvider?: LlmProvider;
-  llmModel?: string;
-  llmApiKey?: string;
-  ollamaHost?: string;
 }
 
 export default function Settings() {
   const [settings, setSettings] = useState<Settings>({
     applicationName: '',
-    logoUrl: '',
-    llmProvider: 'openai',
-    llmModel: '',
-    llmApiKey: '',
-    ollamaHost: ''
+    logoUrl: ''
   });
   const [msg, setMsg] = useState('');
 
@@ -30,7 +20,7 @@ export default function Settings() {
         const data = await res.json();
         setSettings(prev => ({ ...prev, ...data }));
       }
-    } catch {}
+    } catch { }
   };
 
   useEffect(() => { load(); }, []);
@@ -67,49 +57,6 @@ export default function Settings() {
           placeholder="Logo URL"
           className="form-input"
         />
-        <hr style={{ width: '100%' }} />
-        <h2 style={{ marginBottom: 0 }}>AI Model</h2>
-        <label className="form-label" style={{ fontWeight: 500 }}>Provider</label>
-        <select
-          value={settings.llmProvider || 'openai'}
-          onChange={e => setSettings({ ...settings, llmProvider: e.target.value as LlmProvider })}
-          className="form-input"
-        >
-          <option value="openai">OpenAI (Closed Source)</option>
-          <option value="gemini">Gemini (Closed Source)</option>
-          <option value="minimax">MiniMax (Closed Source)</option>
-          <option value="ollama">Ollama (Open Source)</option>
-        </select>
-        <input
-          value={settings.llmModel || ''}
-          onChange={e => setSettings({ ...settings, llmModel: e.target.value })}
-          placeholder="Model name"
-          className="form-input"
-        />
-        {settings.llmProvider === 'ollama' ? (
-          <input
-            type="url"
-            value={settings.ollamaHost || ''}
-            onChange={e => setSettings({ ...settings, ollamaHost: e.target.value })}
-            placeholder="Ollama host (e.g. http://localhost:11434)"
-            className="form-input"
-            autoComplete="off"
-          />
-        ) : (
-          <input
-            type="password"
-            value={settings.llmApiKey || ''}
-            onChange={e => setSettings({ ...settings, llmApiKey: e.target.value })}
-            placeholder="API key"
-            className="form-input"
-            autoComplete="new-password"
-          />
-        )}
-        {settings.llmProvider === 'ollama' ? (
-          <small style={{ color: '#666' }}>The Ollama host must be an HTTP or HTTPS URL reachable from the backend.</small>
-        ) : (
-          <small style={{ color: '#666' }}>API keys are never logged by the server.</small>
-        )}
         <button onClick={save} className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>Save</button>
         {msg && <p>{msg}</p>}
       </div>

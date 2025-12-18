@@ -15,6 +15,7 @@ public class TimelineGenerationService
 {
     private readonly ProjectAssessmentStore _assessments;
     private readonly PresalesConfigurationStore _configurationStore;
+    private readonly ProjectTemplateStore _templateStore;
     private readonly TimelineStore _timelineStore;
     private readonly TimelineEstimationStore _estimationStore;
     private readonly LlmClient _llmClient;
@@ -23,6 +24,7 @@ public class TimelineGenerationService
     public TimelineGenerationService(
         ProjectAssessmentStore assessments,
         PresalesConfigurationStore configurationStore,
+        ProjectTemplateStore templateStore,
         TimelineStore timelineStore,
         TimelineEstimationStore estimationStore,
         LlmClient llmClient,
@@ -30,6 +32,7 @@ public class TimelineGenerationService
     {
         _assessments = assessments;
         _configurationStore = configurationStore;
+        _templateStore = templateStore;
         _timelineStore = timelineStore;
         _estimationStore = estimationStore;
         _llmClient = llmClient;
@@ -72,51 +75,104 @@ public class TimelineGenerationService
                 "The timeline estimator did not produce any phase guidance. Please regenerate the estimation first.");
         }
 
-        var prompt = ConstructDailySchedulerAiPrompt(estimatorRecord, ganttTasks);
-        _logger.LogInformation(
-            "Requesting AI generated timeline for assessment {AssessmentId} with {TaskCount} tasks.",
-            assessmentId,
-            ganttTasks.Count);
+        var template = await _templateStore.GetAsync(assessment.TemplateId).ConfigureAwait(false);
+        
+        // --- Version 0: Standard Logic ---
+        var promptV0 = ConstructDailySchedulerAiPrompt(estimatorRecord, ganttTasks, template);
+        _logger.LogInformation("Requesting AI generated timeline (V0) for assessment {AssessmentId}.", assessmentId);
+
+        var recordV0 = await executeAiGeneration(promptV0, 0);
+
+        // --- Version 1: Detailed Logic (User Request) ---
+        var promptV1 = ConstructDetailedAiPrompt(estimatorRecord, ganttTasks, template, recordV0);
+        _logger.LogInformation("Requesting AI generated timeline (V1) for assessment {AssessmentId}.", assessmentId);
+        
+        var recordV1 = await executeAiGeneration(promptV1, 1);
+
+        return recordV1;
+
+        async Task<TimelineRecord> executeAiGeneration(string prompt, int version)
+        {
+            string rawResponse = string.Empty;
+            AiTimelineResult aiTimeline;
+            try
+            {
+                rawResponse = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
+                aiTimeline = ParseAiTimeline(rawResponse);
+            }
+            catch (Exception ex)
+            {
+                await LogAttemptSafeAsync(assessmentId, assessment.ProjectName, assessment.TemplateName ?? string.Empty, rawResponse, false, ex.Message, cancellationToken);
+                _logger.LogError(ex, "AI generation failed for V{Version}.", version);
+                // For V1 failure, we might want to just return V0? But let's fail hard for now as requested.
+                throw;
+            }
+
+            var record = new TimelineRecord
+            {
+                AssessmentId = assessmentId,
+                Version = version,
+                ProjectName = assessment.ProjectName,
+                TemplateName = assessment.TemplateName ?? string.Empty,
+                GeneratedAt = DateTime.UtcNow,
+                TotalDurationDays = aiTimeline.TotalDurationDays,
+                Activities = aiTimeline.Activities,
+                ResourceAllocation = aiTimeline.ResourceAllocation
+            };
+
+            ValidateAiTimeline(record, config);
+            // Use the roles with explicit headcounts for allocation logic
+            record.ResourceAllocation = CalculateResourceAllocation(record, estimatorRecord.Roles);
+
+            try
+            {
+                await _timelineStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await LogAttemptSafeAsync(assessmentId, assessment.ProjectName, assessment.TemplateName ?? string.Empty, rawResponse, false, $"Failed to persist V{version}: {ex.Message}", cancellationToken);
+                throw;
+            }
+
+            await LogAttemptSafeAsync(assessmentId, assessment.ProjectName, assessment.TemplateName ?? string.Empty, rawResponse, true, null, cancellationToken);
+            return record;
+        }
+    }
+
+    public async Task<TimelineRecord> GenerateV1AfterStrictAsync(
+        int assessmentId, 
+        TimelineEstimationRecord strictEstimation, 
+        TimelineRecord deterministicV0, 
+        CancellationToken cancellationToken)
+    {
+        var assessment = await _assessments.GetAsync(assessmentId, null).ConfigureAwait(false);
+        if (assessment == null) throw new KeyNotFoundException($"Assessment {assessmentId} not found.");
+        
+        var config = await _configurationStore.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        var ganttTasks = AssessmentTaskAggregator.GetGanttTasks(assessment, config);
+        var template = await _templateStore.GetAsync(assessment.TemplateId).ConfigureAwait(false);
+
+        var promptV1 = ConstructDetailedAiPrompt(strictEstimation, ganttTasks, template, deterministicV0);
+        _logger.LogInformation("Requesting AI generated timeline (V1-Strict) for assessment {AssessmentId}.", assessmentId);
 
         string rawResponse = string.Empty;
         AiTimelineResult aiTimeline;
+        
         try
         {
-            rawResponse = await _llmClient.GenerateAsync(prompt).ConfigureAwait(false);
+            rawResponse = await _llmClient.GenerateAsync(promptV1).ConfigureAwait(false);
             aiTimeline = ParseAiTimeline(rawResponse);
         }
-        catch (JsonException ex)
+        catch (Exception ex)
         {
-            await LogAttemptSafeAsync(
-                assessmentId,
-                assessment.ProjectName,
-                assessment.TemplateName ?? string.Empty,
-                rawResponse,
-                success: false,
-                error: $"JSON parse error: {ex.Message}",
-                cancellationToken).ConfigureAwait(false);
-
-            _logger.LogError(ex, "AI response was not valid JSON for timeline generation.");
-            throw new InvalidOperationException("AI returned an invalid timeline response.", ex);
-        }
-        catch (InvalidOperationException ex) when (!string.IsNullOrWhiteSpace(rawResponse))
-        {
-            await LogAttemptSafeAsync(
-                assessmentId,
-                assessment.ProjectName,
-                assessment.TemplateName ?? string.Empty,
-                rawResponse,
-                success: false,
-                error: ex.Message,
-                cancellationToken).ConfigureAwait(false);
-
-            _logger.LogError(ex, "AI timeline response could not be parsed for assessment {AssessmentId}.", assessmentId);
+            await LogAttemptSafeAsync(assessmentId, assessment.ProjectName, assessment.TemplateName ?? string.Empty, rawResponse, false, ex.Message, cancellationToken);
             throw;
         }
 
-        var record = new TimelineRecord
+        var recordV1 = new TimelineRecord
         {
             AssessmentId = assessmentId,
+            Version = 1, // V1
             ProjectName = assessment.ProjectName,
             TemplateName = assessment.TemplateName ?? string.Empty,
             GeneratedAt = DateTime.UtcNow,
@@ -125,35 +181,14 @@ public class TimelineGenerationService
             ResourceAllocation = aiTimeline.ResourceAllocation
         };
 
-        ValidateAiTimeline(record, config);
-        record.ResourceAllocation = CalculateResourceAllocation(record, config);
+        ValidateAiTimeline(recordV1, config);
+        // Use the roles with explicit headcounts for allocation logic
+        recordV1.ResourceAllocation = CalculateResourceAllocation(recordV1, strictEstimation.Roles);
 
-        try
-        {
-            await _timelineStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            await LogAttemptSafeAsync(
-                assessmentId,
-                assessment.ProjectName,
-                assessment.TemplateName ?? string.Empty,
-                rawResponse,
-                success: false,
-                error: $"Failed to persist timeline: {ex.Message}",
-                cancellationToken).ConfigureAwait(false);
-            throw;
-        }
+        await _timelineStore.SaveAsync(recordV1, cancellationToken).ConfigureAwait(false);
+        await LogAttemptSafeAsync(assessmentId, assessment.ProjectName, assessment.TemplateName ?? string.Empty, rawResponse, true, null, cancellationToken);
 
-        await LogAttemptSafeAsync(
-            assessmentId,
-            assessment.ProjectName,
-            assessment.TemplateName ?? string.Empty,
-            rawResponse,
-            success: true,
-            error: null,
-            cancellationToken).ConfigureAwait(false);
-        return record;
+        return recordV1;
     }
 
     private Task LogAttemptSafeAsync(
@@ -223,6 +258,8 @@ public class TimelineGenerationService
         return result;
     }
 
+
+
     private static string ExtractJsonPayload(string response)
     {
         var trimmed = response.Trim();
@@ -259,162 +296,140 @@ public class TimelineGenerationService
         return trimmed;
     }
 
+    public async Task<List<TimelineResourceAllocationEntry>> RecalculateResourceAllocationAsync(TimelineRecord record, CancellationToken cancellationToken)
+    {
+        // We need the original estimation to know the "Confirmed Headcounts" and "Roles"
+        var estimation = await _estimationStore.GetAsync(record.AssessmentId, cancellationToken).ConfigureAwait(false);
+        var roles = estimation?.Roles ?? new List<TimelineRoleEstimate>();
+        
+        // If no roles found (legacy), try to rebuild reasonable defaults from config or active roles?
+        // But the user specifically wants strict behavior "PM follow from start to end".
+        // Let's rely on the estimation roles.
+        
+        return CalculateResourceAllocation(record, roles);
+    }
+
     private static List<TimelineResourceAllocationEntry> CalculateResourceAllocation(
         TimelineRecord record,
-        PresalesConfiguration config)
+        List<TimelineRoleEstimate> confirmedRoles)
     {
-        var activities = record.Activities ?? new List<TimelineActivity>();
-        var allDetails = activities
-            .SelectMany(a => a.Details ?? new List<TimelineDetail>())
-            .ToList();
+        var result = new List<TimelineResourceAllocationEntry>();
+        if (confirmedRoles == null || !confirmedRoles.Any()) return result;
 
-        var computedDuration = allDetails
-            .Select(d => d.StartDay + d.DurationDays - 1)
-            .Where(maxDay => maxDay > 0)
-            .DefaultIfEmpty(record.TotalDurationDays)
-            .Max();
+        var totalDays = record.TotalDurationDays;
+        
+        // 1. Identify Activity Ranges per Role from the Timeline Activities
+        // Flatten all tasks to find start/end range per role
+        var roleRanges = new Dictionary<string, (int MinStart, int MaxEnd)>(StringComparer.OrdinalIgnoreCase);
 
-        var totalDays = Math.Max(computedDuration, 0);
-        if (totalDays > record.TotalDurationDays)
+        if (record.Activities != null)
         {
-            record.TotalDurationDays = totalDays;
-        }
-
-        var allocation = new Dictionary<string, List<double>>(StringComparer.OrdinalIgnoreCase);
-
-        void EnsureRoleLength(string role)
-        {
-            if (!allocation.TryGetValue(role, out var list))
+            foreach (var act in record.Activities)
             {
-                list = Enumerable.Repeat(0d, totalDays).ToList();
-                allocation[role] = list;
-            }
-            else if (list.Count < totalDays)
-            {
-                while (list.Count < totalDays)
+                if (act.Details == null) continue;
+                foreach (var det in act.Details)
                 {
-                    list.Add(0d);
+                    if (det.DurationDays <= 0) continue;
+
+                    // Split actor string (e.g., "Business Analyst, Developer")
+                    // We need to match these to the "Confirmed Roles"
+                    var taskActors = (det.Actor ?? string.Empty)
+                                    .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                                    .Select(s => s.Trim())
+                                    .ToList();
+
+                    foreach (var actorCandidate in taskActors)
+                    {
+                        // Fuzzy match the task actor to a Confirmed Role
+                        var rName = actorCandidate;
+                        // Try Exact Match
+                        var match = confirmedRoles.FirstOrDefault(r => r.Role.Equals(rName, StringComparison.OrdinalIgnoreCase));
+                        // Try Contains
+                        if (match == null) match = confirmedRoles.FirstOrDefault(r => rName.Contains(r.Role, StringComparison.OrdinalIgnoreCase));
+                        // Try Reverse Contains
+                        if (match == null) match = confirmedRoles.FirstOrDefault(r => r.Role.Contains(rName, StringComparison.OrdinalIgnoreCase));
+
+                        if (match != null)
+                        {
+                            rName = match.Role;
+                            int start = det.StartDay;
+                            int end = det.StartDay + det.DurationDays - 1;
+
+                            if (!roleRanges.ContainsKey(rName)) roleRanges[rName] = (start, end);
+                            else
+                            {
+                                var curr = roleRanges[rName];
+                                roleRanges[rName] = (Math.Min(curr.MinStart, start), Math.Max(curr.MaxEnd, end));
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        foreach (var roleLabel in config.Roles
-                     .Select(role => PresalesRoleFormatter.BuildLabel(role.RoleName, role.ExpectedLevel))
-                     .Where(label => !string.IsNullOrWhiteSpace(label)))
+        // 2. Build Allocation Rows based on Rules
+        foreach (var role in confirmedRoles)
         {
-            EnsureRoleLength(roleLabel);
-        }
+            var daily = new double[totalDays + 5]; // +Buffer safely
 
-        foreach (var detail in allDetails)
-        {
-            if (detail.DurationDays <= 0)
+            // RULE: PM and Architect follow from start to end (Full Project Duration)
+            // We check against common names for these roles.
+            bool isAlwaysPresence = role.Role.Contains("Project Manager", StringComparison.OrdinalIgnoreCase)
+                                 || role.Role.Contains("Architect", StringComparison.OrdinalIgnoreCase)
+                                 || role.Role.Contains("PM", StringComparison.OrdinalIgnoreCase)
+                                 || role.Role.Contains("Coordinator", StringComparison.OrdinalIgnoreCase);
+
+            int startScan = 1;
+            int endScan = totalDays;
+
+            if (!isAlwaysPresence)
             {
-                continue;
-            }
-
-            var actors = (detail.Actor ?? string.Empty)
-                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .DefaultIfEmpty(detail.Actor ?? string.Empty)
-                .Where(actor => !string.IsNullOrWhiteSpace(actor))
-                .ToList();
-
-            if (actors.Count == 0)
-            {
-                continue;
-            }
-
-            var dailyEffort = detail.ManDays / detail.DurationDays;
-            if (dailyEffort <= 0)
-            {
-                continue;
-            }
-
-            foreach (var actor in actors)
-            {
-                EnsureRoleLength(actor);
-            }
-
-            for (var dayOffset = 0; dayOffset < detail.DurationDays; dayOffset++)
-            {
-                var absoluteDay = detail.StartDay + dayOffset;
-                if (absoluteDay <= 0 || absoluteDay > totalDays)
+                // RULE: Others follow from "it appear until they end" (Range)
+                if (roleRanges.TryGetValue(role.Role, out var range))
                 {
-                    continue;
+                    startScan = range.MinStart;
+                    endScan = range.MaxEnd;
                 }
-
-                var perRoleEffort = dailyEffort / actors.Count;
-                foreach (var actor in actors)
+                else
                 {
-                    allocation[actor][absoluteDay - 1] += perRoleEffort;
+                    // Role has no tasks assigned in this timeline version?
+                    // Don't allocate costs if they aren't working.
+                    startScan = -1;
                 }
             }
-        }
 
-        foreach (var specialRole in new[] { "PM", "Architect" })
-        {
-            var hasRole = allocation.Keys.Any(role => RoleMatches(role, specialRole)) ||
-                          config.Roles.Any(r => RoleMatches(PresalesRoleFormatter.BuildLabel(r.RoleName, r.ExpectedLevel), specialRole));
-            if (!hasRole)
+            // Fill the days
+            if (startScan > 0)
             {
-                continue;
-            }
-
-            EnsureRoleLength(specialRole);
-            var values = allocation[specialRole];
-            for (var day = 0; day < values.Count; day++)
-            {
-                values[day] = Math.Max(values[day], 0.5);
-            }
-        }
-
-        var orderLookup = config.Roles
-            .Select((role, index) => new { Label = PresalesRoleFormatter.BuildLabel(role.RoleName, role.ExpectedLevel), index })
-            .Where(x => !string.IsNullOrWhiteSpace(x.Label))
-            .ToDictionary(x => x.Label, x => x.index, StringComparer.OrdinalIgnoreCase);
-
-        var result = allocation
-            .Select(kvp =>
-            {
-                var roundedDaily = kvp.Value.Select(v => Math.Round(v, 2)).ToList();
-                var totalManDays = Math.Round(roundedDaily.Sum(), 2);
-                return new TimelineResourceAllocationEntry
+                // Clamp to project duration
+                // Actually, if a task extends beyond TotalDurationDays, we should probably grow the duration, 
+                // but here we just show cost up to the declared duration or slightly beyond?
+                // Visual table usually matches grid. Let's stick to TotalDays.
+                
+                for (int d = 1; d <= totalDays; d++)
                 {
-                    Role = kvp.Key,
-                    TotalManDays = totalManDays,
-                    DailyEffort = roundedDaily
-                };
-            })
-            .Where(entry => entry.TotalManDays > 0.01 || RoleMatches(entry.Role, "PM") || RoleMatches(entry.Role, "Architect"))
-            .ToList();
-
-        result.Sort((a, b) =>
-        {
-            var aHasOrder = orderLookup.TryGetValue(a.Role, out var aOrder);
-            var bHasOrder = orderLookup.TryGetValue(b.Role, out var bOrder);
-            if (aHasOrder && bHasOrder)
-            {
-                return aOrder.CompareTo(bOrder);
+                    if (d >= startScan && d <= endScan)
+                    {
+                        daily[d - 1] = role.EstimatedHeadcount;
+                    }
+                }
             }
 
-            if (aHasOrder)
+            result.Add(new TimelineResourceAllocationEntry
             {
-                return -1;
-            }
+                Role = role.Role,
+                TotalManDays = daily.Take(totalDays).Sum(),
+                DailyEffort = daily.Take(totalDays).ToList()
+            });
+        }
 
-            if (bHasOrder)
-            {
-                return 1;
-            }
-
-            return string.Compare(a.Role, b.Role, StringComparison.OrdinalIgnoreCase);
-        });
-
-        return result;
+        return result.OrderBy(r => r.Role).ToList();
     }
 
     private string ConstructDailySchedulerAiPrompt(
         TimelineEstimationRecord estimation,
-        List<AssessmentTaskAggregator.GanttTask> ganttTasks)
+        List<AssessmentTaskAggregator.GanttTask> ganttTasks,
+        ProjectTemplate? template)
     {
         if (estimation == null)
         {
@@ -433,6 +448,36 @@ public class TimelineGenerationService
 
         static string Encode(string? value) => JsonEncodedText.Encode(value ?? string.Empty).ToString();
 
+        // 1. Build List of Constraints from Template
+        var constraintLines = new List<string>();
+        if (template?.TimelinePhases != null)
+        {
+             foreach(var phase in template.TimelinePhases)
+             {
+                 if (phase.Items != null)
+                 {
+                     foreach(var item in phase.Items)
+                     {
+                         // Calculate Absolute Start Day Constraint: Item Offset is now Absolute
+                         var constraintStart = Math.Max(1, item.StartDayOffset);
+                         var constraintDuration = Math.Max(1, item.Duration);
+                         
+                         // Fuzzy Matching to find the exact task name used in GanttTasks
+                         // This is critical because Template Item Name might be "Sprint Planning"
+                         // while Gantt Task is "Sprint Planning - Requirement..."
+                         var matchingTask = ganttTasks.FirstOrDefault(t => 
+                             t.Detail.Contains(item.Name, StringComparison.OrdinalIgnoreCase) ||
+                             item.Name.Contains(t.Detail, StringComparison.OrdinalIgnoreCase));
+                         
+                         var taskNameForConstraint = matchingTask != null ? matchingTask.Detail : item.Name;
+                         
+                         // Constraint is applied with the EXACT name usage
+                         constraintLines.Add($"  - \"{Encode(taskNameForConstraint)}\": Must Start on Day {constraintStart} and last {constraintDuration} days.");
+                     }
+                 }
+             }
+        }
+        
         var taskLines = ganttTasks.Select(t =>
             $"  - {{ \"activityGroup\": \"{Encode(t.ActivityGroup)}\", \"taskName\": \"{Encode(t.Detail)}\", \"actor\": \"{Encode(t.Actor)}\", \"manDays\": {t.ManDays.ToString("F2", CultureInfo.InvariantCulture)} }}");
 
@@ -677,8 +722,12 @@ public class TimelineGenerationService
     **2. HIGH-LEVEL PHASE PLAN:**
     {string.Join("\n", phaseGuidanceLines)}
 
-    **3. TASK DEPENDENCIES:**
+    **3. TASK DEPENDENCIES & CONSTRAINTS:**
     {taskDependencies}
+    
+    **TEMPLATE-ENFORCED CONSTRAINTS (HIGHEST PRIORITY):**
+    These tasks MUST adhere to the specified Start Day and Duration, regardless of other rules, unless it violates valid manpower limits. Use these as anchors.
+    {string.Join("\n", constraintLines)}
 
     **4. DETAILED TASK LIST TO SCHEDULE:**
     [
@@ -711,6 +760,108 @@ public class TimelineGenerationService
     **FINAL JSON OUTPUT (Strictly this format, no commentary):**
     Now, generate the new JSON schedule for the tasks provided in Section 4. Adhere strictly to every rule.
     ";
+    }
+
+    private string ConstructDetailedAiPrompt(
+        TimelineEstimationRecord estimation,
+        List<AssessmentTaskAggregator.GanttTask> ganttTasks,
+        ProjectTemplate? template,
+        TimelineRecord version0)
+    {
+        static string Encode(string? value) => JsonEncodedText.Encode(value ?? string.Empty).ToString();
+
+        var taskLines = ganttTasks.Select(t =>
+            $"  - {{ \"activityGroup\": \"{Encode(t.ActivityGroup)}\", \"taskName\": \"{Encode(t.Detail)}\", \"actor\": \"{Encode(t.Actor)}\", \"manDays\": {t.ManDays.ToString("F2", CultureInfo.InvariantCulture)} }}");
+
+        var phaseLines = (template?.TimelinePhases ?? new List<TimelinePhaseTemplate>())
+            .Select(p => $"  - Phase: {p.Name} (Duration: {p.Duration} days, Start: {p.StartDay})");
+
+        var headcountLines = (estimation.Roles ?? new List<TimelineRoleEstimate>())
+            .Select(r => $"   - **{r.Role}**: {r.EstimatedHeadcount:F1}");
+
+        // Summarize Version 0 for context
+        var v0Summary = version0.Activities?.Select(a => 
+            $"- {a.ActivityName} (Starts Day {a.Details.Min(d => d.StartDay)}, Duration {a.Details.Max(d => d.StartDay + d.DurationDays) - a.Details.Min(d => d.StartDay)})")
+            ?? Enumerable.Empty<string>();
+
+        var exampleJson = """
+    {
+      "totalDurationDays": 25,
+      "activities": [
+        { "activityName": "Project Preparation", "details": [ { "taskName": "System Setup", "actor": "Architect", "manDays": 0.6, "startDay": 1, "durationDays": 1 } ] }
+      ],
+      "resourceAllocation": [ { "role": "Architect", "totalManDays": 12.0, "dailyEffort": [0.5, 0.5, ...] } ]
+    }
+    """;
+
+        return $@"
+# Role
+You are a Senior Technical Project Manager and AI Scheduler. Your goal is to generate a realistic Gantt chart (JSON) based on a Project Assessment and a Timeline Template.
+
+# Inputs
+1. **Template**: Timeline Phases and Item definitions.
+{string.Join("\n", phaseLines)}
+
+2. **Assessment**: Scoped items with effort estimates (Man-Days).
+[
+{string.Join(",\n", taskLines)}
+]
+
+3. **Headcount Data**:
+{string.Join("\n", headcountLines)}
+
+4. **Base Logic Timeline (Reference)**:
+The following timeline was generated by a heuristic scheduler. Use it as a baseline but refine it using the rules below.
+{string.Join("\n", v0Summary)}
+
+# Logic & Scheduling Rules
+
+## 1. Parallel Phase Start (Efficiency Rule)
+Different roles must work in parallel to save time:
+- **Project Preparation** (System/DB Setup) is done by **Architect**.
+- **Requirements Phase** (SRS/FSD, DB Planning Docs) is done by **Business Analyst**.
+- **Rule**: These two phases start on **Day 1** and run in parallel. Do not make Requirements wait for System Setup.
+
+## 2. Strict Dependency Chain
+Once the parallel start is complete, follow this sequence:
+1. **Sprint Planning**: Starts only after **Requirements** are 100% agreed/done. (Wait for the longer of Prep or Req to finish).
+2. **Development**: Starts strictly after Sprint Planning.
+   - **Safety Rule**: Developers do not touch code until Sprint Planning is signed off.
+   - **Parallelism**: Since Headcount >= 2 (usually), BE and FE tasks run in parallel.
+   - **Code Review**: Runs parallel to Dev, finishes slightly later.
+3. **Testing Sequence**:
+   - **Unit Testing**: During Dev.
+   - **SIT**: Starts strictly after **Development & Unit Test** are 100% done.
+   - **UAT**: Starts strictly after **SIT** is 100% done.
+4. **Closing**: After UAT.
+
+## 3. Duration & Buffer Calculation
+- **Base Duration** = (Effort / Headcount).
+  - *Exception*: If Headcount < 1, use 1.
+- **Buffer**: Apply **20%** to all durations.
+- **Rounding**: Round up to the nearest full day.
+
+## 4. Resource Allocation & Daily Effort
+- **No Gaps**: Once a resource starts, they work every day until their last task.
+- **Project Manager & Architect**:
+  - Start Day: Day 1.
+  - End Day: Project End.
+  - Daily Effort: 0.5 (Constant).
+- **Business Analyst**:
+  - Start Day: Day 1 (Requirements).
+  - End Day: End of Warranty/Support.
+  - Daily Effort: Full capacity (e.g. 2.0).
+- **Developer**:
+  - Start Day: Sprint Planning (First appearance).
+  - End Day: End of UAT/Fixes (or Closing if assigned).
+  - Daily Effort: Full capacity (e.g. 2.0).
+
+# Task
+Generate the `refined_timeline.json`. Ensure the resource allocation arrays match the start/end rules exactly.
+
+**Output strictly valid JSON:**
+{exampleJson}
+";
     }
 
     private void ValidateAiTimeline(TimelineRecord timeline, PresalesConfiguration config)

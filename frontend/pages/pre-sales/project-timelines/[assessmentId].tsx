@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Alert, Box, Button, CircularProgress, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Paper, Stack, Typography, Tabs, Tab } from '@mui/material';
 import Swal from 'sweetalert2';
 import { apiFetch } from '../../../lib/api';
 import styles from './timeline.module.css';
@@ -27,6 +27,8 @@ interface ResourceAllocation {
 }
 
 interface AiTimelineResponse {
+  assessmentId: number;
+  version: number;
   totalDurationDays: number;
   activities: TimelineActivity[];
   resourceAllocation: ResourceAllocation[];
@@ -40,10 +42,12 @@ const LEFT_PANE_WIDTHS = { col1: 200, col2: 280, col3: 150, col4: 90 };
 const TOTAL_LEFT_PANE_WIDTH = Object.values(LEFT_PANE_WIDTHS).reduce((a, b) => a + b, 0);
 
 export default function ProjectTimelineDetailPage() {
-  // --- HOOKS AND HANDLERS (No changes needed) ---
   const router = useRouter();
   const { assessmentId } = router.query;
   const [timeline, setTimeline] = useState<AiTimelineResponse | null>(null);
+  const [versions, setVersions] = useState<AiTimelineResponse[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -63,25 +67,78 @@ export default function ProjectTimelineDetailPage() {
     return assessmentId ? parseInt(assessmentId, 10) : NaN;
   }, [assessmentId]);
 
-  const loadTimeline = useCallback(async () => {
+  const loadVersions = useCallback(async () => {
     if (!resolvedId) return;
+    try {
+      const res = await apiFetch(`/api/timelines/${resolvedId}/versions`);
+      if (res.ok) {
+        const data: AiTimelineResponse[] = await res.json();
+        setVersions(data);
+
+        // If no version selected, select the latest
+        if (selectedVersion === null && data.length > 0) {
+          const maxVer = Math.max(...data.map(d => d.version));
+          setSelectedVersion(maxVer);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load versions", e);
+    }
+  }, [resolvedId, selectedVersion]);
+
+  const loadTimeline = useCallback(async () => {
+    if (!resolvedId || selectedVersion === null) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/timelines/${resolvedId}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setTimeline(data);
+      // If we already have the data in 'versions', use it instead of refetching
+      // But fetching ensures detailed data if list was summary. (Here list is full record currently).
+      // For safety, let's fetch to match previous behavior or just find in list.
+      // Given the list endpoint returns full records, we can just find it.
+
+      const found = versions.find(v => v.version === selectedVersion);
+      if (found) {
+        setTimeline(found);
+      } else {
+        // Fallback fetch
+        const res = await apiFetch(`/api/timelines/${resolvedId}?version=${selectedVersion}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        setTimeline(data);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load timeline');
     } finally {
       setLoading(false);
     }
-  }, [resolvedId]);
+  }, [resolvedId, selectedVersion, versions]);
+
+  useEffect(() => {
+    loadVersions();
+  }, [loadVersions]);
 
   useEffect(() => {
     loadTimeline();
   }, [loadTimeline]);
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    if (dirty) {
+      Swal.fire({
+        title: "Unsaved Changes",
+        text: "You have unsaved changes. Switch version anyway?",
+        showCancelButton: true,
+        confirmButtonText: "Switch"
+      }).then((result) => {
+        if (result.isConfirmed) {
+          setDirty(false);
+          setIsEditing(false);
+          setSelectedVersion(newValue);
+        }
+      });
+    } else {
+      setSelectedVersion(newValue);
+    }
+  };
 
   const handleReset = useCallback(async () => {
     if (!resolvedId) return;
@@ -118,17 +175,17 @@ export default function ProjectTimelineDetailPage() {
   }, [resolvedId, router]);
 
   const handleExport = useCallback(async () => {
-    if (!resolvedId) return;
+    if (!resolvedId || selectedVersion === null) return;
     setExportError(null);
     setExporting(true);
     try {
-      const res = await apiFetch(`/api/timelines/${resolvedId}/export`);
+      const res = await apiFetch(`/api/timelines/${resolvedId}/export?version=${selectedVersion}`);
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `timeline-${resolvedId}.xlsx`;
+      link.download = `timeline-${resolvedId}-v${selectedVersion}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -139,7 +196,7 @@ export default function ProjectTimelineDetailPage() {
     } finally {
       setExporting(false);
     }
-  }, [resolvedId]);
+  }, [resolvedId, selectedVersion]);
 
   const handleSave = useCallback(async () => {
     if (!resolvedId || !timeline) return;
@@ -151,15 +208,24 @@ export default function ProjectTimelineDetailPage() {
         body: JSON.stringify(timeline)
       });
       if (!res.ok) throw new Error(await res.text());
+
+      const newRecord: AiTimelineResponse = await res.json();
+
       setDirty(false);
       setIsEditing(false); // Exit edit mode
-      await loadTimeline();
+
+      // Update versions list and switch to new version
+      await loadVersions();
+      setSelectedVersion(newRecord.version);
+
+      Swal.fire("Saved", `Timeline saved as Version ${newRecord.version}`, "success");
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setLoading(false);
     }
-  }, [resolvedId, timeline, loadTimeline]);
+  }, [resolvedId, timeline, loadVersions]);
 
   const handleDragStart = (e: React.MouseEvent, actIdx: number, detIdx: number, detail: TimelineDetail) => {
     if (!isEditing) return; // Prevent drag if not editing
@@ -255,7 +321,7 @@ export default function ProjectTimelineDetailPage() {
     };
   }, [timeline]);
 
-  if (loading) {
+  if (loading && !timeline) {
     return (
       <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6, display: 'flex', justifyContent: 'center' }}>
         <CircularProgress />
@@ -270,11 +336,14 @@ export default function ProjectTimelineDetailPage() {
     );
   }
   if (!timeline || !metrics) {
-    return (
-      <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6 }}>
-        <Alert severity="info">No timeline data.</Alert>
-      </Box>
-    );
+    if (versions.length === 0) {
+      return (
+        <Box sx={{ maxWidth: 1200, mx: 'auto', py: 6 }}>
+          <Alert severity="info">No timeline data available. Please generate one first.</Alert>
+        </Box>
+      );
+    }
+    return null; // Should switch to loading
   }
 
   const formatGeneratedAt = (value: string) => {
@@ -321,11 +390,11 @@ export default function ProjectTimelineDetailPage() {
           )}
           {isEditing && (
             <>
-              <Button color="inherit" onClick={() => { setIsEditing(false); loadTimeline(); }}>
+              <Button color="inherit" onClick={() => { setIsEditing(false); loadTimeline(); setDirty(false); }}>
                 Cancel
               </Button>
               <Button variant="contained" color="primary" onClick={handleSave} disabled={!dirty}>
-                Save Changes
+                Save Changes (New Version)
               </Button>
             </>
           )}
@@ -334,6 +403,19 @@ export default function ProjectTimelineDetailPage() {
           </Button>
         </Stack>
       </Stack>
+
+      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs value={selectedVersion} onChange={handleTabChange} aria-label="timeline version tabs">
+          {versions.sort((a, b) => a.version - b.version).map((v) => (
+            <Tab
+              key={v.version}
+              label={v.version === 0 ? "V0 (Standard)" : v.version === 1 ? "V1 (AI Detailed)" : `V${v.version} (Refined)`}
+              value={v.version}
+            />
+          ))}
+        </Tabs>
+      </Box>
+
       {exportError && <Alert severity="error">{exportError}</Alert>}
 
       <Paper variant="outlined" sx={{ overflow: 'auto', width: '100%', bgcolor: 'background.paper', borderRadius: 3 }}>
@@ -488,3 +570,4 @@ export default function ProjectTimelineDetailPage() {
     </Box>
   );
 }
+

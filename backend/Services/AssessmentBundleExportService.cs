@@ -49,7 +49,7 @@ public class AssessmentBundleExportService
         var assessmentBytes = AssessmentExportBuilder.Build(assessment, template);
         AppendWorkbook(workbook, assessmentBytes);
 
-        var timeline = await _timelineStore.GetAsync(assessmentId, cancellationToken).ConfigureAwait(false);
+        var timeline = await _timelineStore.GetAsync(assessmentId, null, cancellationToken).ConfigureAwait(false);
         if (timeline != null)
         {
             var timelineBytes = TimelineExcelBuilder.Build(timeline);

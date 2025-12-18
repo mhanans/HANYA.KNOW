@@ -422,26 +422,27 @@ export default function ProjectTimelinesPage() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Role</TableCell>
-                      <TableCell align="right">Total Effort (MD)</TableCell>
-                      <TableCell align="right" width={150}>Headcount</TableCell>
+                      <TableCell align="right" width={150}>Input Headcount</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {confirmedRoles.map((role, idx) => (
-                      <TableRow key={role.role}>
-                        <TableCell>{role.role}</TableCell>
-                        <TableCell align="right">{role.totalManDays.toFixed(1)}</TableCell>
-                        <TableCell align="right">
-                          <TextField
-                            type="number"
-                            size="small"
-                            value={role.estimatedHeadcount}
-                            onChange={(e) => handleRoleChange(idx, 'estimatedHeadcount', e.target.value)}
-                            inputProps={{ min: 0, step: 0.5, style: { textAlign: 'right' } }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {confirmedRoles.map((role, idx) => {
+                      if (role.role === 'Unassigned') return null;
+                      return (
+                        <TableRow key={role.role}>
+                          <TableCell>{role.role}</TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={role.estimatedHeadcount}
+                              onChange={(e) => handleRoleChange(idx, 'estimatedHeadcount', e.target.value)}
+                              inputProps={{ min: 0, step: 0.5, style: { textAlign: 'right' } }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </TableContainer>

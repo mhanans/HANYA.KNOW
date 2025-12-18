@@ -17,7 +17,7 @@ public class SettingsStore
 
     public async Task<AppSettings> GetAsync()
     {
-        const string sql = "SELECT key, value FROM settings WHERE key IN ('ApplicationName','LogoUrl','LlmProvider','LlmModel','LlmApiKey','OllamaHost')";
+        const string sql = "SELECT key, value FROM settings WHERE key IN ('ApplicationName','LogoUrl')";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -29,10 +29,6 @@ public class SettingsStore
             var value = reader.GetString(1);
             if (key == "ApplicationName") settings.ApplicationName = string.IsNullOrWhiteSpace(value) ? null : value;
             if (key == "LogoUrl") settings.LogoUrl = string.IsNullOrWhiteSpace(value) ? null : value;
-            if (key == "LlmProvider") settings.LlmProvider = string.IsNullOrWhiteSpace(value) ? null : value;
-            if (key == "LlmModel") settings.LlmModel = string.IsNullOrWhiteSpace(value) ? null : value;
-            if (key == "LlmApiKey") settings.LlmApiKey = string.IsNullOrWhiteSpace(value) ? null : value;
-            if (key == "OllamaHost") settings.OllamaHost = string.IsNullOrWhiteSpace(value) ? null : value;
         }
         return settings;
     }
@@ -45,11 +41,7 @@ public class SettingsStore
         foreach (var pair in new Dictionary<string,string?>
         {
             ["ApplicationName"] = settings.ApplicationName,
-            ["LogoUrl"] = settings.LogoUrl,
-            ["LlmProvider"] = settings.LlmProvider,
-            ["LlmModel"] = settings.LlmModel,
-            ["LlmApiKey"] = settings.LlmApiKey,
-            ["OllamaHost"] = settings.OllamaHost
+            ["LogoUrl"] = settings.LogoUrl
         })
         {
             await using var cmd = new NpgsqlCommand(sql, conn);
@@ -64,8 +56,4 @@ public class AppSettings
 {
     public string? ApplicationName { get; set; }
     public string? LogoUrl { get; set; }
-    public string? LlmProvider { get; set; }
-    public string? LlmModel { get; set; }
-    public string? LlmApiKey { get; set; }
-    public string? OllamaHost { get; set; }
 }

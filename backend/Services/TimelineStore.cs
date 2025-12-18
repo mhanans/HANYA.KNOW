@@ -29,23 +29,76 @@ public class TimelineStore
 
     public async Task SaveAsync(TimelineRecord record, CancellationToken cancellationToken)
     {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await EnsureSchemaAsync(conn, cancellationToken);
+
         var json = JsonSerializer.Serialize(record, JsonOptions);
-        const string sql = @"INSERT INTO assessment_timelines (assessment_id, project_name, template_name, generated_at, timeline_data)
-                             VALUES (@id, @project, @template, @generated, CAST(@data AS JSONB))
-                             ON CONFLICT (assessment_id)
+        const string sql = @"INSERT INTO assessment_timelines (assessment_id, version, project_name, template_name, generated_at, timeline_data)
+                             VALUES (@id, @version, @project, @template, @generated, CAST(@data AS JSONB))
+                             ON CONFLICT (assessment_id, version)
                              DO UPDATE SET project_name = EXCLUDED.project_name,
                                            template_name = EXCLUDED.template_name,
                                            generated_at = EXCLUDED.generated_at,
                                            timeline_data = EXCLUDED.timeline_data";
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", record.AssessmentId);
+        cmd.Parameters.AddWithValue("version", record.Version);
         cmd.Parameters.AddWithValue("project", record.ProjectName);
         cmd.Parameters.AddWithValue("template", record.TemplateName);
         cmd.Parameters.AddWithValue("generated", record.GeneratedAt);
         cmd.Parameters.AddWithValue("data", NpgsqlDbType.Text, json);
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task EnsureSchemaAsync(NpgsqlConnection conn, CancellationToken cancellationToken)
+    {
+        // 1. Ensure 'version' column exists
+        const string checkColSql = @"
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                               WHERE table_name='assessment_timelines' AND column_name='version') THEN 
+                    ALTER TABLE assessment_timelines ADD COLUMN version INT DEFAULT 0; 
+                END IF; 
+            END $$;";
+        await using (var cmd = new NpgsqlCommand(checkColSql, conn))
+        {
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 2. Ensure PK includes version
+        // We check if the PK constraint is named 'assessment_timelines_pkey'.
+        // If it exists, we check columns. If it is just 'assessment_id', we drop and recreate.
+        // This is a bit complex in SQL script, so we'll just try to drop strictly if it conflicts?
+        // Simpler: Just try to add the column to PK. Hard to do idempotently without PL/pgSQL.
+        
+        const string checkPkSql = @"
+            DO $$
+            DECLARE
+                pk_cols text;
+            BEGIN
+                -- Get columns in PK
+                SELECT string_agg(a.attname, ',') INTO pk_cols
+                FROM   pg_index i
+                JOIN   pg_attribute a ON a.attrelid = i.indrelid
+                                     AND a.attnum = ANY(i.indkey)
+                WHERE  i.indrelid = 'assessment_timelines'::regclass
+                AND    i.indisprimary;
+
+                -- If PK exists and does NOT contain 'version', rebuild it
+                IF pk_cols IS NOT NULL AND pk_cols NOT LIKE '%version%' THEN
+                    ALTER TABLE assessment_timelines DROP CONSTRAINT assessment_timelines_pkey;
+                    ALTER TABLE assessment_timelines ADD PRIMARY KEY (assessment_id, version);
+                END IF;
+            END $$;";
+            
+        await using (var cmd = new NpgsqlCommand(checkPkSql, conn))
+        {
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     public async Task LogGenerationAttemptAsync(TimelineGenerationAttempt attempt, CancellationToken cancellationToken)
@@ -73,13 +126,22 @@ public class TimelineStore
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<TimelineRecord?> GetAsync(int assessmentId, CancellationToken cancellationToken)
+    public async Task<TimelineRecord?> GetAsync(int assessmentId, int? version, CancellationToken cancellationToken)
     {
-        const string sql = @"SELECT timeline_data FROM assessment_timelines WHERE assessment_id=@id";
+        // If version is null, get the latest (highest version)
+        string sql = version.HasValue
+            ? @"SELECT timeline_data FROM assessment_timelines WHERE assessment_id=@id AND version=@version"
+            : @"SELECT timeline_data FROM assessment_timelines WHERE assessment_id=@id ORDER BY version DESC LIMIT 1";
+
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", assessmentId);
+        if (version.HasValue)
+        {
+            cmd.Parameters.AddWithValue("version", version.Value);
+        }
+
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -94,13 +156,48 @@ public class TimelineStore
 
         try
         {
-            return JsonSerializer.Deserialize<TimelineRecord>(json, JsonOptions);
+            var record = JsonSerializer.Deserialize<TimelineRecord>(json, JsonOptions);
+            // Ensure version is set if deserialization missed it (legacy data)
+            if (record != null && version.HasValue)
+            {
+                 record.Version = version.Value;
+            }
+            return record;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to deserialize stored timeline for assessment {AssessmentId}.", assessmentId);
             return null;
         }
+    }
+    
+    public async Task<List<TimelineRecord>> GetAllVersionsAsync(int assessmentId, CancellationToken cancellationToken)
+    {
+        const string sql = @"SELECT timeline_data FROM assessment_timelines WHERE assessment_id=@id ORDER BY version ASC";
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("id", assessmentId);
+        
+        var results = new List<TimelineRecord>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0))
+            {
+                var json = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(json))
+                {
+                    try 
+                    {
+                        var rec = JsonSerializer.Deserialize<TimelineRecord>(json, JsonOptions);
+                        if (rec != null) results.Add(rec);
+                    }
+                    catch { /* Ignore invalid rows */ }
+                }
+            }
+        }
+        return results;
     }
 
     public async Task<Dictionary<int, TimelineAssessmentSummary>> ListSummariesAsync(CancellationToken cancellationToken)

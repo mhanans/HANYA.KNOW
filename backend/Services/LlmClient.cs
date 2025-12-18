@@ -16,14 +16,12 @@ public class LlmClient
     private readonly HttpClient _http;
     private readonly LlmOptions _options;
     private readonly ILogger<LlmClient> _logger;
-    private readonly SettingsStore _settings;
 
-    public LlmClient(HttpClient http, IOptions<LlmOptions> options, ILogger<LlmClient> logger, SettingsStore settings)
+    public LlmClient(HttpClient http, IOptions<LlmOptions> options, ILogger<LlmClient> logger)
     {
         _http = http;
         _options = options.Value;
         _logger = logger;
-        _settings = settings;
     }
 
     public Task<string> GenerateAsync(string prompt)
@@ -106,31 +104,17 @@ public class LlmClient
         }
     }
 
-    private async Task<LlmOptions> GetEffectiveOptionsAsync()
+    private Task<LlmOptions> GetEffectiveOptionsAsync()
     {
-        var settings = await _settings.GetAsync();
-        var provider = string.IsNullOrWhiteSpace(settings.LlmProvider)
-            ? _options.Provider
-            : settings.LlmProvider;
-        var model = string.IsNullOrWhiteSpace(settings.LlmModel)
-            ? _options.Model
-            : settings.LlmModel;
-        var apiKey = string.IsNullOrEmpty(settings.LlmApiKey)
-            ? _options.ApiKey
-            : settings.LlmApiKey;
-        var host = string.IsNullOrWhiteSpace(settings.OllamaHost)
-            ? _options.OllamaHost
-            : settings.OllamaHost;
-
-        return new LlmOptions
+        return Task.FromResult(new LlmOptions
         {
-            Provider = string.IsNullOrWhiteSpace(provider) ? "openai" : provider,
-            Model = model ?? string.Empty,
-            ApiKey = apiKey ?? string.Empty,
-            OllamaHost = host ?? string.Empty,
+            Provider = string.IsNullOrWhiteSpace(_options.Provider) ? "openai" : _options.Provider,
+            Model = _options.Model ?? string.Empty,
+            ApiKey = _options.ApiKey ?? string.Empty,
+            OllamaHost = _options.OllamaHost ?? string.Empty,
             MaxRetries = _options.MaxRetries,
             TimeoutSeconds = _options.TimeoutSeconds
-        };
+        });
     }
 
     private static void ValidateOpenAiOptions(LlmOptions options)

@@ -36,7 +36,7 @@ public class CostEstimationService
             }
         }
 
-        var timeline = await _timelineStore.GetAsync(assessmentId, cancellationToken).ConfigureAwait(false);
+        var timeline = await _timelineStore.GetAsync(assessmentId, null, cancellationToken).ConfigureAwait(false);
         if (timeline == null)
         {
             return null;
@@ -56,7 +56,7 @@ public class CostEstimationService
             return null;
         }
 
-        var timeline = await _timelineStore.GetAsync(assessmentId, cancellationToken).ConfigureAwait(false);
+        var timeline = await _timelineStore.GetAsync(assessmentId, null, cancellationToken).ConfigureAwait(false);
         if (timeline == null)
         {
             return null;
@@ -170,7 +170,7 @@ public class CostEstimationService
 
     public async Task<byte[]> ExportAsync(int assessmentId, CostEstimationInputs? overrideInputs, CancellationToken cancellationToken)
     {
-        var timeline = await _timelineStore.GetAsync(assessmentId, cancellationToken).ConfigureAwait(false);
+        var timeline = await _timelineStore.GetAsync(assessmentId, null, cancellationToken).ConfigureAwait(false);
         if (timeline == null)
         {
             throw new KeyNotFoundException("Timeline not found for assessment");

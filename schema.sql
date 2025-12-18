@@ -390,11 +390,13 @@ ALTER TABLE presales_estimation_column_roles
     ADD CONSTRAINT presales_estimation_column_roles_pkey PRIMARY KEY (estimation_column, role_name);
 
 CREATE TABLE IF NOT EXISTS assessment_timelines (
-    assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
+    assessment_id INT REFERENCES project_assessments(id) ON DELETE CASCADE,
+    version INT NOT NULL DEFAULT 0,
     project_name TEXT NOT NULL,
     template_name TEXT NOT NULL,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    timeline_data JSONB NOT NULL
+    timeline_data JSONB NOT NULL,
+    PRIMARY KEY (assessment_id, version)
 );
 
 CREATE TABLE IF NOT EXISTS assessment_timeline_attempts (

@@ -152,6 +152,7 @@ public class TimelineResourceAllocationEntry
 public class TimelineRecord
 {
     public int AssessmentId { get; set; }
+    public int Version { get; set; }
     public string ProjectName { get; set; } = string.Empty;
     public string TemplateName { get; set; } = string.Empty;
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
