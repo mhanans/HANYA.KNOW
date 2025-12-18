@@ -1960,6 +1960,7 @@ public class ProjectAssessmentAnalysisService
             "- Use band hours by category (XS,S,M,L,XL) and proposed multipliers. Do NOT exceed referenceMedian×1.10 unless strong justification with justificationScore ≥ 0.7.",
             "- For ‘Adjust Existing UI’ or ‘Adjust Existing Logic’, cap size at M unless justificationScore ≥ 0.7 with explicit reason.",
             "- Classify scopeFit as 'in' or 'out' and set isNeeded accordingly. Provide diagnostics for each item: sizeClass, complexityScore (0..100), signals, multipliers, referenceMedian, justification, justificationScore, confidence.",
+            "- IMPORTANT: 'signals' and 'multipliers' MUST be JSON arrays (e.g., [\"val\"]). If empty, use []. Do NOT use {}.",
             "- Respond ONLY JSON object: { \"items\":[ ... ] } with numbers in hours (decimals allowed). No markdown.",
         });
     }
@@ -2990,12 +2991,49 @@ public class ProjectAssessmentAnalysisService
     {
         public string? SizeClass { get; set; }
         public double? ComplexityScore { get; set; }
+
+        [JsonConverter(typeof(EmptyObjectToListConverter))]
         public List<string>? Signals { get; set; }
+
+        [JsonConverter(typeof(EmptyObjectToListConverter))]
         public List<string>? Multipliers { get; set; }
+
         public double? ReferenceMedian { get; set; }
         public string? Justification { get; set; }
         public double? JustificationScore { get; set; }
         public double? Confidence { get; set; }
         public string? ScopeFit { get; set; }
+    }
+
+    /// <summary>
+    /// A robust converter that handles [] (standard), {} (AI hallucination for empty), or null -> empty list
+    /// </summary>
+    public class EmptyObjectToListConverter : JsonConverter<List<string>>
+    {
+        public override List<string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.Null:
+                    return new List<string>();
+                case JsonTokenType.StartArray:
+                    return JsonSerializer.Deserialize<List<string>>(ref reader, options);
+                case JsonTokenType.StartObject:
+                    // Swallow the object tokens to consume the {}
+                    while (reader.Read())
+                    {
+                        if (reader.TokenType == JsonTokenType.EndObject)
+                            break;
+                    }
+                    return new List<string>();
+                default:
+                    return new List<string>();
+            }
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<string> value, JsonSerializerOptions options)
+        {
+            JsonSerializer.Serialize(writer, value, options);
+        }
     }
 }
