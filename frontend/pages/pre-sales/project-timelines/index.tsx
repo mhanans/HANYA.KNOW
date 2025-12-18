@@ -353,7 +353,7 @@ export default function ProjectTimelinesPage() {
 
       {/* Team Selection Wizard Dialog */}
       <Dialog open={wizardOpen} onClose={() => !wizardLoading && setWizardOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Timeline Generation Wizard</DialogTitle>
+        <DialogTitle>Timeline Generation</DialogTitle>
         <Divider />
         <DialogContent>
           {wizardLoading && !recommendation ? (

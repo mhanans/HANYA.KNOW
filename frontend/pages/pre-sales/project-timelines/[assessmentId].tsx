@@ -238,6 +238,66 @@ export default function ProjectTimelineDetailPage() {
     });
   };
 
+  const handleRemoveEmptyColumns = useCallback(() => {
+    if (!timeline) return;
+
+    setTimeline(prev => {
+      if (!prev) return null;
+
+      const newActs = JSON.parse(JSON.stringify(prev.activities));
+      const maxDay = prev.totalDurationDays;
+
+      // 1. Mark occupied days
+      const occupied = new Set<number>();
+      newActs.forEach((a: TimelineActivity) => {
+        a.details.forEach(d => {
+          for (let i = 0; i < d.durationDays; i++) {
+            occupied.add(d.startDay + i);
+          }
+        });
+      });
+
+      // 2. Identify empty days and mapping
+      // mapping[originalDay] = newDay
+      const mapping = new Map<number, number>();
+      let shift = 0;
+      let newMaxEnd = 0;
+
+      for (let d = 1; d <= maxDay; d++) {
+        if (!occupied.has(d)) {
+          // This day is empty, so we increase the shift for subsequent days
+          shift++;
+        } else {
+          // This day is occupied, so it maps to (d - shift)
+          mapping.set(d, d - shift);
+          newMaxEnd = Math.max(newMaxEnd, d - shift);
+        }
+      }
+
+      if (shift === 0) return prev; // No gaps found
+
+      // 3. Update all tasks
+      newActs.forEach((a: TimelineActivity) => {
+        a.details.forEach(d => {
+          const oldStart = d.startDay;
+          if (mapping.has(oldStart)) {
+            d.startDay = mapping.get(oldStart)!;
+          } else {
+            // Fallback if start day was somehow in a gap (shouldn't happen if logic holds, 
+            // but if a task started in a gap but had duration 0? Unlikely).
+            // Just shift it by the count of gaps before it.
+            // Actually, if a task starts on day X, and day X is empty, it means duration is 0? 
+            // Logic above adds `d.startDay ... + duration`. 
+            // If duration > 0, startDay IS occupied.
+          }
+        });
+      });
+
+      return { ...prev, activities: newActs, totalDurationDays: Math.max(0, newMaxEnd) };
+    });
+    setDirty(true);
+  }, [timeline]);
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragging || !timeline) return;
@@ -393,6 +453,9 @@ export default function ProjectTimelineDetailPage() {
               <Button color="inherit" onClick={() => { setIsEditing(false); loadTimeline(); setDirty(false); }}>
                 Cancel
               </Button>
+              <Button variant="outlined" color="primary" onClick={handleRemoveEmptyColumns}>
+                Remove Gaps
+              </Button>
               <Button variant="contained" color="primary" onClick={handleSave} disabled={!dirty}>
                 Save Changes (New Version)
               </Button>
@@ -473,7 +536,9 @@ export default function ProjectTimelineDetailPage() {
                       </td>
                     )}
                     <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col2 }}>
-                      {detail.taskName}
+                      <Stack direction="row" alignItems="center" justifyContent="space-between">
+                        <span>{detail.taskName}</span>
+                      </Stack>
                     </td>
                     <td className={styles.dataCell} style={{ width: LEFT_PANE_WIDTHS.col3 }}>
                       {detail.actor}
@@ -570,4 +635,3 @@ export default function ProjectTimelineDetailPage() {
     </Box>
   );
 }
-
