@@ -343,24 +343,26 @@ export default function CostEstimationDetailPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {result.roleCosts.map(row => (
-                    <TableRow key={row.role}>
-                      <TableCell>{row.role}</TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={roleHeadcounts[row.role] ?? row.resources}
-                          onChange={handleHeadcountChange(row.role)}
-                          inputProps={{ min: 0, step: 0.1 }}
-                        />
-                      </TableCell>
-                      <TableCell>{formatCurrency(row.monthlySalary)}</TableCell>
-                      <TableCell>{formatNumber(row.bestCaseMonths, 2)}</TableCell>
-                      <TableCell>{formatNumber(row.worstCaseMonths, 2)}</TableCell>
-                      <TableCell align="right">{formatCurrency(row.totalCost)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {result.roleCosts
+                    .filter(row => row.role !== 'Unassigned')
+                    .map(row => (
+                      <TableRow key={row.role}>
+                        <TableCell>{row.role}</TableCell>
+                        <TableCell>
+                          <TextField
+                            size="small"
+                            type="number"
+                            value={roleHeadcounts[row.role] ?? row.resources}
+                            onChange={handleHeadcountChange(row.role)}
+                            inputProps={{ min: 0, step: 0.1 }}
+                          />
+                        </TableCell>
+                        <TableCell>{formatCurrency(row.monthlySalary)}</TableCell>
+                        <TableCell>{formatNumber(row.bestCaseMonths, 2)}</TableCell>
+                        <TableCell>{formatNumber(row.worstCaseMonths, 2)}</TableCell>
+                        <TableCell align="right">{formatCurrency(row.totalCost)}</TableCell>
+                      </TableRow>
+                    ))}
                   <TableRow>
                     <TableCell colSpan={5}>Total Salaries</TableCell>
                     <TableCell align="right">{formatCurrency(result.totalSalaries)}</TableCell>
@@ -584,14 +586,16 @@ export default function CostEstimationDetailPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {result.revenue.rows.map(row => (
-                    <TableRow key={row.role}>
-                      <TableCell>{row.role}</TableCell>
-                      <TableCell>{formatNumber(row.manDays, 2)}</TableCell>
-                      <TableCell>{formatCurrency(row.ratePerDay)}</TableCell>
-                      <TableCell align="right">{formatCurrency(row.mandaysPrice)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {result.revenue.rows
+                    .filter(row => row.role !== 'Unassigned')
+                    .map(row => (
+                      <TableRow key={row.role}>
+                        <TableCell>{row.role}</TableCell>
+                        <TableCell>{formatNumber(row.manDays, 2)}</TableCell>
+                        <TableCell>{formatCurrency(row.ratePerDay)}</TableCell>
+                        <TableCell align="right">{formatCurrency(row.mandaysPrice)}</TableCell>
+                      </TableRow>
+                    ))}
                   <TableRow>
                     <TableCell colSpan={3}>Nilai Project</TableCell>
                     <TableCell align="right">{formatCurrency(result.revenue.nilaiProject)}</TableCell>
