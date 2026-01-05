@@ -444,6 +444,19 @@ CREATE TABLE IF NOT EXISTS assessment_prototypes (
     assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
     project_name TEXT NOT NULL,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    storage_path TEXT NOT NULL
+    storage_path TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Completed'
 );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'assessment_prototypes'
+          AND column_name = 'status'
+    ) THEN
+        ALTER TABLE assessment_prototypes ADD COLUMN status TEXT NOT NULL DEFAULT 'Completed';
+    END IF;
+END $$;
 

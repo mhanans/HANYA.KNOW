@@ -8,6 +8,10 @@ const nextConfig = {
         source: '/api/auth/:path*',
         destination: '/api/proxy/auth/:path*',
       },
+      {
+        source: '/demos/:path*',
+        destination: `${process.env.API_BASE_URL || 'http://localhost:5000'}/demos/:path*`,
+      },
     ];
   },
 };
