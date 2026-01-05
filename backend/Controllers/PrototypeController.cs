@@ -88,6 +88,10 @@ public class PrototypeController : ControllerBase
         {
             return NotFound(ex.Message);
         }
+        catch (InvalidOperationException ex)
+        {
+             return BadRequest(ex.Message);
+        }
         catch (Exception ex)
         {
             return StatusCode(500, ex.Message);

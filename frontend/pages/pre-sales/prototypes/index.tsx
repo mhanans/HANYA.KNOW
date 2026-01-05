@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import {
     Box,
+    Alert,
     Button,
     Chip,
     CircularProgress,
@@ -411,7 +412,22 @@ export default function PrototypeListPage() {
                         {loadingItems ? <CircularProgress /> : (
                             <Box sx={{ flex: 1, overflowY: 'auto', my: 2 }}>
                                 <Stack spacing={1}>
-                                    {availableItems.length === 0 && <Typography>No items found available for generation.</Typography>}
+                                    {availableItems.length === 0 && (
+                                        <Alert severity="warning">
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                                                No items found available for generation.
+                                            </Typography>
+                                            <Typography variant="body2" sx={{ mt: 1 }}>
+                                                Only items explicitly tagged with <strong>[WEB]</strong> or <strong>[MOBILE]</strong> in their description or category can be generated.
+                                            </Typography>
+                                            <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic', color: 'text.secondary' }}>
+                                                Example: "User Login Page [WEB]"
+                                            </Typography>
+                                            <Typography variant="body2" sx={{ mt: 1 }}>
+                                                Your current assessment has <strong>0</strong> Web/Mobile UI items.
+                                            </Typography>
+                                        </Alert>
+                                    )}
                                     {availableItems.map(item => (
                                         <Box key={item.id} sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderBottom: '1px solid #eee' }}>
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

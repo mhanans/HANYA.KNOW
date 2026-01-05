@@ -112,6 +112,13 @@ public class PrototypeGenerationService
 
             // STRICT FILTER for Bulk: Only generate Web or Mobile items
             itemsToGenerate = itemsToGenerate.Where(i => IsWebItem(i) || IsMobileItem(i)).ToList();
+            
+            if (!itemsToGenerate.Any())
+            {
+                 _logger.LogWarning("No item found with [WEB] or [MOBILE] tag.");
+                 throw new InvalidOperationException("No items found to generate. Ensure your assessment items have [WEB] or [MOBILE] in their details or category.");
+            }
+
             _logger.LogInformation("Found {Count} tagged items marked for bulk generation.", itemsToGenerate.Count);
         }
 
