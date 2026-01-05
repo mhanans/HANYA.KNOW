@@ -27,6 +27,7 @@ INSERT INTO ui_pages (key) VALUES
   ('tickets'),
   ('pic-summary'),
   ('timeline-estimation-references'),
+  ('pre-sales-prototypes'),
   ('settings')
 ON CONFLICT DO NOTHING;
 

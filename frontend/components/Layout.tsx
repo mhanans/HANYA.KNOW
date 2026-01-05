@@ -70,7 +70,7 @@ const navSections: { title: string; links: NavItem[] }[] = [
         href: '/pre-sales/prototypes',
         label: 'Project Prototypes',
         icon: '✨',
-        key: 'pre-sales-assessment-workspace', // Reusing workspace permission for now
+        key: 'pre-sales-prototypes', // Reusing workspace permission for now
       },
       {
         href: '/pre-sales/configuration',

@@ -425,16 +425,22 @@ Instructions:
 
     public async Task<byte[]> GetZipBytesAsync(int assessmentId)
     {
+        _logger.LogInformation("Preparing zip for assessment {Id}", assessmentId);
         var assessment = await _store.GetAsync(assessmentId);
         if (assessment == null)
         {
+            _logger.LogError("Assessment {Id} not found during zip generation", assessmentId);
             throw new ArgumentException($"Assessment {assessmentId} not found");
         }
 
         var outputDir = Path.Combine(FrontendPublicPath, assessmentId.ToString());
+        var absolutePath = Path.GetFullPath(outputDir);
+        _logger.LogInformation("Checking prototype directory: {Path} (Absolute: {AbsPath})", outputDir, absolutePath);
+
         if (!Directory.Exists(outputDir))
         {
-             throw new DirectoryNotFoundException($"Prototype for assessment {assessmentId} not found");
+             _logger.LogError("Prototype directory not found: {Path}", absolutePath);
+             throw new DirectoryNotFoundException($"Prototype for assessment {assessmentId} not found at {absolutePath}");
         }
         
         using var memoryStream = new MemoryStream();

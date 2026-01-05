@@ -8,6 +8,7 @@ using backend.Models;
 using backend.Middleware;
 using backend.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace backend.Controllers;
 
@@ -18,19 +19,22 @@ public class PrototypeController : ControllerBase
     private readonly ProjectAssessmentStore _assessments;
     private readonly PrototypeGenerationService _prototypeService;
     private readonly PrototypeStore _prototypeStore;
+    private readonly ILogger<PrototypeController> _logger;
 
     public PrototypeController(
         ProjectAssessmentStore assessments,
         PrototypeGenerationService prototypeService,
-        PrototypeStore prototypeStore)
+        PrototypeStore prototypeStore,
+        ILogger<PrototypeController> logger)
     {
         _assessments = assessments;
         _prototypeService = prototypeService;
         _prototypeStore = prototypeStore;
+        _logger = logger;
     }
 
     [HttpGet]
-    [UiAuthorize("pre-sales-assessment-workspace")]
+    [UiAuthorize("pre-sales-prototypes")]
     public async Task<ActionResult<IEnumerable<PrototypeAssessmentSummary>>> ListAssessments()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -67,7 +71,7 @@ public class PrototypeController : ControllerBase
     }
 
     [HttpPost("generate")]
-    [UiAuthorize("pre-sales-assessment-workspace")]
+    [UiAuthorize("pre-sales-prototypes")]
     public async Task<ActionResult<object>> Generate([FromBody] GeneratePrototypeRequest request)
     {
         if (request == null || request.AssessmentId <= 0)
@@ -90,12 +94,8 @@ public class PrototypeController : ControllerBase
         }
     }
 
-    // ... (rest of File) ...
-
-
-
     [HttpGet("{assessmentId}/download")]
-    [UiAuthorize("pre-sales-assessment-workspace")]
+    [UiAuthorize("pre-sales-prototypes")]
     public async Task<IActionResult> Download(int assessmentId)
     {
         if (assessmentId <= 0)
@@ -105,6 +105,7 @@ public class PrototypeController : ControllerBase
 
         try
         {
+            _logger.LogInformation("Download requested for assessment {Id}", assessmentId);
             var bytes = await _prototypeService.GetZipBytesAsync(assessmentId);
             var assessment = await _assessments.GetAsync(assessmentId);
             var safeProjectName = string.IsNullOrWhiteSpace(assessment?.ProjectName)
@@ -115,16 +116,19 @@ public class PrototypeController : ControllerBase
 
             return File(bytes, "application/zip", fileName);
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
+            _logger.LogWarning(ex, "Download failed: Assessment {Id} not found", assessmentId);
             return NotFound("Assessment not found");
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException ex)
         {
+            _logger.LogWarning(ex, "Download failed: Prototype directory for {Id} not found", assessmentId);
             return NotFound("Prototype not generated yet");
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Unexpected error downloading prototype for {Id}", assessmentId);
             return StatusCode(500, ex.Message);
         }
     }
