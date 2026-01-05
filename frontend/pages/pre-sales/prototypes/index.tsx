@@ -219,13 +219,9 @@ export default function PrototypeListPage() {
                     }
 
                     if (res.status === 400 && errorMessage.toLowerCase().includes('no items')) {
-                        Swal.fire({
-                            title: 'No Items Found',
-                            text: errorMessage,
-                            icon: 'warning',
-                            confirmButtonText: 'Check Access Control & Tags'
-                        });
-                        return; // Exit without throwing to avoid double alert
+                        // Open the selection modal to show the detailed "No Items" warning UI
+                        openSelectionModal(assessmentId);
+                        return; // Exit without throwing
                     }
 
                     throw new Error(errorMessage);
