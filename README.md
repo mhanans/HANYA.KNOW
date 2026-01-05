@@ -1,6 +1,6 @@
 # HANYA.KNOW
 
-MVP knowledge base with retrieval augmented generation.
+HANYA.KNOW is an advanced AI-powered Knowledge Management & Pre-Sales Automation Platform. It combines Retrieval-Augmented Generation (RAG) for document and source code Q&A with a robust **Pre-Sales Engine** that automates project assessments, timeline generation, cost estimation, and rapid UI prototyping. Additionally, it features intelligent support ticket routing and recruitment assistance (`CV Analysis`), creating a unified workspace for technical and operational teams.
 
 ## Backend
 - ASP.NET Core Web API (requires .NET 9 SDK v9.0.304)
@@ -63,6 +63,9 @@ MVP knowledge base with retrieval augmented generation.
 - `POST /api/recommendations` – generate a recommendation
 - `POST /api/recommendations/{id}/retry` – regenerate an existing recommendation
 - `POST /api/recommendations/{id}/retry-summary` – regenerate JSON candidate summaries
+- `GET /api/prototypes` – list prototype generation status for completed assessments
+- `POST /api/prototypes/generate` – generate or regenerate (revise) prototype HTML for specific assessment items; supports iterative AI refinement based on user feedback
+- `GET /api/prototypes/{assessmentId}/download` – download the generated prototype as a ZIP archive
 - Full-text search uses the language-agnostic `simple` configuration so non-English documents are indexed
 
 All requests to the API must include an `X-API-KEY` header matching the `ApiKey` value in the backend configuration. Users must also authenticate via `POST /api/login`; authenticated sessions are stored in a cookie and required for all other endpoints, which respond with `401 Unauthorized` when accessed anonymously. Interactive documentation is available at `/swagger`, where you can supply the key via the **Authorize** button and try each endpoint directly from the browser.
@@ -77,6 +80,10 @@ All requests to the API must include an `X-API-KEY` header matching the `ApiKey`
 - Documents can be tagged with categories for targeted queries; manage categories, upload new PDFs, analyze documents, and filter questions by category.
 - Submit and track support tickets with automatic AI-driven categorization and assignment to available PICs.
 - Dedicated **Pre-Sales** workspace covering project template management, the live assessment grid with Excel export, and the Presales AI history table for reopening saved assessments, exporting bundles, or marking drafts as completed without opening the editor (see `docs/pre-sales-ai-project-assessment-engine.md`). The workspace now routes assessments through a **Timeline Estimator** service before timeline and cost generation: `Presales Workspace → Timeline Estimator → Timeline Generation → Estimated Cost Generation`. The estimator derives a structured timeline summary from assessment data using historical reference projects, so the total duration may differ from the sum of per-phase durations when phases run in parallel or overlap.
+- **Project Prototypes**: Generate clickable HTML/CSS mockups from completed assessments.
+  - **Iterative Refinement**: The "Regenerate" feature allows users to provide specific feedback (e.g., "Change button color to blue"), and the AI will *revise* the existing code rather than rewriting it from scratch.
+  - **Strict Tagging**: Only items explicitly tagged with `[WEB]` or `[MOBILE]` in their description or category are eligible for generation.
+  - **Access Control**: Features are protected by the new `pre-sales-prototypes` permission key.
 
 ## Configuration
 Default embedding uses a local Ollama instance with `nomic-embed-text`.
@@ -88,6 +95,7 @@ Default embedding uses a local Ollama instance with `nomic-embed-text`.
 - `SourceCode: { DefaultTopK, SimilarityThreshold, PromptTemplate, SourceDirectory, IncludeExtensions, ExcludeDirectories, ChunkSize, ChunkOverlap }` – tuning and ingestion options for the Source Code Q&A feature
 - `GitHub: { ClientId, ClientSecret, RedirectUri, Scopes }` – OAuth app credentials used to sign in with GitHub and import repositories prior to a sync. `Scopes` defaults to `repo read:user` when omitted.
 - `AccelistSso: { Host, AppId, RedirectUri, Scope }` – TAM Passport configuration used to render the login widget and verify tokens
+- `ErrorLogFolder` – (Optional) Absolute path to a directory where backend logs should be saved as text files.
 - `ApiKey` – shared secret required in `X-API-KEY` header for all API calls
 - `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_API_KEY` for the frontend (configure in `.env.local`; see `frontend/.env.local.example`)
 - `NEXT_PUBLIC_ACCELIST_SSO_HOST`, `NEXT_PUBLIC_ACCELIST_SSO_APP_ID`, `NEXT_PUBLIC_ACCELIST_SSO_REDIRECT_URI`, and optional `NEXT_PUBLIC_ACCELIST_SSO_SCOPE` to enable the "Login with Accelist SSO" button on the frontend
