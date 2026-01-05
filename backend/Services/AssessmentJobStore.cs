@@ -44,6 +44,7 @@ public class AssessmentJobStore
                                     raw_generation_response,
                                     generated_items_json,
                                     raw_estimation_response,
+                                    raw_manual_assessment_json,
                                     final_analysis_json,
                                     last_error,
                                     created_at,
@@ -66,6 +67,7 @@ public class AssessmentJobStore
                                     @rawGenerationResponse,
                                     @generatedItemsJson,
                                     @rawEstimationResponse,
+                                    @rawManualAssessmentJson,
                                     @finalAnalysisJson,
                                     @lastError,
                                     NOW(),
@@ -94,6 +96,7 @@ public class AssessmentJobStore
         cmd.Parameters.Add("rawGenerationResponse", NpgsqlDbType.Text).Value = (object?)job.RawGenerationResponse ?? DBNull.Value;
         cmd.Parameters.Add("generatedItemsJson", NpgsqlDbType.Text).Value = (object?)job.GeneratedItemsJson ?? DBNull.Value;
         cmd.Parameters.Add("rawEstimationResponse", NpgsqlDbType.Text).Value = (object?)job.RawEstimationResponse ?? DBNull.Value;
+        cmd.Parameters.Add("rawManualAssessmentJson", NpgsqlDbType.Text).Value = (object?)job.RawManualAssessmentJson ?? DBNull.Value;
         cmd.Parameters.Add("finalAnalysisJson", NpgsqlDbType.Text).Value = (object?)job.FinalAnalysisJson ?? DBNull.Value;
         cmd.Parameters.Add("lastError", NpgsqlDbType.Text).Value = (object?)job.LastError ?? DBNull.Value;
 
@@ -132,6 +135,7 @@ public class AssessmentJobStore
                                      aj.raw_generation_response,
                                      aj.generated_items_json,
                                      aj.raw_estimation_response,
+                                     aj.raw_manual_assessment_json,
                                      aj.final_analysis_json,
                                      aj.last_error,
                                      aj.created_at,
@@ -177,6 +181,7 @@ public class AssessmentJobStore
                                   raw_generation_response=@rawGenerationResponse,
                                   generated_items_json=@generatedItemsJson,
                                   raw_estimation_response=@rawEstimationResponse,
+                                  raw_manual_assessment_json=@rawManualAssessmentJson,
                                   final_analysis_json=@finalAnalysisJson,
                                   last_error=@lastError,
                                   last_modified_at=NOW()
@@ -205,6 +210,7 @@ public class AssessmentJobStore
         cmd.Parameters.Add("rawGenerationResponse", NpgsqlDbType.Text).Value = (object?)job.RawGenerationResponse ?? DBNull.Value;
         cmd.Parameters.Add("generatedItemsJson", NpgsqlDbType.Text).Value = (object?)job.GeneratedItemsJson ?? DBNull.Value;
         cmd.Parameters.Add("rawEstimationResponse", NpgsqlDbType.Text).Value = (object?)job.RawEstimationResponse ?? DBNull.Value;
+        cmd.Parameters.Add("rawManualAssessmentJson", NpgsqlDbType.Text).Value = (object?)job.RawManualAssessmentJson ?? DBNull.Value;
         cmd.Parameters.Add("finalAnalysisJson", NpgsqlDbType.Text).Value = (object?)job.FinalAnalysisJson ?? DBNull.Value;
         cmd.Parameters.Add("lastError", NpgsqlDbType.Text).Value = (object?)job.LastError ?? DBNull.Value;
 
@@ -301,11 +307,12 @@ public class AssessmentJobStore
             RawGenerationResponse = reader.IsDBNull(15) ? null : reader.GetString(15),
             GeneratedItemsJson = reader.IsDBNull(16) ? null : reader.GetString(16),
             RawEstimationResponse = reader.IsDBNull(17) ? null : reader.GetString(17),
-            FinalAnalysisJson = reader.IsDBNull(18) ? null : reader.GetString(18),
-            LastError = reader.IsDBNull(19) ? null : reader.GetString(19),
-            CreatedAt = reader.IsDBNull(20) ? DateTime.UtcNow : reader.GetDateTime(20),
-            LastModifiedAt = reader.IsDBNull(21) ? DateTime.UtcNow : reader.GetDateTime(21),
-            TemplateName = reader.FieldCount > 22 && !reader.IsDBNull(22) ? reader.GetString(22) : string.Empty
+            RawManualAssessmentJson = reader.IsDBNull(18) ? null : reader.GetString(18),
+            FinalAnalysisJson = reader.IsDBNull(19) ? null : reader.GetString(19),
+            LastError = reader.IsDBNull(20) ? null : reader.GetString(20),
+            CreatedAt = reader.IsDBNull(21) ? DateTime.UtcNow : reader.GetDateTime(21),
+            LastModifiedAt = reader.IsDBNull(22) ? DateTime.UtcNow : reader.GetDateTime(22),
+            TemplateName = reader.FieldCount > 23 && !reader.IsDBNull(23) ? reader.GetString(23) : string.Empty
         };
     }
 

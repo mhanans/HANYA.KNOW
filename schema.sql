@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS assessment_jobs (
     raw_generation_response TEXT,
     generated_items_json TEXT,
     raw_estimation_response TEXT,
+    raw_manual_assessment_json TEXT,
     final_analysis_json TEXT,
     last_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -438,3 +439,11 @@ CREATE TABLE IF NOT EXISTS cost_estimations (
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     result_json JSONB NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS assessment_prototypes (
+    assessment_id INT PRIMARY KEY REFERENCES project_assessments(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    storage_path TEXT NOT NULL
+);
+

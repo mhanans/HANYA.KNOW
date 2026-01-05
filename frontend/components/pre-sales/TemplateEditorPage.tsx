@@ -873,12 +873,9 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                             {section.items.map((item, itemIndex) => (
                               <Box
                                 key={item.uid}
-                                draggable
-                                onDragStart={handleItemDragStart(section.uid, item.uid)}
                                 onDragOver={handleItemDragOver(section.uid, item.uid)}
                                 onDragLeave={handleItemDragLeave(section.uid, item.uid)}
                                 onDrop={handleItemDrop(section.uid, item.uid)}
-                                onDragEnd={handleItemDragEnd}
                                 sx={{
                                   display: 'flex',
                                   alignItems: 'start',
@@ -893,6 +890,9 @@ export default function TemplateEditorPage({ templateId, mode }: TemplateEditorP
                               >
                                 <Box
                                   className="item-drag-handle"
+                                  draggable
+                                  onDragStart={handleItemDragStart(section.uid, item.uid)}
+                                  onDragEnd={handleItemDragEnd}
                                   sx={{ mt: 2, cursor: 'grab', color: 'text.disabled', '&:hover': { color: 'text.primary' } }}
                                 >
                                   <DragIndicatorIcon fontSize="small" />

@@ -116,11 +116,13 @@ builder.Services.AddSingleton<TimelineStore>();
 builder.Services.AddSingleton<TimelineEstimationStore>();
 builder.Services.AddSingleton<TimelineEstimationReferenceStore>();
 builder.Services.AddSingleton<TimelineEstimatorService>();
+builder.Services.AddSingleton<PrototypeStore>();
 builder.Services.AddSingleton<TimelineGenerationService>();
 builder.Services.AddSingleton<CostEstimationConfigurationStore>();
 builder.Services.AddSingleton<CostEstimationStore>();
 builder.Services.AddSingleton<CostEstimationService>();
 builder.Services.AddSingleton<AssessmentBundleExportService>();
+builder.Services.AddSingleton<PrototypeGenerationService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<KnowledgeBaseIngestionService>());
 builder.Services.Configure<LlmOptions>(builder.Configuration.GetSection("Llm"));
 builder.Services.AddHttpClient<LlmClient>((sp, client) =>

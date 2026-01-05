@@ -25,6 +25,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadIcon from '@mui/icons-material/Download';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { apiFetch } from '../../lib/api';
 
 export type AssessmentJobStatus =
@@ -114,6 +115,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
   const [navigationError, setNavigationError] = useState('');
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [markingCompleteId, setMarkingCompleteId] = useState<number | null>(null);
+
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -362,6 +364,8 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
     []
   );
 
+
+
   const jobsContent = useMemo(() => {
     if (jobs.length === 0) {
       return (
@@ -481,6 +485,7 @@ export default function AssessmentHistory({ refreshToken, onOpenJob, onOpenAsses
                         </span>
                       </Tooltip>
                     )}
+
                     <Tooltip title="Download bundled export">
                       <span>
                         <IconButton

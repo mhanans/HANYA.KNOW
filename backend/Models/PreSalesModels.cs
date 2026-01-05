@@ -57,6 +57,7 @@ public class AssessmentJob
     public string? RawGenerationResponse { get; set; }
     public string? GeneratedItemsJson { get; set; }
     public string? RawEstimationResponse { get; set; }
+    public string? RawManualAssessmentJson { get; set; }
     public string? FinalAnalysisJson { get; set; }
     public string? LastError { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -598,7 +598,7 @@ export default function ProjectTimelineDetailPage() {
               ))}
             </tr>
 
-            {timeline.resourceAllocation.map((res, index) => (
+            {timeline.resourceAllocation.filter(res => res.role !== 'Unassigned').map((res, index) => (
               <tr key={res.role}>
                 <td
                   colSpan={3}

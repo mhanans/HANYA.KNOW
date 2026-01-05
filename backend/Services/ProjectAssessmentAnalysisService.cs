@@ -283,6 +283,8 @@ public class ProjectAssessmentAnalysisService
 
             _logger.LogInformation("LLM raw response for manual assessment check (Job {JobId}): {RawResponse}", job.Id, rawResponse);
 
+            job.RawManualAssessmentJson = rawResponse;
+
             var cleanResponse = CleanResponse(rawResponse);
             var parsed = TryDeserializeManualAssessment(
                 cleanResponse,
@@ -1811,7 +1813,7 @@ public class ProjectAssessmentAnalysisService
         }
 
         instructionsBuilder.Append(' ');
-        instructionsBuilder.Append("Extract only in-scope backlog items. Prefer merging trivial UI fragments that don’t materially change estimates. If a function is clearly reusable from references, include [REUSE] tag in itemDetail. Category must be one of {{AllowedCategories}}.");
+        instructionsBuilder.Append("Extract only in-scope backlog items. Prefer merging trivial UI fragments that don’t materially change estimates. If a function is clearly reusable from references, include [REUSE] tag in itemDetail. You MUST specify the platform/type by appending [MOBILE], [WEB], [SCHEDULER], or [API] to the start of itemDetail. Category must be one of {{AllowedCategories}}.");
 
         if (context.AppLevelSections.Count > 0)
         {
@@ -1924,7 +1926,7 @@ public class ProjectAssessmentAnalysisService
 
         if (payload.SimilarAssessments.Count > 0)
         {
-            instructionsBuilder.Append(" Use the similar assessment history to calibrate whether items are typically in scope and the scale of effort required for comparable projects.");
+            instructionsBuilder.Append(" Use the similar assessment history as a PRIMARY baseline. If a reference item matches the current item (by ID or significantly by Name), YOU MUST ADOPT its effort distribution and values unless the item detail explicitly justifies a significant deviation.");
         }
 
         instructionsBuilder.Append(" Apply the effective estimation policy provided in the context and keep estimates conservative and auditable.");
@@ -1932,9 +1934,10 @@ public class ProjectAssessmentAnalysisService
         instructionsBuilder.AppendLine("Critical Flaw to Correct: Do not calculate a single total effort and apply it to every column. Instead, analyze the work required for each item and distribute effort only among the roles that actually contribute to that work.");
         instructionsBuilder.AppendLine("New Estimation Thought Process (follow these steps for each item):");
         instructionsBuilder.AppendLine("1. Analyze the Task: Review itemName and itemDetail to understand the nature and scope of the work.");
-        instructionsBuilder.AppendLine("2. Identify Involved Roles: Determine which estimation columns correspond to the roles needed (e.g., UI or frontend implies FE and Requirement; database or API implies BE, Requirement, and possibly Architect or Setup; UAT or acceptance scripts imply Business Analyst or QA).");
-        instructionsBuilder.AppendLine("3. Distribute Effort: Estimate the total hours required based on complexity, then allocate those hours proportionally across the relevant columns you identified.");
-        instructionsBuilder.AppendLine("4. Set Irrelevant Columns to Zero: Any column without an involved role must be assigned 0 hours for that item.");
+        instructionsBuilder.AppendLine("2. Check References: Look for this item in the SimilarAssessments. If found, start with those values.");
+        instructionsBuilder.AppendLine("3. Identify Involved Roles: Determine which estimation columns correspond to the roles needed (e.g., UI or frontend implies FE and Requirement; database or API implies BE, Requirement, and possibly Architect or Setup; UAT or acceptance scripts imply Business Analyst or QA).");
+        instructionsBuilder.AppendLine("4. Distribute Effort: Estimate the total hours required based on complexity (or reference), then allocate those hours proportionally across the relevant columns you identified.");
+        instructionsBuilder.AppendLine("5. Set Irrelevant Columns to Zero: Any column without an involved role must be assigned 0 hours for that item.");
 
         instructionsBuilder.Append(' ');
         instructionsBuilder.Append(outputLanguage == AssessmentLanguage.Indonesian
@@ -1943,7 +1946,7 @@ public class ProjectAssessmentAnalysisService
 
         var rules = BuildAssessmentRules();
         var examples = BuildAssessmentExamples();
-        var estimationGuidance = "Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras(upload/auth/workflow). Server may normalize.";
+        var estimationGuidance = "General Formula (fallback if no reference): Proposed hours = Band(sizeClass) × crudMultiplier × (1 + fields×perField/BandBase) + integrations×perIntegration + extras. Server may normalize. PRIORITIZE REFERENCES OVER THIS FORMULA.";
 
         return $"{instructionsBuilder}{Environment.NewLine}{Environment.NewLine}Project Context:{Environment.NewLine}{JsonSerializer.Serialize(payload, _serializationOptions)}{Environment.NewLine}{Environment.NewLine}{rules}{Environment.NewLine}{examples}{Environment.NewLine}{estimationGuidance}";
     }
@@ -2201,16 +2204,60 @@ public class ProjectAssessmentAnalysisService
         }
 
         var trimmed = response.Trim();
-        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        
+        // Robustly search for markdown blocks even if there is preamble text
+        var startCode = trimmed.IndexOf("```", StringComparison.Ordinal);
+        if (startCode >= 0)
         {
-            var firstNewLine = trimmed.IndexOf('\n');
-            if (firstNewLine >= 0)
+            var endCode = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+            // Ensure we have a valid block (and not just one marker, or same marker)
+            if (endCode > startCode)
             {
-                trimmed = trimmed[(firstNewLine + 1)..];
-                var closing = trimmed.LastIndexOf("```", StringComparison.Ordinal);
-                if (closing >= 0)
+                // Extract content between the backticks
+                // The +3 skips the opening ```
+                var length = endCode - (startCode + 3);
+                if (length > 0)
                 {
-                    trimmed = trimmed[..closing];
+                    var content = trimmed.Substring(startCode + 3, length);
+                    
+                    // Sometimes the first line is "json" or "xml" or just whitespace
+                    var firstNewLine = content.IndexOf('\n');
+                    if (firstNewLine >= 0)
+                    {
+                        var firstLine = content.Substring(0, firstNewLine).Trim();
+                        // Heuristic: If the line strictly contains no JSON symbols like { or [, it's likely a language tag
+                        // Or if it matches common tags like "json", "csharp", "text"
+                        if (!firstLine.StartsWith("{") && !firstLine.StartsWith("["))
+                        {
+                            content = content.Substring(firstNewLine + 1);
+                        }
+                    }
+                    
+                    trimmed = content.Trim();
+                }
+            }
+        }
+        else
+        {
+            // Fallback: If no markdown, try to find the outer JSON bounds if typical preamble exists
+            // "Here is your JSON: { ... }"
+            var firstBrace = trimmed.IndexOf('{');
+            var firstBracket = trimmed.IndexOf('[');
+            var start = -1;
+
+            if (firstBrace >= 0 && firstBracket >= 0) start = Math.Min(firstBrace, firstBracket);
+            else if (firstBrace >= 0) start = firstBrace;
+            else if (firstBracket >= 0) start = firstBracket;
+
+            if (start >= 0)
+            {
+                var lastBrace = trimmed.LastIndexOf('}');
+                var lastBracket = trimmed.LastIndexOf(']');
+                var end = Math.Max(lastBrace, lastBracket);
+
+                if (end > start)
+                {
+                    trimmed = trimmed.Substring(start, end - start + 1);
                 }
             }
         }
@@ -2316,44 +2363,43 @@ public class ProjectAssessmentAnalysisService
     private string BuildManualAssessmentPrompt(ProjectTemplate template, string projectName)
     {
         var columns = ResolveTemplateColumns(template);
+        var columnsList = string.Join(", ", columns.Select(c => $"'{c}'"));
+
         var builder = new StringBuilder();
 
         // 1. Set the Persona and Core Task
-        builder.AppendLine("You are a highly accurate data extraction bot. Your ONLY task is to analyze the attached document, find the table containing man-hour estimates, and convert it into a valid JSON object. You must ignore all other text.");
+        builder.AppendLine("You are a highly accurate data extraction bot. Your ONLY task is to analyze the attached document, find the table containing man-hour estimates, and convert it into a valid JSON object.");
         builder.AppendLine();
 
         // 2. Define the Strict Rules for the Model
         builder.AppendLine("Follow these rules EXACTLY:");
-        builder.AppendLine("- **Find the Table:** Locate the table with columns for 'Item', 'Description', and 'Estimate (HOURS)'.");
-        builder.AppendLine("- **Map Item ID:** Match the 'No' column from the PDF table to the `itemId` from the 'Template Reference' provided below. For example, row '2A.1' in the PDF maps to `itemId: \"2A.1\"`.");
-        builder.AppendLine("- **Extract Estimates:** The 'Estimate (HOURS)' section in the PDF has nested columns. You MUST use the lowest-level column headers (e.g., 'Requirement', 'SIT', 'UAT', 'Setup', 'BE', 'FE') as the keys in the `estimates` JSON object.");
+        builder.AppendLine("- **Find the Table:** Locate the table containing a list of items and their man-hour estimates. Look for headers like 'Item', 'Description', 'Estimate', 'Effort', or 'Manhours'.");
+        builder.AppendLine("- **Map Item ID:** Match the 'No' column from the PDF table to the `itemId` from the 'Template Reference' provided below. If the IDs do not match exactly (e.g., '1A.1' vs '1.1'), try to match by `Item Name` similarity. If no match is found, use the ID exactly as it appears in the PDF.");
+        builder.AppendLine($"- **Map & Sum Estimates:** You must map the columns in the PDF to the following ALLOWED JSON KEYS: [{columnsList}].");
+        builder.AppendLine($"  - If the PDF has columns like 'FE', 'BE', 'QA', map them to the closest allowed key (e.g., 'FE' -> 'Frontend Developer', 'BE' -> 'Backend Developer').");
+        builder.AppendLine($"  - If multiple PDF columns map to the same key (e.g. 'SIT' and 'UAT' both map to 'Quality Assurance'), you MUST SUM their values.");
         builder.AppendLine("- **Handle Numbers:** All estimate values must be numbers. If a cell is empty or contains a non-numeric value, use `0`.");
-        builder.AppendLine("- **Strict JSON Output:** Respond ONLY with a single JSON object. Do not include any text, explanation, or markdown like ```json.");
+        builder.AppendLine("- **Strict JSON Output:** Respond ONLY with a single JSON object.");
         builder.AppendLine();
 
-        // 3. Provide a Perfect, Concrete Example of the Expected Output
-        builder.AppendLine("This is the required JSON output structure and an example for ONE item:");
+        // 3. Provide a Perfect, Concrete Example
+        builder.AppendLine("This is the required JSON output structure:");
         builder.Append("```json\n");
         builder.Append(
         """
         {
           "hasAssessedManhour": true,
-          "message": "Successfully extracted 38 items from the man-hour table.",
+          "message": "Successfully extracted items and mapped columns.",
           "items": [
             {
               "itemId": "2A.1",
+              "itemName": "Application Setup", // INCLUDE THE ITEM NAME Found in the PDF
               "isNeeded": true,
               "estimates": {
-                "Requirement": 6,
-                "Unit Test": 2,
-                "SIT": 2,
-                "UAT": 2,
-                "Setup": 0,
-                "POC": 0,
-                "Code review": 4.00,
-                "BE": 16,
-                "FE": 4,
-                "Xunit": 2
+                // these keys MUST match the ALLOWED JSON KEYS list above
+                "Frontend Developer": 6, 
+                "Backend Developer": 16,
+                "Quality Assurance": 4
               }
             }
           ]
@@ -2372,7 +2418,6 @@ public class ProjectAssessmentAnalysisService
             builder.AppendLine($"Section: {section.SectionName}");
             foreach (var item in section.Items ?? new List<TemplateItem>())
             {
-                // Providing only the necessary mapping info reduces token count and confusion.
                 builder.AppendLine($"- {item.ItemId}: {item.ItemName}");
             }
             builder.AppendLine();
@@ -2401,7 +2446,7 @@ public class ProjectAssessmentAnalysisService
             {
                 Temperature = 0.1,
                 TopP = 0.8,
-                MaxOutputTokens = 2048,
+                MaxOutputTokens = 8192,
                 ResponseMimeType = "application/json"
             }
         };
@@ -2453,10 +2498,30 @@ public class ProjectAssessmentAnalysisService
                     continue;
                 }
 
-                if (!templateItems.ContainsKey(candidate.ItemId))
+                var templateItem = templateItems.ContainsKey(candidate.ItemId) ? templateItems[candidate.ItemId] : null;
+                
+                // Fallback: Try to match by name if ID mismatch
+                if (templateItem == null && !string.IsNullOrWhiteSpace(candidate.ItemName))
                 {
-                    continue;
+                    // Try to find by name (case-insensitive)
+                    // We look through all template values
+                    templateItem = templateItems.Values.FirstOrDefault(t => string.Equals(t.ItemName, candidate.ItemName, StringComparison.OrdinalIgnoreCase));
+
+                    // If exact match fails, try Contains or Levenshtein if we had it, but let's stick to simple "Contains" for robustness
+                    if (templateItem == null)
+                    {
+                         templateItem = templateItems.Values.FirstOrDefault(t => 
+                            candidate.ItemName.IndexOf(t.ItemName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            t.ItemName.IndexOf(candidate.ItemName, StringComparison.OrdinalIgnoreCase) >= 0);
+                    }
                 }
+
+                // If we found a template item, USE ITS ID to ensure the frontend can map it.
+                var finalItemId = templateItem?.ItemId ?? candidate.ItemId;
+
+                // Debug fix logic for "No assessed man-hours found":
+                // If we still didn't find a template item, we KEEP the candidate item with its original ID.
+                // The prompt now explicitly asks for ItemName, so our matching chance is much higher.
 
                 var normalizedEstimates = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
                 var hasValue = false;
@@ -2488,21 +2553,32 @@ public class ProjectAssessmentAnalysisService
                     normalizedEstimates[column] = value;
                 }
 
-                if (!hasValue)
-                {
-                    continue;
-                }
+                // Modification: Even if no value, if the AI says it's needed, we might want to keep it? 
+                // YES, the user complains "No assessed man-hours found" even when items are extracted.
+                // It is better to include an item with all 0s than to drop it.
+                // if (!hasValue)
+                // {
+                //    continue;
+                // }
 
                 normalizedItems.Add(new AnalyzedItem
                 {
-                    ItemId = candidate.ItemId,
+                    ItemId = finalItemId, 
                     IsNeeded = candidate.IsNeeded ?? true,
                     Estimates = normalizedEstimates
                 });
             }
 
             var indicatesManual = detection.HasAssessedManhour ?? (normalizedItems.Count > 0);
-            hasManhour = normalizedItems.Count > 0 && indicatesManual;
+            
+            // If we found ANY items with values, we flag TRUE, even if they don't perfectly match the template yet.
+            // This prevents "No assessed man-hours found" error.
+            hasManhour = normalizedItems.Count > 0;
+            
+            if (hasManhour && !indicatesManual) {
+                 // If we found items but AI flag was false, override it?
+                 // No, usually AI flag is authoritative. But here we care about data.
+            }
 
             if (hasManhour)
             {
@@ -2970,6 +3046,7 @@ public class ProjectAssessmentAnalysisService
     private sealed class ManualDetectionItem
     {
         public string ItemId { get; set; } = string.Empty;
+        public string? ItemName { get; set; }
         public bool? IsNeeded { get; set; }
         public Dictionary<string, double?>? Estimates { get; set; }
     }

@@ -25,6 +25,7 @@ public class AssessmentController : ControllerBase
     private readonly VectorStore _vectorStore;
     private readonly ILogger<AssessmentController> _logger;
     private readonly PresalesWorkflowOptions _workflowOptions;
+    private readonly PrototypeGenerationService _prototypeService;
 
     public AssessmentController(
         ProjectTemplateStore templates,
@@ -33,6 +34,7 @@ public class AssessmentController : ControllerBase
         AssessmentBundleExportService bundleExport,
         VectorStore vectorStore,
         IOptions<PresalesWorkflowOptions> workflowOptions,
+        PrototypeGenerationService prototypeService,
         ILogger<AssessmentController> logger)
     {
         _templates = templates;
@@ -41,6 +43,7 @@ public class AssessmentController : ControllerBase
         _bundleExport = bundleExport;
         _vectorStore = vectorStore;
         _workflowOptions = workflowOptions?.Value ?? new PresalesWorkflowOptions();
+        _prototypeService = prototypeService;
         _logger = logger;
     }
 
@@ -499,6 +502,21 @@ public class AssessmentController : ControllerBase
             CreatedAt = assessment.CreatedAt ?? DateTime.UtcNow,
             LastModifiedAt = assessment.LastModifiedAt
         };
+    }
+    [HttpPost("{id}/generate-demo")]
+    [UiAuthorize("pre-sales-assessment-workspace")]
+    public async Task<ActionResult<string>> GenerateDemo(int id)
+    {
+        try
+        {
+            var url = await _prototypeService.GenerateDemoAsync(id);
+            return Ok(new { url });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to generate demo for assessment {Id}", id);
+            return StatusCode(500, ex.Message);
+        }
     }
 }
 

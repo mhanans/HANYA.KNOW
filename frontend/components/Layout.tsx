@@ -67,6 +67,12 @@ const navSections: { title: string; links: NavItem[] }[] = [
         key: 'admin-presales-history',
       },
       {
+        href: '/pre-sales/prototypes',
+        label: 'Project Prototypes',
+        icon: '✨',
+        key: 'pre-sales-assessment-workspace', // Reusing workspace permission for now
+      },
+      {
         href: '/pre-sales/configuration',
         label: 'Presales Configuration',
         icon: '⚙️',
@@ -101,7 +107,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [uiLoaded, setUiLoaded] = useState(false);
 
   useEffect(() => {
-    apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => {});
+    apiFetch('/api/settings').then(res => res.json()).then(setSettings).catch(() => { });
     if (router.pathname === '/login') return;
     apiFetch('/api/me')
       .then(res => {

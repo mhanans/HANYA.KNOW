@@ -1,0 +1,614 @@
+:root {
+    --sidebar-width: 260px;
+    --sidebar-bg: #1f2430;
+    --sidebar-link-color: #c5cbd8;
+    --sidebar-link-hover-color: #ffffff;
+    --sidebar-link-active-color: #ffffff;
+    --sidebar-link-active-bg: #0d6efd;
+    --brand-gradient: linear-gradient(135deg, #0d6efd, #6f42c1);
+    --badge-green: #16a34a;
+    --badge-red: #dc2626;
+    --badge-yellow: #d97706;
+    --badge-blue: #2563eb;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f4f7fb;
+    color: #1b2431;
+    margin: 0;
+}
+
+.app-wrapper {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+.app-sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    background: var(--sidebar-bg);
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-sidebar .sidebar-header {
+    padding: 1.75rem 1.5rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.app-sidebar .sidebar-header h3 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 0.4rem;
+}
+
+.app-sidebar .sidebar-header p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+}
+
+.app-nav {
+    list-style: none;
+    margin: 0;
+    padding: 1rem 0 2rem;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.app-nav li a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    color: var(--sidebar-link-color);
+    text-decoration: none;
+    font-size: 0.95rem;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.app-nav li a .fa {
+    width: 20px;
+    text-align: center;
+}
+
+.app-nav li a:hover {
+    color: var(--sidebar-link-hover-color);
+    background: rgba(255, 255, 255, 0.08);
+    border-left-color: rgba(255, 255, 255, 0.3);
+}
+
+.app-nav li a.active {
+    color: var(--sidebar-link-active-color);
+    background: var(--sidebar-link-active-bg);
+    border-left-color: #ffffff;
+}
+
+.app-nav-section {
+    padding: 0.5rem 1.5rem 0.25rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 600;
+}
+
+.app-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #f4f7fb;
+}
+
+.app-navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.75rem;
+    background: #ffffff;
+    border-bottom: 1px solid #e3e8ef;
+    box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05);
+}
+
+.app-navbar .brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.app-navbar .brand-logo {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--brand-gradient);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.app-navbar .user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.app-navbar .user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--brand-gradient);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.app-main {
+    flex: 1;
+    padding: 2rem;
+}
+
+.app-page-heading {
+    margin-bottom: 1.5rem;
+}
+
+.app-page-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.app-page-subtitle {
+    color: #6c7a91;
+    font-size: 0.95rem;
+}
+
+.app-card {
+    background: #ffffff;
+    border-radius: 0.85rem;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    border: none;
+}
+
+.app-card-header {
+    padding: 1.25rem 1.5rem 1rem;
+    border-bottom: 1px solid #edf1f7;
+    background: transparent;
+}
+
+.app-card-body {
+    padding: 1.5rem;
+}
+
+.app-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.35rem 0.75rem;
+    min-width: 110px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--badge-blue);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.app-status-badge.status-green {
+    background: rgba(22, 163, 74, 0.12);
+    color: var(--badge-green);
+}
+
+.app-status-badge.status-red {
+    background: rgba(220, 38, 38, 0.1);
+    color: var(--badge-red);
+}
+
+.app-status-badge.status-yellow {
+    background: rgba(217, 119, 6, 0.12);
+    color: var(--badge-yellow);
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.9rem;
+    min-width: 110px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.status-pill-success {
+    background: rgba(22, 163, 74, 0.12);
+    color: var(--badge-green);
+}
+
+.status-pill-warning {
+    background: rgba(217, 119, 6, 0.15);
+    color: var(--badge-yellow);
+}
+
+.status-pill-danger {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--badge-red);
+}
+
+.status-pill-secondary {
+    background: rgba(100, 116, 139, 0.18);
+    color: #475569;
+}
+
+.status-pill-primary {
+    background: rgba(13, 110, 253, 0.12);
+    color: #0d6efd;
+}
+
+.checklist-option-group .btn {
+    min-width: 110px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.table thead th {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    color: #6c7a91;
+    border-bottom: 1px solid #e5e9f1;
+}
+
+.table tbody td {
+    vertical-align: middle;
+    color: #27344c;
+}
+
+.app-filter-bar {
+    background: #ffffff;
+    border-radius: 0.75rem;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.app-filter-bar .form-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #6c7a91;
+    letter-spacing: 0.05em;
+}
+
+.app-map-placeholder,
+.app-chart-placeholder,
+.app-video-placeholder {
+    position: relative;
+    background: repeating-linear-gradient(45deg,
+            #eef2ff,
+            #eef2ff 12px,
+            #dbeafe 12px,
+            #dbeafe 24px);
+    border-radius: 0.85rem;
+    border: 1px dashed #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
+.app-map-placeholder {
+    height: 540px;
+}
+
+.app-video-placeholder {
+    height: 420px;
+    background: #111827;
+    color: #f8fafc;
+}
+
+.app-chart-placeholder {
+    height: 220px;
+}
+
+.badge-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.vehicle-card {
+    background: #ffffff;
+    border-radius: 0.85rem;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.vehicle-card.active,
+.vehicle-card:hover {
+    border-color: #0d6efd;
+    box-shadow: 0 16px 30px rgba(13, 110, 253, 0.15);
+}
+
+.vehicle-card h5 {
+    margin: 0;
+    font-weight: 600;
+}
+
+.app-modal .modal-content {
+    border-radius: 1rem;
+    border: none;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+}
+
+.mobile-shell {
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+.mobile-shell .app-card {
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+}
+
+.tire-diagram {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+    gap: 1rem;
+    justify-items: stretch;
+}
+
+.tire-diagram button {
+    border-radius: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #cbd5f5;
+    background: #f8fafc;
+    color: #1e293b;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.tire-diagram button.active,
+.tire-diagram button:focus {
+    outline: none;
+    border-color: #0d6efd;
+    background: rgba(13, 110, 253, 0.1);
+    color: #0d3c8f;
+}
+
+.kpi-card {
+    border-radius: 1rem;
+    padding: 1.5rem;
+    background: #ffffff;
+    box-shadow: 0 16px 35px rgba(15, 23, 42, 0.08);
+}
+
+.kpi-card h3 {
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.dashboard-grid {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.dashboard-grid.two-col {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.dashboard-grid.three-col {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.dashboard-grid.full-width {
+    grid-template-columns: 1fr;
+}
+
+.app-tab-nav .nav-link {
+    border-radius: 999px;
+    padding: 0.5rem 1.5rem;
+    color: #475569;
+}
+
+.app-tab-nav .nav-link.active {
+    background: #0d6efd;
+    color: #ffffff;
+}
+
+@media (max-width: 1200px) {
+    .app-map-placeholder {
+        height: 420px;
+    }
+}
+
+@media (max-width: 992px) {
+    .app-wrapper {
+        flex-direction: column;
+    }
+
+    .app-sidebar {
+        width: 100%;
+        min-width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+    }
+
+    .app-sidebar .sidebar-header {
+        display: none;
+    }
+
+    .app-nav {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding: 0.5rem;
+    }
+
+    .app-nav li a {
+        border-left: none;
+        border-bottom: 3px solid transparent;
+        padding: 0.75rem 1rem;
+    }
+
+    .app-nav li a.active {
+        border-bottom-color: #ffffff;
+    }
+
+    .app-content {
+        min-height: 0;
+    }
+
+    .app-main {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .app-navbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .app-navbar .brand {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .app-navbar .user-info {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .app-map-placeholder,
+    .app-video-placeholder {
+        height: 320px;
+    }
+}
+
+.equal-width-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.equal-width-group .btn,
+.equal-width-group .nav-link,
+.equal-width-group .form-check-label {
+    flex: 1;
+    text-align: center;
+}
+
+.equal-width-group .btn {
+    white-space: normal;
+}
+
+.route-summary-card {
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(111, 66, 193, 0.08));
+    border-radius: 1rem;
+    padding: 1.25rem;
+    border: 1px solid rgba(13, 110, 253, 0.12);
+}
+
+.route-summary-card h6 {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    color: #1d4ed8;
+    margin-bottom: 0.75rem;
+}
+
+.map-legend {
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+}
+
+.alert-critical {
+    border-left: 4px solid #dc2626;
+}
+
+.multi-upload-placeholder {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.75rem;
+}
+
+.multi-upload-placeholder .upload-tile {
+    border: 2px dashed #94a3b8;
+    border-radius: 0.75rem;
+    height: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #475569;
+    background: rgba(148, 163, 184, 0.08);
+}
+
+.document-filter .btn {
+    flex: 1;
+    min-width: 120px;
+}
+
+.document-filter {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.incident-timeline {
+    border-left: 3px solid rgba(13, 110, 253, 0.25);
+    padding-left: 1.25rem;
+    margin-left: 0.5rem;
+}
+
+.incident-timeline .timeline-item {
+    position: relative;
+    padding-bottom: 1rem;
+}
+
+.incident-timeline .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -1.5rem;
+    top: 0.4rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #0d6efd;
+    box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
+}
+
+@media (max-width: 768px) {
+    .document-filter {
+        flex-direction: column;
+    }
+
+    .document-filter .btn {
+        width: 100%;
+    }
+}
