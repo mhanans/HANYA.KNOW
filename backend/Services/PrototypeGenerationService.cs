@@ -84,6 +84,16 @@ public class PrototypeGenerationService
         var assessment = await _store.GetAsync(assessmentId);
         if (assessment == null) throw new ArgumentException($"Assessment {assessmentId} not found");
 
+        // Validate items synchronously BEFORE starting background task
+        // This prevents "Processing" state for invalid requests
+        var itemsToGenerate = GetItemsToGenerate(assessment, itemIds);
+
+        if (!itemsToGenerate.Any())
+        {
+             _logger.LogWarning("No item found with [WEB] or [MOBILE] tag for Assessment {Id}.", assessmentId);
+             throw new InvalidOperationException("No items found to generate. Ensure your assessment items have [WEB] or [MOBILE] in their details or category.");
+        }
+
         // Set status to Processing immediately
         await RecordGenerationStatusAsync(assessmentId, assessment.ProjectName, "Processing");
 
@@ -92,7 +102,7 @@ public class PrototypeGenerationService
         {
             try
             {
-                await InternalGenerateDemoAsync(assessmentId, itemIds, itemFeedback);
+                await InternalGenerateDemoAsync(assessmentId, assessment, itemsToGenerate, itemFeedback);
                 await RecordGenerationStatusAsync(assessmentId, assessment.ProjectName, "Completed");
             }
             catch (Exception ex)
@@ -103,24 +113,9 @@ public class PrototypeGenerationService
         });
     }
 
-    private async Task InternalGenerateDemoAsync(int assessmentId, List<string>? itemIds = null, Dictionary<string, string>? itemFeedback = null)
+    private List<AssessmentItem> GetItemsToGenerate(ProjectAssessment assessment, List<string>? itemIds)
     {
-        var assessment = await _store.GetAsync(assessmentId);
-        if (assessment == null)
-        {
-            throw new ArgumentException($"Assessment {assessmentId} not found");
-        }
-
-        var storageBase = GetPrototypeStoragePath();
-        var outputDir = Path.Combine(storageBase, assessmentId.ToString());
-        if (!Directory.Exists(outputDir))
-        {
-            Directory.CreateDirectory(outputDir);
-        }
-
-        _logger.LogInformation("Starting prototype generation for Assessment {Id}", assessmentId);
-
-        List<AssessmentItem> itemsToGenerate;
+        List<AssessmentItem> items;
 
         if (itemIds != null && itemIds.Any())
         {
@@ -128,39 +123,46 @@ public class PrototypeGenerationService
              var allItems = assessment.Sections.SelectMany(s => s.Items).ToList();
              
              // Explicit Generation: Robust Matching (Trim + IgnoreCase)
-             itemsToGenerate = allItems
+             items = allItems
                  .Where(i => requestedIds.Any(req => req.Equals(i.ItemId?.Trim(), StringComparison.OrdinalIgnoreCase)))
                  .ToList();
         }
         else
         {
              // Bulk Generation: Standard Logic
-             itemsToGenerate = assessment.Sections
+             items = assessment.Sections
                 .Where(s => s.SectionName.Contains("Item Development", StringComparison.OrdinalIgnoreCase))
                 .SelectMany(s => s.Items)
                 .Where(i => i.IsNeeded)
                 .ToList();
 
             // Fallback: if no items found in strict sections, grab all items marked needed from anywhere
-            if (!itemsToGenerate.Any()) 
+            if (!items.Any()) 
             {
-                 itemsToGenerate = assessment.Sections.SelectMany(s => s.Items).Where(i => i.IsNeeded).ToList();
+                 items = assessment.Sections.SelectMany(s => s.Items).Where(i => i.IsNeeded).ToList();
             }
 
             // STRICT FILTER for Bulk: Only generate Web or Mobile items
-            itemsToGenerate = itemsToGenerate.Where(i => IsWebItem(i) || IsMobileItem(i)).ToList();
-            
-            if (!itemsToGenerate.Any())
-            {
-                 _logger.LogWarning("No item found with [WEB] or [MOBILE] tag.");
-                 throw new InvalidOperationException("No items found to generate. Ensure your assessment items have [WEB] or [MOBILE] in their details or category.");
-            }
-
-            _logger.LogInformation("Found {Count} tagged items marked for bulk generation.", itemsToGenerate.Count);
+            items = items.Where(i => IsWebItem(i) || IsMobileItem(i)).ToList();
         }
+        return items;
+    }
+
+    private async Task InternalGenerateDemoAsync(int assessmentId, ProjectAssessment assessment, List<AssessmentItem> itemsToGenerate, Dictionary<string, string>? itemFeedback = null)
+    {
+        var storageBase = GetPrototypeStoragePath();
+        var outputDir = Path.Combine(storageBase, assessmentId.ToString());
+        if (!Directory.Exists(outputDir))
+        {
+            Directory.CreateDirectory(outputDir);
+        }
+
+        _logger.LogInformation("Starting prototype generation for Assessment {Id} with {Count} items.", assessmentId, itemsToGenerate.Count);
 
         // Build Consistent Navigation
         var navigationHtml = BuildNavigationHtml(assessment);
+        
+        // ... (rest of method continues, removed item selection logic)
 
         // Write the shared CSS file to the output directory
         var cssPath = Path.Combine(AppContext.BaseDirectory, "Services", "standard_styles.css");
