@@ -16,6 +16,10 @@ namespace backend.Controllers;
 [Route("api/prototypes")]
 public class PrototypeController : ControllerBase
 {
+    private readonly ProjectAssessmentStore _assessments;
+    private readonly PrototypeGenerationService _prototypeService;
+    private readonly PrototypeStore _prototypeStore;
+    private readonly ILogger<PrototypeController> _logger;
     private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
 
     public PrototypeController(
@@ -137,12 +141,12 @@ public class PrototypeController : ControllerBase
 public class PrototypeAssessmentSummary
 {
     public int AssessmentId { get; set; }
-    public string ProjectName { get; set; }
-    public string TemplateName { get; set; }
-    public string Status { get; set; }
+    public string? ProjectName { get; set; }
+    public string? TemplateName { get; set; }
+    public string? Status { get; set; }
     public DateTime? LastModifiedAt { get; set; }
     public bool HasPrototype { get; set; }
-    public string PrototypeStatus { get; set; }
+    public string? PrototypeStatus { get; set; }
 }
 
 public class GeneratePrototypeRequest

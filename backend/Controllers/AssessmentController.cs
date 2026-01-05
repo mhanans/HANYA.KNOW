@@ -505,12 +505,12 @@ public class AssessmentController : ControllerBase
     }
     [HttpPost("{id}/generate-demo")]
     [UiAuthorize("pre-sales-assessment-workspace")]
-    public async Task<ActionResult<string>> GenerateDemo(int id)
+    public async Task<IActionResult> GenerateDemo(int id)
     {
         try
         {
-            var url = await _prototypeService.GenerateDemoAsync(id);
-            return Ok(new { url });
+            await _prototypeService.StartGenerationAsync(id);
+            return Accepted(new { message = "Prototype generation started in background." });
         }
         catch (Exception ex)
         {
