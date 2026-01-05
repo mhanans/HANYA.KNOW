@@ -463,28 +463,18 @@ Instructions:
 
     public bool HasPrototype(int assessmentId)
     {
-        var outputDir = Path.Combine(FrontendPublicPath, assessmentId.ToString());
+        var outputDir = Path.Combine(GetPrototypeStoragePath(), assessmentId.ToString());
         return Directory.Exists(outputDir) && File.Exists(Path.Combine(outputDir, "index.html"));
     }
 
-    public async Task<byte[]> GetZipBytesAsync(int assessmentId)
+    public async Task<byte[]> GetZipBytesAsync(int assessmentId, string outputDir)
     {
-        _logger.LogInformation("Preparing zip for assessment {Id}", assessmentId);
-        var assessment = await _store.GetAsync(assessmentId);
-        if (assessment == null)
-        {
-            _logger.LogError("Assessment {Id} not found during zip generation", assessmentId);
-            throw new ArgumentException($"Assessment {assessmentId} not found");
-        }
-
-        var outputDir = Path.Combine(FrontendPublicPath, assessmentId.ToString());
-        var absolutePath = Path.GetFullPath(outputDir);
-        _logger.LogInformation("Checking prototype directory: {Path} (Absolute: {AbsPath})", outputDir, absolutePath);
-
+        _logger.LogInformation("Preparing zip for assessment {Id} from path {Path}", assessmentId, outputDir);
+        
         if (!Directory.Exists(outputDir))
         {
-             _logger.LogError("Prototype directory not found: {Path}", absolutePath);
-             throw new DirectoryNotFoundException($"Prototype for assessment {assessmentId} not found at {absolutePath}");
+             _logger.LogError("Prototype directory not found: {Path}", outputDir);
+             throw new DirectoryNotFoundException($"Prototype for assessment {assessmentId} not found at {outputDir}");
         }
         
         using var memoryStream = new MemoryStream();
