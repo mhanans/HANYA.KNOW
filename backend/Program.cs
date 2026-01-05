@@ -266,6 +266,37 @@ app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Serve Prototypes
+var prototypePath = builder.Configuration["PrototypeStoragePath"];
+if (string.IsNullOrWhiteSpace(prototypePath))
+{
+    // Default fallback consistent with service
+    prototypePath = Path.Combine(Directory.GetParent(AppContext.BaseDirectory)?.FullName ?? AppContext.BaseDirectory, "frontend", "public", "demos");
+    // If that path doesn't exist (e.g. prod deployment structure), fallback to local valid path
+    if (!Directory.Exists(prototypePath))
+    {
+         prototypePath = Path.Combine(AppContext.BaseDirectory, "demos");
+    }
+}
+
+if (!Directory.Exists(prototypePath))
+{
+    try 
+    {
+        Directory.CreateDirectory(prototypePath);
+    } 
+    catch 
+    {
+        // Ignore if we can't create it, middleware will just fail to serve
+    }
+}
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(prototypePath),
+    RequestPath = "/demos"
+});
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapPost("/api/auth/sso-login", async (

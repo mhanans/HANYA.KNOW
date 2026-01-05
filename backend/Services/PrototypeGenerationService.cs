@@ -27,6 +27,8 @@ public class PrototypeGenerationService
     // Relative path assuming the app runs from the 'backend' folder
     private const string FrontendPublicPath = @"..\frontend\public\demos";
 
+    private readonly IConfiguration _configuration;
+
     public PrototypeGenerationService(
         ProjectAssessmentStore store,
         PrototypeStore prototypeStore,
@@ -38,6 +40,7 @@ public class PrototypeGenerationService
         _prototypeStore = prototypeStore;
         _logger = logger;
         _httpClient = new HttpClient();
+        _configuration = configuration;
         
         _apiKey = configuration["Gemini:ApiKey"]
                  ?? configuration["GoogleAI:ApiKey"]
@@ -54,7 +57,53 @@ public class PrototypeGenerationService
                  ?? "gemini-pro";
     }
 
-    public async Task<string> GenerateDemoAsync(int assessmentId, List<string>? itemIds = null, Dictionary<string, string>? itemFeedback = null)
+    private string GetPrototypeStoragePath()
+    {
+        var path = _configuration["PrototypeStoragePath"];
+        if (string.IsNullOrWhiteSpace(path))
+        {
+             // Fallback 1: Dev environment ..\frontend\public\demos
+             path = Path.Combine(Directory.GetParent(AppContext.BaseDirectory)?.FullName ?? AppContext.BaseDirectory, "..", "frontend", "public", "demos");
+             
+             // Fallback 2: If fail, use local 'demos'
+             if (!Directory.Exists(path) && !path.Contains("frontend")) // Check simple existence or path logic
+             {
+                 path = Path.Combine(AppContext.BaseDirectory, "demos");
+             }
+             else if (!Directory.Exists(Path.GetDirectoryName(path))) // check parent of demos
+             {
+                  // If frontend/public doesn't exist, we can't create demos there safely
+                  path = Path.Combine(AppContext.BaseDirectory, "demos");
+             }
+        }
+        return path;
+    }
+
+    public async Task StartGenerationAsync(int assessmentId, List<string>? itemIds = null, Dictionary<string, string>? itemFeedback = null)
+    {
+        var assessment = await _store.GetAsync(assessmentId);
+        if (assessment == null) throw new ArgumentException($"Assessment {assessmentId} not found");
+
+        // Set status to Processing immediately
+        await RecordGenerationStatusAsync(assessmentId, assessment.ProjectName, "Processing");
+
+        // Run generation in background
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await InternalGenerateDemoAsync(assessmentId, itemIds, itemFeedback);
+                await RecordGenerationStatusAsync(assessmentId, assessment.ProjectName, "Completed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Background prototype generation failed for Assessment {Id}", assessmentId);
+                await RecordGenerationStatusAsync(assessmentId, assessment.ProjectName, "Failed");
+            }
+        });
+    }
+
+    private async Task InternalGenerateDemoAsync(int assessmentId, List<string>? itemIds = null, Dictionary<string, string>? itemFeedback = null)
     {
         var assessment = await _store.GetAsync(assessmentId);
         if (assessment == null)
@@ -62,7 +111,8 @@ public class PrototypeGenerationService
             throw new ArgumentException($"Assessment {assessmentId} not found");
         }
 
-        var outputDir = Path.Combine(FrontendPublicPath, assessmentId.ToString());
+        var storageBase = GetPrototypeStoragePath();
+        var outputDir = Path.Combine(storageBase, assessmentId.ToString());
         if (!Directory.Exists(outputDir))
         {
             Directory.CreateDirectory(outputDir);
@@ -75,25 +125,12 @@ public class PrototypeGenerationService
         if (itemIds != null && itemIds.Any())
         {
              var requestedIds = itemIds.Select(id => id.Trim()).ToList();
-             _logger.LogWarning("EXTENDED DEBUG: Explicitly requested regeneration for items: '{Ids}'", string.Join("', '", requestedIds));
-
              var allItems = assessment.Sections.SelectMany(s => s.Items).ToList();
-             _logger.LogWarning("EXTENDED DEBUG: Assessment has {Count} total items across {SectionCount} sections.", allItems.Count, assessment.Sections.Count);
-
+             
              // Explicit Generation: Robust Matching (Trim + IgnoreCase)
              itemsToGenerate = allItems
                  .Where(i => requestedIds.Any(req => req.Equals(i.ItemId?.Trim(), StringComparison.OrdinalIgnoreCase)))
                  .ToList();
-
-             if (itemsToGenerate.Count == 0)
-             {
-                 _logger.LogWarning("EXTENDED DEBUG: NO MATCHES FOUND! Available IDs in Assessment: {AvailableIds}", 
-                     string.Join(", ", allItems.Select(i => i.ItemId).Take(50))); // Log first 50 IDs to avoid spam
-             }
-             else
-             {
-                 _logger.LogWarning("EXTENDED DEBUG: Found {Count} matching items.", itemsToGenerate.Count);
-             }
         }
         else
         {
@@ -130,16 +167,17 @@ public class PrototypeGenerationService
         var cssContent = await File.ReadAllTextAsync(cssPath);
         await File.WriteAllTextAsync(Path.Combine(outputDir, "style.css"), cssContent);
 
-        var generatedPages = new List<(string Filename, string Title)>();
+        // Use ConcurrentBag for thread-safe collection during parallel processing
+        var generatedPagesBag = new System.Collections.Concurrent.ConcurrentBag<(string Filename, string Title)>();
 
         // Limit concurrency to avoid rate limits, but speed up processing
-        var options = new ParallelOptions { MaxDegreeOfParallelism = 10 }; 
+        var options = new ParallelOptions { MaxDegreeOfParallelism = 8 }; 
         
         int processed = 0;
-        foreach (var item in itemsToGenerate)
+        await Parallel.ForEachAsync(itemsToGenerate, options, async (item, token) =>
         {
-            processed++;
-            _logger.LogInformation("[{Current}/{Total}] Generating demo page for item: {ItemName}", processed, itemsToGenerate.Count, item.ItemName);
+            var currentCount = System.Threading.Interlocked.Increment(ref processed);
+            _logger.LogInformation("[{Current}/{Total}] Generating demo page for item: {ItemName}", currentCount, itemsToGenerate.Count, item.ItemName);
             try
             {
                 var filename = $"{SanitizeFilename(item.ItemName)}_{item.ItemId}.html";
@@ -155,20 +193,22 @@ public class PrototypeGenerationService
                 if (File.Exists(existingPath))
                 {
                     // Read file to pass as context for revision
-                    existingHtml = await File.ReadAllTextAsync(existingPath);
+                    existingHtml = await File.ReadAllTextAsync(existingPath, token);
                 }
 
                 // Pass cssContent for context, but we won't inline it
                 var pageContent = await GeneratePageContentAsync(item, assessment.ProjectName, navigationHtml, cssContent, specificFeedback, existingHtml);
                 
-                await File.WriteAllTextAsync(Path.Combine(outputDir, filename), pageContent);
-                generatedPages.Add((filename, item.ItemName));
+                await File.WriteAllTextAsync(Path.Combine(outputDir, filename), pageContent, token);
+                generatedPagesBag.Add((filename, item.ItemName));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to generate demo page for item {ItemName}", item.ItemName);
             }
-        }
+        });
+
+        var generatedPages = generatedPagesBag.ToList();
         
         _logger.LogInformation("Finished generating pages. Creating index.html...");
         
@@ -196,11 +236,7 @@ public class PrototypeGenerationService
         var indexContent = GenerateIndexHtml(assessment.ProjectName, allPages);
         await File.WriteAllTextAsync(Path.Combine(outputDir, "index.html"), indexContent);
 
-        await RecordGenerationAsync(assessmentId, assessment.ProjectName);
-
         _logger.LogInformation("Prototype generation complete for Assessment {Id}", assessmentId);
-
-        return $"/demos/{assessmentId}/index.html";
     }
 
     private string BuildNavigationHtml(ProjectAssessment assessment)
@@ -239,14 +275,15 @@ public class PrototypeGenerationService
         return sb.ToString();
     }
 
-    private async Task RecordGenerationAsync(int assessmentId, string projectName)
+    private async Task RecordGenerationStatusAsync(int assessmentId, string projectName, string status)
     {
         var record = new PrototypeRecord
         {
             AssessmentId = assessmentId,
             ProjectName = projectName,
             GeneratedAt = DateTime.UtcNow,
-            StoragePath = $"demos/{assessmentId}"
+            StoragePath = $"demos/{assessmentId}",
+            Status = status
         };
         await _prototypeStore.SaveAsync(record);
     }

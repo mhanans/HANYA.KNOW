@@ -16,21 +16,20 @@ namespace backend.Controllers;
 [Route("api/prototypes")]
 public class PrototypeController : ControllerBase
 {
-    private readonly ProjectAssessmentStore _assessments;
-    private readonly PrototypeGenerationService _prototypeService;
-    private readonly PrototypeStore _prototypeStore;
-    private readonly ILogger<PrototypeController> _logger;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
 
     public PrototypeController(
         ProjectAssessmentStore assessments,
         PrototypeGenerationService prototypeService,
         PrototypeStore prototypeStore,
-        ILogger<PrototypeController> logger)
+        ILogger<PrototypeController> logger,
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
         _assessments = assessments;
         _prototypeService = prototypeService;
         _prototypeStore = prototypeStore;
         _logger = logger;
+        _configuration = configuration;
     }
 
     [HttpGet]
@@ -49,9 +48,7 @@ public class PrototypeController : ControllerBase
         
         var results = completed
             .Select(a => {
-                var hasProto = existingPrototypes.ContainsKey(a.Id);
-                // Fallback removed to ensure DB consistency. 
-                // If a user deletes the DB record, they want to reset the state.
+                var hasProto = existingPrototypes.TryGetValue(a.Id, out var record);
                 
                 return new PrototypeAssessmentSummary
                 {
@@ -60,7 +57,8 @@ public class PrototypeController : ControllerBase
                     TemplateName = a.TemplateName,
                     Status = a.Status,
                     LastModifiedAt = a.LastModifiedAt,
-                    HasPrototype = hasProto
+                    HasPrototype = hasProto,
+                    PrototypeStatus = hasProto ? record.Status : "None"
                 };
             })
             .OrderByDescending(r => r.LastModifiedAt ?? DateTime.MinValue)
@@ -81,8 +79,8 @@ public class PrototypeController : ControllerBase
 
         try
         {
-            var url = await _prototypeService.GenerateDemoAsync(request.AssessmentId, request.ItemIds, request.ItemFeedback);
-            return Ok(new { url });
+            await _prototypeService.StartGenerationAsync(request.AssessmentId, request.ItemIds, request.ItemFeedback);
+            return Accepted(new { message = "Prototype generation started in background." });
         }
         catch (ArgumentException ex)
         {
@@ -102,33 +100,31 @@ public class PrototypeController : ControllerBase
     [UiAuthorize("pre-sales-prototypes")]
     public async Task<IActionResult> Download(int assessmentId)
     {
-        if (assessmentId <= 0)
+         var assessment = await _assessments.GetAsync(assessmentId);
+         if (assessment == null) return NotFound("Assessment not found");
+
+        var prototypePath = _configuration["PrototypeStoragePath"];
+        if (string.IsNullOrWhiteSpace(prototypePath))
         {
-            return BadRequest("AssessmentId is required.");
+             prototypePath = Path.Combine(Directory.GetParent(AppContext.BaseDirectory)?.FullName ?? AppContext.BaseDirectory, "frontend", "public", "demos");
+             if (!Directory.Exists(prototypePath)) prototypePath = Path.Combine(AppContext.BaseDirectory, "demos");
+        }
+        
+        var outputDir = Path.Combine(prototypePath, assessmentId.ToString());
+        
+        if (!Directory.Exists(outputDir))
+        {
+             _logger.LogWarning("Prototype not found at: {Path}", outputDir);
+             return NotFound("Prototype files not found on server.");
         }
 
         try
         {
-            _logger.LogInformation("Download requested for assessment {Id}", assessmentId);
-            var bytes = await _prototypeService.GetZipBytesAsync(assessmentId);
-            var assessment = await _assessments.GetAsync(assessmentId);
-            var safeProjectName = string.IsNullOrWhiteSpace(assessment?.ProjectName)
+             var zipBytes = await _prototypeService.GetZipBytesAsync(assessmentId, outputDir);
+             var safeProjectName = string.IsNullOrWhiteSpace(assessment?.ProjectName)
                 ? assessmentId.ToString()
                 : assessment?.ProjectName.Replace(" ", "_");
-            
-            var fileName = $"Prototype-{safeProjectName}.zip";
-
-            return File(bytes, "application/zip", fileName);
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Download failed: Assessment {Id} not found", assessmentId);
-            return NotFound("Assessment not found");
-        }
-        catch (DirectoryNotFoundException ex)
-        {
-            _logger.LogWarning(ex, "Download failed: Prototype directory for {Id} not found", assessmentId);
-            return NotFound("Prototype not generated yet");
+             return File(zipBytes, "application/zip", $"Prototype-{safeProjectName}.zip");
         }
         catch (Exception ex)
         {
@@ -146,6 +142,7 @@ public class PrototypeAssessmentSummary
     public string Status { get; set; }
     public DateTime? LastModifiedAt { get; set; }
     public bool HasPrototype { get; set; }
+    public string PrototypeStatus { get; set; }
 }
 
 public class GeneratePrototypeRequest

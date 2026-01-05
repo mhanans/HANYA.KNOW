@@ -28,18 +28,20 @@ public class PrototypeStore
 
         await EnsureSchemaAsync(conn, cancellationToken);
 
-        const string sql = @"INSERT INTO assessment_prototypes (assessment_id, project_name, generated_at, storage_path)
-                             VALUES (@id, @project, @generated, @path)
+        const string sql = @"INSERT INTO assessment_prototypes (assessment_id, project_name, generated_at, storage_path, status)
+                             VALUES (@id, @project, @generated, @path, @status)
                              ON CONFLICT (assessment_id)
                              DO UPDATE SET project_name = EXCLUDED.project_name,
                                            generated_at = EXCLUDED.generated_at,
-                                           storage_path = EXCLUDED.storage_path";
+                                           storage_path = EXCLUDED.storage_path,
+                                           status = EXCLUDED.status";
         
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", record.AssessmentId);
         cmd.Parameters.AddWithValue("project", record.ProjectName);
         cmd.Parameters.AddWithValue("generated", record.GeneratedAt);
         cmd.Parameters.AddWithValue("path", record.StoragePath);
+        cmd.Parameters.AddWithValue("status", record.Status);
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -52,14 +54,15 @@ public class PrototypeStore
                 project_name TEXT NOT NULL,
                 generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 storage_path TEXT NOT NULL
-            );";
+            );
+            ALTER TABLE assessment_prototypes ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Completed';";
         await using var cmd = new NpgsqlCommand(sql, conn);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<PrototypeRecord?> GetAsync(int assessmentId, CancellationToken cancellationToken = default)
     {
-        const string sql = @"SELECT assessment_id, project_name, generated_at, storage_path FROM assessment_prototypes WHERE assessment_id=@id";
+        const string sql = @"SELECT assessment_id, project_name, generated_at, storage_path, status FROM assessment_prototypes WHERE assessment_id=@id";
 
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -77,13 +80,14 @@ public class PrototypeStore
             AssessmentId = reader.GetInt32(0),
             ProjectName = reader.GetString(1),
             GeneratedAt = reader.GetDateTime(2),
-            StoragePath = reader.GetString(3)
+            StoragePath = reader.GetString(3),
+            Status = reader.GetString(4)
         };
     }
 
     public async Task<Dictionary<int, PrototypeRecord>> ListAsync(CancellationToken cancellationToken = default)
     {
-        const string sql = @"SELECT assessment_id, project_name, generated_at, storage_path FROM assessment_prototypes";
+        const string sql = @"SELECT assessment_id, project_name, generated_at, storage_path, status FROM assessment_prototypes";
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(sql, conn);
@@ -97,7 +101,8 @@ public class PrototypeStore
                 AssessmentId = id,
                 ProjectName = reader.GetString(1),
                 GeneratedAt = reader.GetDateTime(2),
-                StoragePath = reader.GetString(3)
+                StoragePath = reader.GetString(3),
+                Status = reader.GetString(4)
             };
             results[id] = record;
         }

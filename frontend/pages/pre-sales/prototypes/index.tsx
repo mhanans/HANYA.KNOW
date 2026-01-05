@@ -31,6 +31,7 @@ interface PrototypeAssessmentSummary {
     status: string;
     lastModifiedAt?: string;
     hasPrototype: boolean;
+    prototypeStatus?: string;
 }
 
 const formatDate = (value?: string) => {
@@ -70,18 +71,6 @@ export default function PrototypeListPage() {
         setItemFeedback({});
 
         try {
-            // We need an endpoint to get items? Or we leverage existing assessment detail endpoint.
-            // Let's assume we can get assessment detail via existing API or add a new one. 
-            // Reuse existing get assessment endpoint (not shown here but likely exists or we add one quickly)
-            // Using existing store logic, we might not have a direct endpoint exposing items easily without full auth.
-            // Actually, we can just use the generate endpoint with a "dry run" or "list items" flag?
-            // Or better, let's just fetch the assessment detail if available.
-            // Since we don't have a handy "Get Items" endpoint in PrototypeController, let's quickly check AssessmentController or just add one.
-            // For now, let's assume we can't easily get them without backend change. 
-            // Wait, the user asked for this feature. We should implement it properly.
-            // Let's first add a helper to fetch items. 
-            // Ideally we'd call /api/assessments/{id} but that might return full JSON. 
-            // Let's Try to fetch assessment details.
             const res = await apiFetch(`/api/assessment/${assessmentId}`);
             if (res.ok) {
                 const data = await res.json();
@@ -171,11 +160,14 @@ export default function PrototypeListPage() {
     };
 
     const loadData = useCallback(async () => {
-        setLoading(true);
-        setError(null);
+        // Only set loading on explicit refresh or first load if strictly needed, 
+        // but here we might want to keep it silent if polling. We'll rely on generatingId for spinner logic mainly.
+        // For first load we use state 'loading'. 
+        // Here we just fetch.
         try {
             const res = await apiFetch('/api/prototypes');
             if (!res.ok) {
+                // If 401/403 handled by apiFetch wrapper usually, or we catch here.
                 throw new Error(`Failed to load prototypes (${res.status})`);
             }
             const data = await res.json();
@@ -189,6 +181,14 @@ export default function PrototypeListPage() {
 
     useEffect(() => {
         loadData();
+        // Poll every 5 seconds if any item is processing
+        const interval = setInterval(() => {
+            // We can just reload blindly or check if any row has 'Processing'
+            // Since state 'rows' is in closure, we use functional check or just reload simply.
+            // Simplest: always poll every 5s for status updates.
+            loadData();
+        }, 5000);
+        return () => clearInterval(interval);
     }, [loadData]);
 
     const handleGenerate = useCallback(
@@ -212,13 +212,23 @@ export default function PrototypeListPage() {
                     const text = await res.text();
                     throw new Error(text || 'Failed to generate prototype');
                 }
-                const data = await res.json();
 
-                // Refresh data to update status
+                // Show toast or alert
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000,
+                    timerProgressBar: true
+                });
+                Toast.fire({
+                    icon: 'info',
+                    title: 'Generation started in background...'
+                });
+
+                // Refresh data to update status to Processing immediately
                 await loadData();
 
-                // Open demo only if full regen? Or always?
-                window.open(data.url, '_blank');
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to generate prototype';
                 Swal.fire('Error', message, 'error');
@@ -230,11 +240,6 @@ export default function PrototypeListPage() {
     );
 
     const handleView = useCallback(async (assessmentId: number) => {
-        // Assuming standard URL pattern since we don't have it in summary (server doesn't return URL in list)
-        // Or we can just call generate again which is idempotent-ish regarding URL return 
-        // but re-generating is expensive. 
-        // Better: construct URL client side based on ID or ask backend for URL.
-        // Based on service: `/demos/${assessmentId}/index.html`
         window.open(`/demos/${assessmentId}/index.html`, '_blank');
     }, []);
 
@@ -250,7 +255,6 @@ export default function PrototypeListPage() {
                 const url = window.URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
-                // Filename is handled by Content-Disposition header usually, but we can guess or use default
                 link.download = `prototype-${assessmentId}.zip`;
                 document.body.appendChild(link);
                 link.click();
@@ -279,7 +283,7 @@ export default function PrototypeListPage() {
             return (
                 <Box sx={{ py: 6, textAlign: 'center' }}>
                     <Typography color="error">{error}</Typography>
-                    <Button sx={{ mt: 2 }} variant="contained" onClick={loadData}>Retry</Button>
+                    <Button sx={{ mt: 2 }} variant="contained" onClick={() => loadData()}>Retry</Button>
                 </Box>
             );
         }
@@ -312,6 +316,7 @@ export default function PrototypeListPage() {
                         {rows.map(row => {
                             const isGenerating = generatingId === row.assessmentId;
                             const isDownloading = downloadingId === row.assessmentId;
+                            const isProcessing = row.prototypeStatus === 'Processing';
 
                             return (
                                 <TableRow key={row.assessmentId} hover>
@@ -326,58 +331,71 @@ export default function PrototypeListPage() {
                                     </TableCell>
                                     <TableCell>{formatDate(row.lastModifiedAt)}</TableCell>
                                     <TableCell>
-                                        {row.hasPrototype ? (
+                                        {isProcessing ? (
+                                            <Chip color="warning" size="small" label="Processing..." icon={<CircularProgress size={16} color="inherit" />} />
+                                        ) : row.hasPrototype ? (
                                             <Chip color="success" size="small" label="Generated" icon={<AutoFixHighIcon />} />
                                         ) : (
                                             <Chip color="default" size="small" label="Not Generated" />
                                         )}
+                                        {row.prototypeStatus === 'Failed' && <Chip color="error" size="small" label="Failed" sx={{ ml: 1 }} />}
                                     </TableCell>
                                     <TableCell align="right">
                                         <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                            {!row.hasPrototype && (
-                                                <Button
-                                                    variant="contained"
-                                                    color="primary"
-                                                    size="small"
-                                                    startIcon={isGenerating ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
-                                                    disabled={isGenerating}
-                                                    onClick={() => handleGenerate(row.assessmentId)}
-                                                >
-                                                    Generate UI
-                                                </Button>
-                                            )}
-                                            {row.hasPrototype && (
+                                            {/* Generate Button: Show if NOT processing */}
+                                            {!isProcessing && (
                                                 <>
-                                                    <Button
-                                                        variant="outlined"
-                                                        color="secondary"
-                                                        size="small"
-                                                        startIcon={<PlayArrowIcon />}
-                                                        onClick={() => handleView(row.assessmentId)}
-                                                    >
-                                                        View Demo
-                                                    </Button>
-
-                                                    <Tooltip title="Regenerate All">
-                                                        <IconButton
-                                                            color="secondary"
-                                                            disabled={isGenerating}
-                                                            onClick={() => openSelectionModal(row.assessmentId)}
-                                                            size="small"
-                                                        >
-                                                            {isGenerating ? <CircularProgress size={20} /> : <AutoFixHighIcon />}
-                                                        </IconButton>
-                                                    </Tooltip>
-
-                                                    <Tooltip title="Download Zip">
-                                                        <IconButton
+                                                    {!row.hasPrototype && (
+                                                        <Button
+                                                            variant="contained"
                                                             color="primary"
-                                                            disabled={isDownloading}
-                                                            onClick={() => handleDownload(row.assessmentId)}>
-                                                            {isDownloading ? <CircularProgress size={20} /> : <DownloadIcon />}
-                                                        </IconButton>
-                                                    </Tooltip>
+                                                            size="small"
+                                                            startIcon={isGenerating ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
+                                                            disabled={isGenerating}
+                                                            onClick={() => handleGenerate(row.assessmentId)}
+                                                        >
+                                                            Generate UI
+                                                        </Button>
+                                                    )}
+                                                    {row.hasPrototype && (
+                                                        <>
+                                                            <Button
+                                                                variant="outlined"
+                                                                color="secondary"
+                                                                size="small"
+                                                                startIcon={<PlayArrowIcon />}
+                                                                onClick={() => handleView(row.assessmentId)}
+                                                            >
+                                                                View Demo
+                                                            </Button>
+
+                                                            <Tooltip title="Regenerate All">
+                                                                <IconButton
+                                                                    color="secondary"
+                                                                    disabled={isGenerating}
+                                                                    onClick={() => openSelectionModal(row.assessmentId)}
+                                                                    size="small"
+                                                                >
+                                                                    {isGenerating ? <CircularProgress size={20} /> : <AutoFixHighIcon />}
+                                                                </IconButton>
+                                                            </Tooltip>
+
+                                                            <Tooltip title="Download Zip">
+                                                                <IconButton
+                                                                    color="primary"
+                                                                    disabled={isDownloading}
+                                                                    onClick={() => handleDownload(row.assessmentId)}>
+                                                                    {isDownloading ? <CircularProgress size={20} /> : <DownloadIcon />}
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        </>
+                                                    )}
                                                 </>
+                                            )}
+                                            {isProcessing && (
+                                                <Typography variant="caption" sx={{ fontStyle: 'italic', alignSelf: 'center' }}>
+                                                    Please wait...
+                                                </Typography>
                                             )}
                                         </Stack>
                                     </TableCell>
@@ -404,7 +422,7 @@ export default function PrototypeListPage() {
                 {content}
             </Paper>
 
-            {/* Selection Modal */}
+            {/* Selection Modal (same as before) */}
             {selectionModalOpen && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
                     <Paper sx={{ p: 4, maxWidth: 500, width: '100%', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

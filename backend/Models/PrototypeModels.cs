@@ -8,4 +8,5 @@ public class PrototypeRecord
     public string ProjectName { get; set; } = string.Empty;
     public DateTime GeneratedAt { get; set; }
     public string StoragePath { get; set; } = string.Empty;
+    public string Status { get; set; } = "Completed";
 }
