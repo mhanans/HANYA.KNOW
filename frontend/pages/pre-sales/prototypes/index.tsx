@@ -211,11 +211,12 @@ export default function PrototypeListPage() {
 
                 if (!res.ok) {
                     let errorMessage = 'Failed to generate prototype';
+                    const errorText = await res.text();
                     try {
-                        const errorJson = await res.json();
+                        const errorJson = JSON.parse(errorText);
                         errorMessage = errorJson.message || errorJson.title || errorMessage;
                     } catch {
-                        errorMessage = await res.text() || errorMessage;
+                        errorMessage = errorText || errorMessage;
                     }
 
                     if (res.status === 400 && errorMessage.toLowerCase().includes('no items')) {
