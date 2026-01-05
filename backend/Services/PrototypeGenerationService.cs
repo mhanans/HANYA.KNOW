@@ -46,7 +46,8 @@ public class PrototypeGenerationService
                  ?? configuration["GoogleAI:ApiKey"]
                  ?? configuration["Google:ApiKey"]
                  ?? configuration["Llm:ApiKey"]
-                 ?? configuration["ApiKey"];
+                 ?? configuration["ApiKey"]
+                 ?? string.Empty;
 
         _model = configuration["Gemini:Model"]
                  ?? configuration["GoogleAI:Model"]
@@ -102,7 +103,7 @@ public class PrototypeGenerationService
         {
             try
             {
-                await InternalGenerateDemoAsync(assessmentId, assessment, itemsToGenerate, itemFeedback);
+                await InternalGenerateDemoAsync(assessmentId, assessment, itemsToGenerate, itemIds, itemFeedback);
                 await RecordGenerationStatusAsync(assessmentId, assessment.ProjectName, "Completed");
             }
             catch (Exception ex)
@@ -148,7 +149,7 @@ public class PrototypeGenerationService
         return items;
     }
 
-    private async Task InternalGenerateDemoAsync(int assessmentId, ProjectAssessment assessment, List<AssessmentItem> itemsToGenerate, Dictionary<string, string>? itemFeedback = null)
+    private async Task InternalGenerateDemoAsync(int assessmentId, ProjectAssessment assessment, List<AssessmentItem> itemsToGenerate, List<string>? itemIds, Dictionary<string, string>? itemFeedback = null)
     {
         var storageBase = GetPrototypeStoragePath();
         var outputDir = Path.Combine(storageBase, assessmentId.ToString());
