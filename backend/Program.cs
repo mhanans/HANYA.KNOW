@@ -8,6 +8,7 @@ using backend.Middleware;
 using backend.Models;
 using backend.Models.Configuration;
 using backend.Services;
+using backend.Services.Logging;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -15,6 +16,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -23,6 +25,18 @@ using Microsoft.OpenApi.Models;
 using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure File Logging
+builder.Logging.AddFile(options =>
+{
+    var folder = builder.Configuration["ErrorLogFolder"];
+    if (string.IsNullOrWhiteSpace(folder))
+    {
+        // Default to a local logs folder if not specified
+        folder = Path.Combine(AppContext.BaseDirectory, "logs");
+    }
+    options.FolderPath = folder;
+});
 
 const string CombinedScheme = "Combined";
 
