@@ -208,9 +208,27 @@ export default function PrototypeListPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
+
                 if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(text || 'Failed to generate prototype');
+                    let errorMessage = 'Failed to generate prototype';
+                    try {
+                        const errorJson = await res.json();
+                        errorMessage = errorJson.message || errorJson.title || errorMessage;
+                    } catch {
+                        errorMessage = await res.text() || errorMessage;
+                    }
+
+                    if (res.status === 400 && errorMessage.toLowerCase().includes('no items')) {
+                        Swal.fire({
+                            title: 'No Items Found',
+                            text: errorMessage,
+                            icon: 'warning',
+                            confirmButtonText: 'Check Access Control & Tags'
+                        });
+                        return; // Exit without throwing to avoid double alert
+                    }
+
+                    throw new Error(errorMessage);
                 }
 
                 // Show toast or alert
@@ -234,6 +252,8 @@ export default function PrototypeListPage() {
                 Swal.fire('Error', message, 'error');
             } finally {
                 setGeneratingId(null);
+                // Ensure we refresh regardless of success/fail to reset UI state if needed
+                loadData();
             }
         },
         [loadData]
