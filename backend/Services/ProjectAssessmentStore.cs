@@ -294,7 +294,7 @@ public class ProjectAssessmentStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Integer) { Value = (object?)userId ?? DBNull.Value });
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
@@ -341,7 +341,7 @@ public class ProjectAssessmentStore
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("templateId", templateId);
-        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Integer) { Value = (object?)userId ?? DBNull.Value });
         cmd.Parameters.AddWithValue("limit", limit);
 
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -414,7 +414,7 @@ public class ProjectAssessmentStore
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("ids", idList);
-        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Integer) { Value = (object?)userId ?? DBNull.Value });
 
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
@@ -481,7 +481,7 @@ public class ProjectAssessmentStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Integer) { Value = (object?)userId ?? DBNull.Value });
         cmd.Parameters.AddWithValue("limit", limit);
 
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -530,7 +530,7 @@ public class ProjectAssessmentStore
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("id", id);
-        cmd.Parameters.AddWithValue("userId", (object?)userId ?? DBNull.Value);
+        cmd.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Integer) { Value = (object?)userId ?? DBNull.Value });
         var rows = await cmd.ExecuteNonQueryAsync();
         return rows > 0;
     }
