@@ -40,8 +40,12 @@ public class PrototypeController : ControllerBase
     [UiAuthorize("pre-sales-prototypes")]
     public async Task<ActionResult<IEnumerable<PrototypeAssessmentSummary>>> ListAssessments()
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var userId = int.TryParse(userIdClaim, out var parsed) ? parsed : (int?)null;
+        // [VALIDATION-MARKER] Filter by User Account
+        // Uncomment the lines below to enable strict user-based filtering. 
+        // Currently disabled/configurable to allow seeing all assessments.
+        // var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        // var userId = int.TryParse(userIdClaim, out var parsed) ? parsed : (int?)null;
+        int? userId = null; // Default to null (All Users) when validation is disabled
 
         var histories = await _assessments.ListAsync(userId).ConfigureAwait(false);
         var completed = histories
