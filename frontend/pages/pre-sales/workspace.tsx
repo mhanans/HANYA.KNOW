@@ -293,16 +293,16 @@ function AssessmentTreeGrid({
             <AccordionDetails>
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Item Name</TableCell>
-              <TableCell>Detail</TableCell>
-              <TableCell>Category</TableCell>
-              {estimationColumns.map(column => (
-                <TableCell key={column} align="right">{column}</TableCell>
-              ))}
-              <TableCell align="right">Total Hours</TableCell>
-              <TableCell align="center">Actions</TableCell>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Item Name</TableCell>
+                      <TableCell>Detail</TableCell>
+                      <TableCell>Category</TableCell>
+                      {estimationColumns.map(column => (
+                        <TableCell key={column} align="right">{column}</TableCell>
+                      ))}
+                      <TableCell align="right">Total Hours</TableCell>
+                      <TableCell align="center">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -323,47 +323,47 @@ function AssessmentTreeGrid({
                             <TextField
                               fullWidth
                               size="small"
-                        value={item.itemDetail ?? ''}
-                        onChange={event => onItemDetailChange(sectionIndex, itemIndex, event.target.value)}
-                        placeholder="Additional details"
-                        multiline
-                        minRows={1}
-                      />
-                    </TableCell>
-                    <TableCell sx={{ minWidth: 200 }}>
-                      <TextField
-                        select
-                        fullWidth
-                        size="small"
-                        value={item.category}
-                        SelectProps={{
-                          displayEmpty: true,
-                          renderValue: value => {
-                            if (typeof value !== 'string' || !value) {
-                              return '';
-                            }
-                            return value;
-                          },
-                        }}
-                        onChange={event =>
-                          onItemCategoryChange(sectionIndex, itemIndex, normalizeCategory(event.target.value))
-                        }
-                      >
-                        <MenuItem value={EMPTY_CATEGORY}>
-                          <em>Select category</em>
-                        </MenuItem>
-                        {CATEGORY_OPTIONS.map(option => (
-                          <MenuItem key={option} value={option}>
-                            {option}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    </TableCell>
-                    {estimationColumns.map(column => (
-                      <TableCell key={column} align="right">
-                        <TextField
-                          size="small"
-                          type="number"
+                              value={item.itemDetail ?? ''}
+                              onChange={event => onItemDetailChange(sectionIndex, itemIndex, event.target.value)}
+                              placeholder="Additional details"
+                              multiline
+                              minRows={1}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 200 }}>
+                            <TextField
+                              select
+                              fullWidth
+                              size="small"
+                              value={item.category}
+                              SelectProps={{
+                                displayEmpty: true,
+                                renderValue: value => {
+                                  if (typeof value !== 'string' || !value) {
+                                    return '';
+                                  }
+                                  return value;
+                                },
+                              }}
+                              onChange={event =>
+                                onItemCategoryChange(sectionIndex, itemIndex, normalizeCategory(event.target.value))
+                              }
+                            >
+                              <MenuItem value={EMPTY_CATEGORY}>
+                                <em>Select category</em>
+                              </MenuItem>
+                              {CATEGORY_OPTIONS.map(option => (
+                                <MenuItem key={option} value={option}>
+                                  {option}
+                                </MenuItem>
+                              ))}
+                            </TextField>
+                          </TableCell>
+                          {estimationColumns.map(column => (
+                            <TableCell key={column} align="right">
+                              <TextField
+                                size="small"
+                                type="number"
                                 inputProps={{ min: 0, step: 0.25 }}
                                 value={item.estimates[column] ?? ''}
                                 onChange={(event: ChangeEvent<HTMLInputElement>) => {
@@ -394,17 +394,17 @@ function AssessmentTreeGrid({
                                 </IconButton>
                               </span>
                             </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              <TableRow>
-                <TableCell colSpan={estimationColumns.length + 5}>
-                  <Button
-                    startIcon={<AddCircleOutlineIcon />}
-                    size="small"
-                    onClick={() => onAddItem(sectionIndex)}
-                  >
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    <TableRow>
+                      <TableCell colSpan={estimationColumns.length + 5}>
+                        <Button
+                          startIcon={<AddCircleOutlineIcon />}
+                          size="small"
+                          onClick={() => onAddItem(sectionIndex)}
+                        >
                           Add Item
                         </Button>
                       </TableCell>
@@ -609,6 +609,7 @@ export default function AssessmentWorkspace() {
         showError(message, 'Analysis failed');
       }
 
+      /* [MANHOUR-MARKER] Commented out per request to suppress 'No assessed man-hours found' popup
       if (
         job.id &&
         job.scopeDocumentHasManhour &&
@@ -624,6 +625,7 @@ export default function AssessmentWorkspace() {
             'AI could not find assessed man-hour values in the uploaded scope document. Continuing with the standard estimation flow.',
         });
       }
+      */
 
       lastJobStatusRef.current = job.status;
       lastJobStepRef.current = currentStepNumber;
@@ -1475,6 +1477,7 @@ export default function AssessmentWorkspace() {
                     </FormHelperText>
                   </FormControl>
 
+                  {/* [MANHOUR-MARKER] Commented out Existing Manhours UI - Defaulting to 'Need AI estimation' (no)
                   <FormControl component="fieldset" sx={{ flex: 1 }}>
                     <FormLabel component="legend">Existing man-hours</FormLabel>
                     <RadioGroup
@@ -1491,6 +1494,7 @@ export default function AssessmentWorkspace() {
                       Select “Import from PDF” if the scope document already includes assessed man-hours.
                     </FormHelperText>
                   </FormControl>
+                  */}
                 </Stack>
 
                 <LoadingButton
